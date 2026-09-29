@@ -5,6 +5,25 @@ Pacchetti:
 - [`pi-claude-code`](pi-claude-code/) — provider Pi che usa la CLI ufficiale Claude Code (abbonamento) al posto dell'API Anthropic.
 - [`pi-team`](pi-team/) — team di sub-agenti specializzati guidati da un orchestratore.
 
+## Installazione
+
+Requisiti: Node ≥ 22.19, git, [Claude Code](https://docs.claude.com/claude-code) loggato con l'abbonamento (`claude` → `/login`).
+
+```bash
+git clone git@github.com:FedericoPartesano/pi-claude.git ~/pi-claude
+cd ~/pi-claude
+git checkout pi-claude-code-v0.1.0   # facoltativo: fissa una release
+./install.sh                         # --no-extras: senza pi-full · --no-hooks: senza hook di sicurezza
+```
+
+Lo script installa Pi 0.87.1 se manca, il bridge `pi-claude-code`, gli hook `permission-gate` e
+`protected-paths`, le estensioni di `pi-full` e il comando `~/.local/bin/pi-full`. Imposta
+`claude-code/sonnet` come default solo se non hai già scelto un altro modello. Si può rilanciare:
+dopo `git pull` o `git checkout <tag>` basta `./install.sh` di nuovo.
+
+- `pi` — Pi minimale (4 tool base + hook di sicurezza)
+- `pi-full` — in più web, todo, domande, subagent e `pi-team`
+
 ## Rilasci
 
 Ogni pacchetto ha la sua versione (SemVer) e le sue tag: `pi-claude-code-vX.Y.Z`, `pi-team-vX.Y.Z`.

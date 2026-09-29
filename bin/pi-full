@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Pi con le estensioni "pesanti" (tool extra = più token per turno): web, todo, domande, subagent, team.
+# Il `pi` normale resta minimale (4 tool base + hook di sicurezza a costo zero).
+REPO="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+A="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
+exec pi \
+  -e "$A/npm/node_modules/pi-web-access" \
+  -e "$A/npm/node_modules/@juicesharp/rpiv-todo" \
+  -e "$A/npm/node_modules/@juicesharp/rpiv-ask-user-question" \
+  -e "$A/optional-extensions/subagent" \
+  -e "$REPO/pi-team" \
+  "$@"
