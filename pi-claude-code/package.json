@@ -9,6 +9,10 @@
       "./index.ts"
     ]
   },
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "check": "tsc -p ."
+  },
   "devDependencies": {
     "@earendil-works/pi-ai": "^0.87.1",
     "@earendil-works/pi-coding-agent": "0.87.1",
