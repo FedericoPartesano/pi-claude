@@ -1,0 +1,1 @@
+{ "mcpServers": { "pi": { "command": "node", "args": ["/home/fede/documents/projects/pi-claude/spike/mcp-slow.mjs"], "env": { "DELAY_MS": "30000" } } } }

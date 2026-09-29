@@ -1,0 +1,23 @@
+{
+  "name": "pi-team",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Team of specialized sub-agents run by a manager: plan checkpoint, empirical verification, retries, budget",
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "check": "tsc -p ."
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "0.87.1",
+    "@earendil-works/pi-coding-agent": "0.87.1",
+    "@types/node": "^22.0.0",
+    "typebox": "^1.3.27",
+    "typescript": "^5.6.0"
+  }
+}
