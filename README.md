@@ -17,7 +17,7 @@ git checkout pi-claude-code-v0.1.0   # facoltativo: fissa una release
 ./install.sh                         # --no-extras: senza pi-full · --no-hooks: senza hook di sicurezza
 ```
 
-Lo script installa Pi 0.87.1 se manca, il bridge `pi-claude-code`, gli hook `permission-gate` e
+Lo script installa Pi 1.0.4 se manca, il bridge `pi-claude-code`, gli hook `permission-gate` e
 `protected-paths`, le estensioni di `pi-full` e il comando `~/.local/bin/pi-full`. Imposta
 `claude-code/sonnet` come default solo se non hai già scelto un altro modello. Si può rilanciare:
 dopo `git pull` o `git checkout <tag>` basta `./install.sh` di nuovo.

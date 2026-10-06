@@ -246,3 +246,23 @@ comportamento; quello sull'API resta rigido).
   i requisiti nascosti includono nomi di API, che premiano chi li chiede.
 - Errore di misura trovato e corretto: nel primo giro di B il runner riconosceva come domanda solo le frasi con "?", e
   5 interviste su 12 sono andate avanti senza risposte (risultati conservati in `results/intent-r1.with-bad-B.jsonl`).
+
+## Regressione su Pi 1.0.4 — 2026-10-06
+
+Stessi 50 casi (`node run.mjs --harness pi --run pi104-regr`), Pi 1.0.4 con tutte le estensioni installate.
+
+| | 0.87.1 (`pi-sdk`) | 1.0.4 |
+|---|---|---|
+| Casi superati | 50/50 | 49/50 |
+| Input token | 1,35M | 1,44M |
+| Output token | 37,9k | 39,4k |
+| Tempo mediano per caso | 9,9 s | 12,7 s |
+
+- L'unico FAIL (`sh01`) è un controllo rigido: branch e sezione corretti, ma Pi ha fatto un secondo commit per sistemare la
+  formattazione del CHANGELOG e il controllo vuole esattamente un commit.
+- Tempi misurati con la macchina carica (altre sessioni attive): la misura isolata a parità di condizioni dava +4%
+  (4,2–5,4 s contro 4,4–5,6 s), nel rumore. Prima richiesta: `pi` 3.615 token (0.87.1: 3.568), `pi-full` 3.848 (3.801);
+  i +47 sono una frase in più del system prompt della 1.0 (MCP/codemode). I tool nuovi della 1.0 (codemode,
+  tool_search, grep, find, ls, powershell) restano inattivi.
+- Prove manuali in TUI superate: pre-avvio riusato, footer, Alt+O, "chiedi prima", `/goal` dal picker fino a `done`,
+  `/loop --when` (ok senza modello, intent `source: loop` sul guasto senza toccare il codice), `pi-full --pick`.

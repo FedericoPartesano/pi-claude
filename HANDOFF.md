@@ -9,7 +9,7 @@ Per riprendere: apri Claude Code **in `~/documents/projects/pi-claude`** (non in
   - Trasporto MCP `sdk` (default): tool con nomi esatti `read/edit/bash/write`; HTTP con `PI_CLAUDE_MCP_TRANSPORT=http`.
   - Resume nativo (fork/tree/compaction), thinking → `--effort`, pre-avvio in TUI, footer `abbonamento 5h X% · 7g Y%`.
   - BUG-1 (JSON tool non valido) corretto. Typecheck: `cd pi-claude-code && npx tsc -p .`
-- **Pi globale 0.87.1**. Comandi: `pi` (minimale, ~3,4k token/richiesta) e `pi-full` (`~/.local/bin/pi-full`: + web, todo, domande, subagent, ~12k).
+- **Pi globale 1.0.4** (aggiornato da 0.87.1 il 2026-10-06, branch `chore/pi-1.0.4`). Comandi: `pi` (minimale, ~3,6k token/richiesta) e `pi-full` (`~/.local/bin/pi-full`: + web, todo, domande, subagent, team; tool su richiesta, ~3,8k).
 - **Hook di sicurezza** in `~/.pi/agent/extensions/`: `permission-gate` (esempio ufficiale) e `protected-paths` → symlink a `extensions/protected-paths.ts` (bash-aware, test: `node --test extensions/protected-paths.test.ts`).
 - **Skill in Pi**: solo tdd, diagnosing-bugs, code-review, resolving-merge-conflicts (altre 12 escluse in `~/.pi/agent/settings.json`).
 - **Valutazione `eval/`**: 50 casi, report `eval/REPORT.md` (Pi 50/50 dopo fix, −90% token input, −30/35% tempo vs Claude Code). Rilancio: `cd eval && node run.mjs --run <nome>`; analisi `node analyze.mjs <nome>`.
@@ -26,7 +26,7 @@ Per riprendere: apri Claude Code **in `~/documents/projects/pi-claude`** (non in
   `pi-picker` (Alt+O, `pi-full --pick`, intent). Tutto a costo fisso zero (pi 3,57k token, pi-full 3,80k).
   Valutazione con/senza intent in `eval/REPORT.md`: diretto 28-38%, "chiedi prima" 75%, intent nuova intervista 83%.
   Installazione: `install.sh` registra intent/goal/loop in settings.json con percorso reale (Pi non segue i symlink
-  negli import relativi). Pi 1.0.4 disponibile: valutazione in corso, repo ancora fissata a 0.87.1.
+  negli import relativi).
 
 ## Problemi aperti noti
 - BUG-2: via bridge il modello preferisce bash a read/edit (158 vs 10). NON dipende dal prefisso nomi (verificato). Comportamento del modello.

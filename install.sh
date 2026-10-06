@@ -8,7 +8,7 @@
 set -euo pipefail
 export NPM_CONFIG_UPDATE_NOTIFIER=false
 
-PI_VERSION="0.87.1"
+PI_VERSION="1.0.4"
 EXTRA_PACKAGES=(
   "npm:pi-web-access@0.31.0"
   "npm:@juicesharp/rpiv-todo@2.11.0"
