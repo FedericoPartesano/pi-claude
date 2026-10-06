@@ -15,6 +15,19 @@ Per riprendere: apri Claude Code **in `~/documents/projects/pi-claude`** (non in
 - **Valutazione `eval/`**: 50 casi, report `eval/REPORT.md` (Pi 50/50 dopo fix, −90% token input, −30/35% tempo vs Claude Code). Rilancio: `cd eval && node run.mjs --run <nome>`; analisi `node analyze.mjs <nome>`.
 - Note complete della storia: `NOTES.md`, risultati bench: `bench/RESULTS.md`.
 
+- **Tool su richiesta in pi-full** (2026-10-06): `extensions/tool-groups.ts` spegne web/todo/subagent/team e registra
+  `load_tools` + `/tools`. Prima richiesta 11,7k → 3,8k token (pi base 3,6k). Il modello carica il gruppo e lo usa nello
+  stesso turno (il bridge riparte dal transcript con i tool nuovi). Prewarm del bridge rimandato con `setTimeout(0)` per
+  vedere i tool già filtrati: `reuse=yes` verificato in TUI.
+
+- **2026-10-06 — intent, goal, loop, picker** (branch `feat/intent-goal-loop-picker`, spec
+  `docs/specs/2026-10-06-intent-auto-and-picker-design.md`): `/intent` (intervista a domande concrete, ≤3 per messaggio),
+  consigliere locale con "chiedi prima" sulle richieste vaghe, `/goal` (check decide la fine), `/loop` (`--when` a costo zero),
+  `pi-picker` (Alt+O, `pi-full --pick`, intent). Tutto a costo fisso zero (pi 3,57k token, pi-full 3,80k).
+  Valutazione con/senza intent in `eval/REPORT.md`: diretto 28-38%, "chiedi prima" 75%, intent nuova intervista 83%.
+  Installazione: `install.sh` registra intent/goal/loop in settings.json con percorso reale (Pi non segue i symlink
+  negli import relativi). Pi 1.0.4 disponibile: valutazione in corso, repo ancora fissata a 0.87.1.
+
 ## Problemi aperti noti
 - BUG-2: via bridge il modello preferisce bash a read/edit (158 vs 10). NON dipende dal prefisso nomi (verificato). Comportamento del modello.
 - Ricerca web di pi-web-access (Exa senza chiave) può dare dati vecchi (es. versione npm sbagliata).

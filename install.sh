@@ -81,11 +81,14 @@ PI_PKG="$(npm root -g)/@earendil-works/pi-coding-agent"
 
 step "Dipendenze dei pacchetti"
 deps "$REPO/pi-claude-code"
+deps "$REPO/pi-picker"
 [ "$EXTRAS" = 1 ] && deps "$REPO/pi-team"
 
 step "Pacchetti Pi"
 pi install "$REPO/pi-claude-code" >/dev/null
 ok "pi-claude-code"
+pi install "$REPO/pi-picker" >/dev/null
+ok "pi-picker (Alt+O, /pick)"
 if [ "$EXTRAS" = 1 ]; then
   for pkg in "${EXTRA_PACKAGES[@]}"; do
     pi install "$pkg" >/dev/null
@@ -122,6 +125,47 @@ if [ "$HOOKS" = 1 ]; then
   link "$REPO/extensions/protected-paths.ts" "$AGENT/extensions/protected-paths.ts"
 fi
 
+step "Comandi"
+# intent.ts importa moduli vicini (./work-advisor.ts → ../pi-team): Pi non segue i symlink per gli import
+# relativi, quindi si registra il percorso reale in settings.json invece di un link in extensions/.
+[ -L "$AGENT/extensions/intent.ts" ] && rm "$AGENT/extensions/intent.ts"
+node - "$AGENT/settings.json" "$REPO/extensions/intent.ts" <<'JS'
+const fs = require("fs");
+const [file, extension] = process.argv.slice(2);
+const s = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
+s.extensions ??= [];
+if (!s.extensions.includes(extension)) {
+  s.extensions.push(extension);
+  fs.writeFileSync(file, JSON.stringify(s, null, 2) + "\n");
+}
+JS
+ok "intent ($REPO/extensions/intent.ts)"
+# loop.ts importa ./intent.ts e ../pi-team: stesso motivo, percorso reale in settings.json.
+node - "$AGENT/settings.json" "$REPO/extensions/loop.ts" <<'JS'
+const fs = require("fs");
+const [file, extension] = process.argv.slice(2);
+const s = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
+s.extensions ??= [];
+if (!s.extensions.includes(extension)) {
+  s.extensions.push(extension);
+  fs.writeFileSync(file, JSON.stringify(s, null, 2) + "\n");
+}
+JS
+ok "loop ($REPO/extensions/loop.ts)"
+# goal.ts importa ./intent.ts: stesso motivo, percorso reale in settings.json.
+[ -L "$AGENT/extensions/goal.ts" ] && rm "$AGENT/extensions/goal.ts"
+node - "$AGENT/settings.json" "$REPO/extensions/goal.ts" <<'JS'
+const fs = require("fs");
+const [file, extension] = process.argv.slice(2);
+const s = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
+s.extensions ??= [];
+if (!s.extensions.includes(extension)) {
+  s.extensions.push(extension);
+  fs.writeFileSync(file, JSON.stringify(s, null, 2) + "\n");
+}
+JS
+ok "goal ($REPO/extensions/goal.ts)"
+
 if [ "$EXTRAS" = 1 ]; then
   step "pi-full"
   mkdir -p "$AGENT/optional-extensions"
@@ -137,5 +181,9 @@ fi
 
 step "Fatto"
 echo "    pi          → Pi minimale su claude-code/sonnet (abbonamento Claude)"
-[ "$EXTRAS" = 1 ] && echo "    pi-full     → + web, todo, domande, subagent, team"
+[ "$EXTRAS" = 1 ] && echo "    pi-full     → + web, todo, domande, subagent, team (pi-full --pick: scegli prima il progetto)"
+echo "    Alt+O       → inserisci file o cartelle del progetto nel prompt (anche /pick)"
+echo "    /intent     → intervista e scrive intents/<data>-<slug>.md"
+echo "    /goal       → lavora in autonomia fino all'obiettivo (anche @intents/...; senza argomenti: scegli un intent)"
+echo "    /loop       → ripete un prompt (/loop 5m ..., --when \"cmd\" chiama il modello solo se il comando fallisce)"
 echo "    Se claude non è ancora loggato: lancia 'claude' e poi /login."
