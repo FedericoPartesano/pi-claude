@@ -284,3 +284,19 @@ promemoria dell'intent dopo la compaction resta una protezione per le sessioni l
 tagliare molto di più, ma questo vantaggio **non è dimostrato** da questa prova.
 Errore di misura corretto: nel primo tentativo il braccio "senza" non arrivava alla soglia di compaction (sessione
 troppo piccola), quindi il confronto non valeva; soglia abbassata e un turno di lettura in più per entrambi.
+
+### Tentativo di ottimizzare l'intervista (B3) — scartato
+
+B3 = prompt dell'intervista compattato (~1.990 → ~1.450 caratteri) e lavoro proseguito nello stesso turno dopo aver
+scritto l'intent, senza rileggere ciò che è già nel contesto. Stessi 6 casi × 2.
+
+| | Requisiti | Casi completi | Richieste/lavoro | Input/lavoro | Input per requisito |
+|---|---|---|---|---|---|
+| B2 | 83% | 6/12 | 9,2 | 75,5k | 17,1k |
+| B3 | 63% | 2/12 | 7,5 | 55,8k | 16,7k |
+
+Token per lavoro −26%, ma qualità −20 punti e nessun risparmio per requisito soddisfatto: **scartato**, resta B2.
+Causa: nel compattare "opzioni concrete *quando aiutano*" è diventato "opzioni concrete" → domande chiuse a scelta
+multipla ("a) CSV b) JSON"), l'utente sceglie un'opzione e i dettagli che Pi non può indovinare (separatore,
+ordinamento, riga di totale) non emergono; in più, proseguendo nello stesso turno sparisce il secondo giro di domande.
+Lezione: le domande aperte su ciò che non si può dedurre valgono più dei token risparmiati.
