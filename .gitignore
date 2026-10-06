@@ -5,3 +5,6 @@ dist/
 
 # Intent evaluation logs (full transcripts, ~16 MB per run): results/ keeps the metrics.
 eval/logs/intent-*/
+
+# Memory evaluation logs (transcripts and /dream outputs): results/ keeps the metrics.
+eval/logs/memory-*/
