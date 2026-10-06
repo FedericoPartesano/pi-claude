@@ -85,7 +85,8 @@ export const cases = [
 
 	// ---------------------------------------------------------------- shell / data
 	{ id: "sh01", category: "shell", turns: ["Crea un branch feature/sconti, aggiungi al CHANGELOG una sezione 'Unreleased' con una voce a tua scelta e fai commit su quel branch."],
-		check: ({ sh }) => { const branch = sh("git branch --show-current").out.trim(); const log = sh("git log --oneline feature/sconti").out.trim().split("\n").length; const changelog = sh("git show feature/sconti:CHANGELOG.md").out; return result(branch === "feature/sconti" && log === 4 && has(changelog, "Unreleased"), `branch=${branch} commit=${log}`); } },
+		check: ({ sh }) => { const branch = sh("git branch --show-current").out.trim(); const log = sh("git log --oneline feature/sconti").out.trim().split("\n").length; const changelog = sh("git show feature/sconti:CHANGELOG.md").out; // At least one new commit on the branch (3 in the fixture): a follow-up commit (e.g. formatting) is still correct.
+		return result(branch === "feature/sconti" && log >= 4 && has(changelog, "Unreleased"), `branch=${branch} commit=${log}`); } },
 	{ id: "sh02", category: "shell", turns: ["Quali sono i 3 file più grandi del progetto (esclusa la cartella .git)? Indica la dimensione."],
 		check: ({ answer }) => result(has(answer, "app\\.log") && has(answer, "books\\.csv"), "app.log e books.csv in cima") },
 	{ id: "sh03", category: "shell", turns: ["Conta le righe di ogni file .js in src/ e mostrami una tabella."],
