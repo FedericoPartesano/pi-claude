@@ -14,7 +14,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileS
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { checkMemory, checkRules, references, tasks } from "./memory-cases.mjs";
-import { FAKE_SECRETS, rawSessionsText, writeSessions } from "./memory-sessions.mjs";
+import { FAKE_SECRETS, writeNoiseSessions, rawSessionsText, writeSessions } from "./memory-sessions.mjs";
 import { PiHarness } from "./harness.mjs";
 
 const argument = (name, fallback) => {
@@ -65,6 +65,7 @@ if (process.argv.includes("--estimate-full")) {
 }
 const repeat = Number(argument("repeat", "1"));
 const concurrency = Number(argument("concurrency", "2"));
+const bury = Number(process.argv.includes("--bury") ? process.argv[process.argv.indexOf("--bury") + 1] : 0);
 const model = argument("model", "sonnet");
 const runName = argument("run", `memory-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")}`);
 const workRoot = join(homedir(), ".cache/pi-eval/work", runName);
@@ -83,14 +84,15 @@ function budgetProblem() {
 }
 
 // Runs /dream once in `directory` on the synthetic sessions; returns its token usage from the JSON event stream.
-function consolidate(directory, sessionsRoot, label) {
+function consolidate(directory, sessionsRoot, label, memoryMode) {
+	rmSync(join(directory, ".pi/dream-last.json"), { force: true });
 	const started = Date.now();
 	const result = spawnSync("pi", ["--no-session", "--mode", "json", "--provider", "claude-code", "--model", model, "-p", "/dream", "-e", memoryExtension], {
 		cwd: directory,
 		input: "", // stdin closed: pi -p otherwise waits for EOF
 		encoding: "utf8",
 		timeout: 600_000,
-		env: { ...process.env, PI_DREAM_AUTO_APPROVE: "1", PI_DREAM_SESSIONS_DIR: sessionsRoot, PI_MEMORY_GLOBAL_PATH: "" },
+		env: { ...process.env, PI_DREAM_AUTO_APPROVE: "1", PI_DREAM_SESSIONS_DIR: sessionsRoot, PI_MEMORY_GLOBAL_PATH: "", ...(memoryMode ? { PI_MEMORY_MODE: memoryMode } : {}) },
 	});
 	writeFileSync(join(logDirectory, `${label}.dream.jsonl`), result.stdout ?? "");
 	const usage = { requests: 0, inputTokens: 0, outputTokens: 0, exit: result.status, error: result.error?.message ?? (result.status ? (result.stderr ?? "").slice(-300) : undefined) };
@@ -110,9 +112,20 @@ function consolidate(directory, sessionsRoot, label) {
 		usage.requests++;
 		usage.inputTokens += (last.usage?.input ?? 0) + (last.usage?.cacheRead ?? 0) + (last.usage?.cacheWrite ?? 0);
 		usage.outputTokens += last.usage?.output ?? 0;
+		usage.pending = last.pending ?? 0;
+		usage.empty = Boolean(last.empty);
 	} catch {}
 	usage.seconds = Math.round((Date.now() - started) / 1000);
 	return usage;
+}
+
+// Per-request recall log written by the extension (PI_MEMORY_RECALL_LOG=1): injected memory and its size.
+function recallSummary(directory) {
+	const path = join(directory, ".pi/memory/recall-log.jsonl");
+	if (!existsSync(path)) return undefined;
+	const rows = readFileSync(path, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line));
+	const tokens = rows.map((row) => row.estTokens ?? Math.round((row.chars ?? 0) / 3.6));
+	return { requests: rows.length, injectedTokens: tokens.reduce((a, b) => a + b, 0), maxTokens: Math.max(0, ...tokens), empty: rows.filter((row) => (row.injected ?? []).length === 0 && !row.chars).length, ids: [...new Set(rows.flatMap((row) => row.injected ?? []))] };
 }
 
 async function runJob({ task, arm, repetition }) {
@@ -122,17 +135,29 @@ async function runJob({ task, arm, repetition }) {
 	const started = Date.now();
 	let dream;
 	let memory;
-	if (arm === "dream") {
+	const memoryArm = ["dream", "capped", "deep"].includes(arm);
+	// capped = memory with a cap always in the system prompt; deep = full archive + per-request recall.
+	const memoryMode = arm === "capped" ? "capped" : arm === "deep" ? "deep" : undefined;
+	if (memoryArm) {
 		const sessionsRoot = join(workRoot, `${label}-sessions`);
 		rmSync(sessionsRoot, { recursive: true, force: true });
 		writeSessions(directory, sessionsRoot);
-		dream = consolidate(directory, sessionsRoot, label);
+		if (bury > 0) writeNoiseSessions(directory, sessionsRoot, bury);
+		// Consolidate the whole backlog (batches): repeat while /dream reports pending sessions.
+		dream = { requests: 0, inputTokens: 0, outputTokens: 0, seconds: 0, runs: 0 };
+		for (let round = 0; round < 8; round++) {
+			const one = consolidate(directory, sessionsRoot, `${label}-r${round}`, memoryMode);
+			dream.runs++;
+			for (const key of ["requests", "inputTokens", "outputTokens", "seconds"]) dream[key] += one[key] ?? 0;
+			dream.emptyReplies = (dream.emptyReplies ?? 0) + (one.empty ? 1 : 0);
+			if (!one.pending && !one.empty) break;
+		}
 		memory = checkMemory(directory, FAKE_SECRETS);
 		// Consolidation output is not part of the task's diff.
 		execSync("git add -A .pi 2>/dev/null; git commit -qm memoria --allow-empty", { cwd: directory, stdio: "ignore" });
 	}
-	const extraArgs = arm === "dream" ? ["-e", memoryExtension] : [];
-	const harness = new PiHarness(directory, model, join(logDirectory, `${label}.log`), { extraArgs, environment: { PI_INTENT_ADVISOR: "off", PI_MEMORY_GLOBAL_PATH: "" } });
+	const extraArgs = memoryArm ? ["-e", memoryExtension] : [];
+	const harness = new PiHarness(directory, model, join(logDirectory, `${label}.log`), { extraArgs, environment: { PI_INTENT_ADVISOR: "off", PI_MEMORY_GLOBAL_PATH: "", PI_MEMORY_RECALL_LOG: "1", ...(memoryMode ? { PI_MEMORY_MODE: memoryMode } : {}) } });
 	const prompt = task.id === "probe" ? "Rispondi solo: ok" : task.prompt;
 	const text = arm === "full" ? `Contesto: queste sono le conversazioni passate su questo progetto.\n\n${rawSessionsText()}\n\n---\n\n${prompt}` : prompt;
 	const turn = await harness.runTurn(text);
@@ -144,13 +169,13 @@ async function runJob({ task, arm, repetition }) {
 		ruleDetails: Object.fromEntries(Object.entries(checked.rules).map(([rule, result]) => [rule, result.detail])),
 		newFiles: checked.newFiles, changedFiles: checked.changedFiles,
 		requests: turn.requests, inputTokens: turn.inputTokens, outputTokens: turn.outputTokens, seconds: Math.round((Date.now() - started) / 1000),
-		dream, memory,
+		dream, memory, recall: recallSummary(directory),
 		errors: [...turn.errors, ...(dream?.error ? [`dream: ${dream.error}`] : [])],
 		answer: turn.answer.slice(0, 800),
 	};
 	appendFileSync(resultsFile, `${JSON.stringify(record)}\n`);
 	const statuses = Object.entries(record.rules).map(([rule, status]) => `${rule}:${status === "ok" ? "✓" : status === "violated" ? "✗" : "·"}`).join(" ");
-	console.log(`${label.padEnd(14)} ${statuses} req=${record.requests} in=${record.inputTokens} out=${record.outputTokens}${dream ? ` dream=${dream.inputTokens}+${dream.outputTokens}` : ""}${memory ? ` mem=${memory.exists ? `${memory.chars}c segreto=${memory.secretLeaked ? "SI" : "no"}` : "assente"}` : ""} ${record.errors.length ? `ERR ${record.errors[0].slice(0, 100)}` : ""}`);
+	console.log(`${label.padEnd(14)} ${statuses} req=${record.requests} in=${record.inputTokens} out=${record.outputTokens}${dream ? ` dream=${dream.inputTokens}+${dream.outputTokens}` : ""}${memory ? ` mem=${memory.exists ? `${memory.chars}c segreto=${memory.secretLeaked ? "SI" : "no"}` : "assente"}` : ""} ${record.recall ? ` richiamo=${record.recall.injectedTokens}tok/${record.recall.requests}req vuoti=${record.recall.empty}` : ""} ${record.errors.length ? `ERR ${record.errors[0].slice(0, 100)}` : ""}`);
 }
 
 if (arms.includes("dream") && !existsSync(memoryExtension)) {

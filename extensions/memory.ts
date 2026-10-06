@@ -221,6 +221,16 @@ export default function (pi: ExtensionAPI) {
 
 			const lines = describe(memory, proposal);
 			if (lines.length === 0) {
+				// Measured: under load the model sometimes answers with an empty proposal for sessions full of rules. Never
+				// mark sessions consolidated on a reply without content: keep them for the next /dream and keep the reply.
+				const reply = (answer.text ?? "").replace(/```(?:json)?/g, "").trim();
+				const looksEmpty = !reply || /^\{\s*\}$/.test(reply) || !/"(add|reinforce|merge|update|forget)"/.test(reply);
+				write(target.last, JSON.stringify({ added: 0, empty: true, pending: batch.pending, usage: answer.usage }, null, 2));
+				const allSkipped = parsed.ok && parsed.skipped.length > 0;
+				if ((looksEmpty && sessions.length > 2000) || allSkipped) {
+					write(target.proposal, `# Proposta senza voci valide (${date})\n\nScartate: ${parsed.ok ? parsed.skipped.join("; ") : ""}\n\n${answer.text ?? ""}\n`);
+					return ctx.ui.notify(`/dream: il modello ha risposto senza contenuto; sessioni non segnate come consolidate, rilancia /dream (risposta in ${target.proposal}).`, "warning");
+				}
 				write(target.state, JSON.stringify({ lastConsolidated: batch.until }));
 				return ctx.ui.notify(`Niente da ricordare in queste sessioni.${batch.pending ? ` Restano ${batch.pending} sessioni: rilancia /dream.` : ""}`, "info");
 			}

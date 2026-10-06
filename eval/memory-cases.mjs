@@ -13,6 +13,9 @@ export const tasks = [
 	{ id: "mt5", prompt: "addItem deve rifiutare i prezzi negativi o non interi. Aggiungi anche i test." },
 	{ id: "mt6", prompt: "Aggiungi una funzione che formatta una data in italiano esteso, per esempio \"6 ottobre 2026\", per mostrare l'ultimo aggiornamento di un articolo." },
 	{ id: "mt7", prompt: "Correggi il bug di paginate e aggiungi i test." },
+	// Unrelated questions: deep recall should inject nothing (or almost nothing) here.
+	{ id: "mt8", prompt: "Spiegami in tre righe cosa fa la funzione paginate in src/pagination.js. Non modificare file." },
+	{ id: "mt9", prompt: "Quanti libri del genere giallo ci sono in data/books.csv? Rispondi solo con il numero, non modificare file." },
 ];
 
 // Exports of the original fixture: anything else exported from src/ is new.

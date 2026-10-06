@@ -103,3 +103,33 @@ export function writeSessions(projectDir, sessionsRoot) {
 export function rawSessionsText() {
 	return SESSIONS.map(([timestamp, messages]) => [`## Sessione del ${timestamp.slice(0, 10)}`, ...messages.map(([role, text]) => `${role === "user" ? "Utente" : "Pi"}: ${text}`)].join("\n")).join("\n\n");
 }
+
+// Noise to bury the 6 rules: waves of 8 sessions, each with 2 minor preferences on varied topics (enough to overflow a
+// capped memory) and routine work, dated after the base sessions.
+const NOISE_TOPICS = ["nomi dei branch", "ordine degli import", "lunghezza delle righe", "uso di console.log", "nomi dei file", "commenti TODO", "uso di var", "costanti in maiuscolo", "funzioni freccia", "callback annidate", "await in cicli", "valori di default", "eccezioni personalizzate", "log degli errori", "ordinamento delle chiavi JSON", "versioni nel package.json", "nomi delle variabili booleane", "parametri opzionali", "dimensione delle PR", "messaggi dei test", "fixture dei test", "mock di rete", "timeout dei test", "README per modulo", "script npm", "encoding dei file", "fusi orari", "cache", "retry delle chiamate", "lingua dei commenti"];
+export function writeNoiseSessions(projectDir, sessionsRoot, waves) {
+	const folder = join(sessionsRoot, sessionDirName(projectDir));
+	mkdirSync(folder, { recursive: true });
+	for (let wave = 1; wave <= waves; wave++) {
+		for (let s = 0; s < 8; s++) {
+			const start = Date.UTC(2026, 8, 26) + (wave - 1) * 7 * 86_400_000 + s * 3_600_000;
+			const messages = [];
+			for (let k = 0; k < 2; k++) {
+				const topic = NOISE_TOPICS[(wave * 16 + s * 2 + k) % NOISE_TOPICS.length];
+				messages.push(["user", `Per il progetto, su ${topic} preferisco la convenzione ${wave}.${s}.${k}: segnatela per i lavori futuri.`], ["assistant", `Ricevuto: per ${topic} userò la convenzione ${wave}.${s}.${k}.`]);
+			}
+			messages.push(["user", `Lavoro ${wave}.${s}: piccola sistemazione nel modulo inventario.`], ["assistant", "Fatto, test verde."]);
+			const id = randomUUID();
+			let time = start;
+			const lines = [{ type: "session", version: 3, id, timestamp: new Date(time).toISOString(), cwd: projectDir }];
+			let parentId = null;
+			for (const [role, text] of messages) {
+				time += 45_000;
+				const entryId = randomUUID().slice(0, 8);
+				lines.push({ type: "message", id: entryId, parentId, timestamp: new Date(time).toISOString(), message: { role, content: [{ type: "text", text }], timestamp: time } });
+				parentId = entryId;
+			}
+			writeFileSync(join(folder, `noise-${wave}-${s}_${id}.jsonl`), lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+		}
+	}
+}

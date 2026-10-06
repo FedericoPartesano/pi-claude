@@ -112,3 +112,19 @@ test("metadata echoed by the model is stripped from memory text (measured: '… 
 	assert.ok(parsed.ok);
 	if (parsed.ok) assert.deepEqual(parsed.proposal.add.map((item) => item.text), ["Lunghezza delle righe: variante 5-1-0", "Catalogo"]);
 });
+
+test("merges/updates with invented ids keep their content as additions (measured: first /dream lost everything)", () => {
+	const reply = '{"add":[],"reinforce":[],"merge":[{"ids":["m1","m2"],"type":"preferenza","text":"Nomi booleani: convenzione 2.7.0","entities":["booleani"]}],"update":[{"id":"m9","text":"Date in ISO"}],"forget":[{"id":"m4"}]}';
+	const parsed = parseProposal(reply, 0);
+	assert.ok(parsed.ok);
+	if (parsed.ok) {
+		assert.deepEqual(parsed.proposal.add.map((item) => item.text), ["Nomi booleani: convenzione 2.7.0", "Date in ISO"]);
+		assert.deepEqual(parsed.proposal.merge, []);
+		assert.deepEqual(parsed.proposal.update, []);
+		assert.deepEqual(parsed.proposal.forget, []);
+	}
+});
+
+test("the dream prompt says how many memories exist and forbids inventing ids", () => {
+	assert.match(buildDreamPrompt([], "sessioni", "2026-10-06"), /nessun id esiste|non inventare/i);
+});

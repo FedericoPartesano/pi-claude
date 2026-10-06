@@ -266,6 +266,22 @@ export function parseProposal(text: string, memoryCount: number): { ok: true; pr
 	};
 	const list = (key: string) => (Array.isArray(raw[key]) ? (raw[key] as unknown[]) : []);
 	type Item = Record<string, unknown>;
+	// Measured: with an empty memory the model "merges" things said in the sessions using invented ids, and every item
+	// was discarded. A merge/update whose ids do not exist but whose text is valid is new knowledge: keep it as an add.
+	const knownId = (id: unknown) => typeof id === "string" && /^m\d+$/.test(id) && Number(id.slice(1)) >= 1 && Number(id.slice(1)) <= memoryCount;
+	const salvaged: Item[] = [];
+	const salvage = (key: "merge" | "update") =>
+		(raw[key] = list(key).filter((item) => {
+			if (typeof item !== "object" || item === null) return true;
+			const entry = item as Item;
+			const ids = key === "merge" ? (Array.isArray(entry.ids) ? entry.ids : []) : [entry.id];
+			if (ids.length > 0 && ids.every(knownId)) return true;
+			if (typeof entry.text === "string" && entry.text.trim()) salvaged.push({ ...entry, type: (MEMORY_TYPES as readonly unknown[]).includes(entry.type) ? entry.type : "decisione" });
+			return false;
+		}));
+	salvage("merge");
+	salvage("update");
+	raw.add = [...list("add"), ...salvaged];
 	const proposal: Proposal = {
 		add: list("add").filter((item): item is Item => typeof item === "object" && item !== null).filter((item) => validType(item.type) && validText(item.text)).map((item) => ({ type: item.type as MemoryType, text: cleanText(item.text as string), ...withEntities(entitiesOf(item.entities)) })),
 		reinforce: list("reinforce").filter(validId),
@@ -293,6 +309,7 @@ export function buildDreamPrompt(memory: MemoryEntry[], sessions: string, today:
 		: "(vuota)";
 	return [
 		`Consolida la memoria di Pi, come il sonno: tieni ciò che conta, scarta il resto. Oggi: ${today}.`,
+		memory.length > 0 ? `La memoria contiene ${memory.length} ricordi (id da m1 a m${memory.length}): usa solo questi id, non inventare id.` : "La memoria è vuota: nessun id esiste, non inventare id; tutto ciò che va ricordato (anche più cose unite) va in add.",
 		options.global ? "Memoria GLOBALE: tieni solo preferenze personali dell'utente valide in ogni progetto." : "Memoria del PROGETTO: decisioni, fatti, correzioni e preferenze per questo progetto.",
 		"",
 		"Memoria attuale:",
