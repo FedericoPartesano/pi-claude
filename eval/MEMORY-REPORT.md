@@ -195,3 +195,47 @@ Commit della correzione: `fix: keep credentials out of memory and skip only inva
 prevedibile: zero senza memoria, ~260 token per richiesta con memoria, ~2,5k token per consolidamento. È
 **accettato** secondo i criteri della spec, con tre migliorie consigliate: filtro più severo sui dettagli dei singoli
 compiti, riuso del pre-avvio con la memoria nella firma, e una misura su sessioni reali.
+
+## Memoria profonda a richiamo vs memoria con tetto — 2026-10-06
+
+Design: `docs/specs/2026-10-06-deep-memory-design.md`. Archivio senza tetto (`.pi/memory/memories.jsonl` + embedding),
+richiamo locale a ogni richiesta (embedding multilingue `paraphrase-multilingual-MiniLM-L12-v2` q8 + BM25 + entità +
+forza), al massimo 5 ricordi ≤ 300 token in coda alla richiesta, nulla sotto soglia. `PI_MEMORY_MODE=capped|deep`.
+
+**Prova** (`memory-run.mjs --arms capped,deep --tasks mt1,mt2,mt4,mt5,mt9 --bury 3`, run `memory-deep-r4`): le 6
+regole sepolte sotto 24 sessioni di rumore (~48 preferenze minori), consolidamento reale con Haiku, 4 compiti
+pertinenti + 1 domanda estranea (mt9), 10 test.
+
+| | capped (con tetto) | deep (a richiamo) | none (giro `memory-r2`) |
+|---|---|---|---|
+| Regole rispettate | 15/17 (88%) | 15/18 (83%) | 10/15 (67%) |
+| Memoria iniettata per richiesta | 271–910 token, sempre | **44–100 token** | 0 |
+| Input medio per compito | 29,1k | **21,4k** | 22,8k |
+| Domanda estranea mt9 | 857 token iniettati | 44 token (1 ricordo) | — |
+| `/dream` (in+out per esecuzione) | 6,2k + 1,8k | 6,3k + 2,3k | — |
+| Esecuzioni di `/dream` per caso / risposte vuote | 1 / 0 | 1 / 0 | — |
+
+**Lettura**
+- La memoria profonda dà **quasi la stessa qualità** della memoria con tetto (83% contro 88%: una violazione di
+  differenza, dentro il rumore di 5 compiti) e molto più della nessuna memoria (67%), **con ~1/9 dei token di memoria
+  per richiesta** e un costo per compito pari a quello senza memoria (21,4k contro 22,8k): i vantaggi della memoria
+  quasi gratis.
+- È completa: nessun ricordo scartato per spazio, il resto resta nell'archivio e viene richiamato quando serve.
+- Ancora da migliorare: sulla domanda estranea ha iniettato 1 ricordo (44 token, criterio "zero" mancato di poco:
+  soglia da alzare leggermente); le regole di stile "trasversali" (JSDoc R2, errori in italiano R4) non sempre emergono
+  da richieste che non le nominano — andrebbero trattate come regole sempre valide per i compiti che scrivono codice.
+
+**Benchmark offline del richiamo** (agente, `pi-memory/bench/recall-bench.ts`, 1.000 ricordi): recall@5 1,00 con parole
+in comune, 0,70 sulle parafrasi pure (0,85 complessivo), 0/20 falsi positivi sulle estranee, media 59 token iniettati,
+1 ms per richiamo dopo il caricamento del modello (~1,7 s, in background dopo l'avvio). Prima richiesta senza memoria
+identica con e senza l'estensione (3.519 token).
+
+**Costi locali**: modello 118 MB in `~/.cache/pi-memory/models`; `pi-memory/node_modules` 888 MB (onnxruntime). Nessun
+effetto su token o avvio, ma pesa sul disco.
+
+**Bug trovati dai giri falliti (`memory-deep-r1`–`r3`) e corretti**
+- Con la memoria vuota il modello "univa" cose dette nelle sessioni inventando id: ogni voce veniva scartata e le
+  sessioni risultavano consolidate lo stesso (memoria persa in silenzio). Ora unioni/aggiornamenti con id inesistenti
+  diventano aggiunte, il prompt dice quali id esistono, e una risposta vuota o tutta scartata non fa avanzare lo stato
+  (la risposta grezza resta in `.pi/dream-proposal.md`).
+- Prima della correzione fino a 8 tentativi su 8 fallivano in alcuni casi; dopo: 1 esecuzione, 0 fallimenti su 10.
