@@ -117,6 +117,53 @@ Ammortamento: la memoria costa ~1,3k token per compito; una sola violazione evit
 correzione (~5–6k token più il tempo dell'utente). Sotto questo carico il bilancio in token è circa in pari già con
 **una violazione evitata ogni 4 compiti**; qui ne è stata evitata una per compito.
 
+## Stress test: cosa succede quando la memoria cresce
+
+### Buchi trovati nel codice e chiusi
+| Buco | Rischio | Correzione |
+|---|---|---|
+| `memory.md` senza tetto proprio | ricordi "invisibili" (nel file ma non caricati) e prompt di `/dream` che cresce con il file | `enforceCap`: il tetto vale anche per il file; l'eccedenza meno importante va in archivio ("oltre il tetto della memoria"); `/dream` sa quanto è pieno e oltre il 70% unisce e sintetizza |
+| Arretrato oltre il limite di lettura (~16k token) | le sessioni più vecchie tagliate ma segnate come consolidate: perse in silenzio | `lookbackBatch`: dalla più vecchia, a blocchi; si segna consolidato solo ciò che è stato letto e `/dream` dice "restano N sessioni" |
+| Quasi-duplicati | la stessa regola in due formulazioni ("commit in inglese" / "…in inglese, non italiano") | se il nuovo testo contiene il vecchio, lo **sostituisce** (il vecchio va in archivio, conferme +1); se è contenuto, **rinforza**. Così "commit in italiano" → "in inglese, non più in italiano" è un aggiornamento, non un rinforzo |
+| Metadati copiati dal modello nel testo | "… (c 1, ultima 2026-10-24)" dentro il ricordo | ripuliti nel parsing della proposta |
+
+### Prova offline (nessun modello, costo zero) — `extensions/memory-growth.test.ts`
+- **Un anno simulato**: 365 consolidamenti, 1–3 ricordi nuovi al giorno e rinforzi: memoria sempre ≤ tetto, contesto
+  ≤ tetto, prompt di `/dream` limitato (memoria al tetto + un blocco di lettura), oltre 300 ricordi archiviati e non persi,
+  i ricordi rinforzati presto sopravvivono.
+- **Arretrato di 40 sessioni** con blocchi da 20k caratteri: consolidato in più blocchi, dalla più vecchia, **ogni
+  messaggio letto esattamente una volta**.
+- Tetto, priorità (📌 e correzioni restano), quasi-duplicati, contraddizioni, metadati: 6 test. Estensioni 65/65.
+
+### Prova empirica con il modello vero — `eval/memory-stress.mjs` (run `memory-stress-r2`)
+Le 8 sessioni di base (le 6 regole), poi 5 ondate da 8 sessioni: 16 preferenze nuove per ondata (abbastanza da sforare il
+tetto), 3 regole cambiate nel tempo (lingua dei commit, formato date, limite di righe), rinforzi delle regole base, un
+token finto `ghp_…` nell'ondata 3. Dopo ogni ondata un `/dream` reale (Haiku, approvazione automatica).
+
+| Ondata | Sessioni | `/dream` tempo | `/dream` token (in+out) | Voci | Contesto | Archivio | Regole base | Regole cambiate (versione nuova, vecchia assente) | Segreto |
+|---|---|---|---|---|---|---|---|---|---|
+| 0 | 8 | 7,2 s | 2,1k + 0,3k | 6 | ~141 tok | 0 | 6/6 | — | no |
+| 1 | 16 | 8,8 s | 2,8k + 0,7k | 23 | ~388 tok | 0 | 6/6 | — | no |
+| 2 | 24 | 9,2 s | 3,4k + 0,7k | 40 | ~613 tok | 1 | 6/6 | 1/1 | no |
+| 3 | 32 | 10,4 s | 4,2k + 0,8k | 57 | ~861 tok | 2 | 6/6 | 2/2 | no |
+| 4 | 40 | 18,3 s | 4,8k + 1,8k | 50 | ~757 tok | 19 | 6/6 | 3/3 | no |
+| 5 | 48 | 15,3 s | 4,5k + 1,7k | 50 | ~899 tok | 51 | 6/6 | 3/3 | no |
+
+- **Il costo per richiesta resta sotto il tetto** (al massimo ~900 token) anche con 48 sessioni e oltre 100 preferenze
+  proposte: la memoria si stabilizza intorno a 50 voci e il resto finisce in archivio.
+- **Il costo di `/dream` cresce ma si ferma**: da ~2,4k a ~6,5k token e da 7 a ~16–18 s, limitato da memoria al tetto
+  più un blocco di lettura.
+- **Le regole importanti non si perdono mai** (6/6 in ogni ondata) e si **rinforzano** (fino a 6 conferme).
+- **Le regole che cambiano vengono aggiornate** (3/3), con la versione vecchia in archivio.
+- **Nessun segreto** in memoria o in archivio.
+
+Primo tentativo (`memory-stress-r1`) scartato come misura: errori del generatore (ondate datate prima delle sessioni di
+base, quindi ignorate; il cambio del formato date mai inviato). Ha comunque mostrato i quasi-duplicati e i metadati
+copiati, poi corretti.
+
+**Limiti residui**: il modello a volte crea una voce riassuntiva che ripete regole già presenti singolarmente
+(ridondanza leggera, dentro il tetto); le preferenze sintetiche dello stress test sono più ripetitive di quelle reali.
+
 ## Primo giro (`memory-r1`): bug trovati
 | | none | dream |
 |---|---|---|

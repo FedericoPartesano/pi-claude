@@ -145,12 +145,40 @@ export function applyProposal(memory: MemoryEntry[], archive: MemoryEntry[], pro
 		const key = normalize(text);
 		if (!key || known.has(key)) continue;
 		known.add(key);
+		if (type !== "episodio") {
+			// Near-duplicates (measured: the same rule added twice with different wording).
+			const words = contentWords(text);
+			const covers = (a: Set<string>, b: Set<string>) => a.size >= 2 && [...a].every((word) => b.has(word));
+			const position = slots.findIndex((entry) => entry && covers(contentWords(entry.text), words));
+			if (position !== -1) {
+				// The new text contains the old one: a fuller version or a correction ("…in inglese, non più in italiano").
+				const old = slots[position]!;
+				newArchive.push({ ...old, archived: today, reason: `superato da "${text}"` });
+				slots[position] = { type, text, pinned: old.pinned, confirmations: old.confirmations + 1, last: today };
+				counts.updated++;
+				continue;
+			}
+			const contained = slots.find((entry) => entry && covers(words, contentWords(entry.text)));
+			if (contained) {
+				// A shorter wording of something already known: it confirms it.
+				contained.confirmations++;
+				contained.last = today;
+				counts.reinforced++;
+				continue;
+			}
+		}
 		const entry: MemoryEntry = { type, text, pinned: false, confirmations: 1, last: today };
 		if (type === "episodio") newArchive.push({ ...entry, archived: today, reason: "episodio" });
 		else added.push(entry);
 		counts.added++;
 	}
 	return { memory: [...(slots.filter(Boolean) as MemoryEntry[]), ...added], archive: newArchive, counts };
+}
+
+const DEDUP_STOPWORDS = new Set("il lo la i gli le un uno una di a da in con su per tra fra e o ma che non più sempre mai del della dei delle al alla ai alle nel nella nei è sono va vanno the a an of to in and or".split(" "));
+/** Significant words, for near-duplicate detection ("non"/"mai" are ignored: containment decides the direction). */
+function contentWords(text: string): Set<string> {
+	return new Set(text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").split(/[^a-z0-9/.<>_-]+/).filter((word) => word.length > 1 && !DEDUP_STOPWORDS.has(word)));
 }
 
 /** Memories not confirmed for `days` days (and not pinned): they fade into the archive. */
@@ -181,7 +209,20 @@ export function fitBudget(entries: MemoryEntry[], maxChars: number): MemoryEntry
 	return kept;
 }
 
+/**
+ * The cap applies to memory.md itself, not only to what is loaded: what Pi sees is what the file holds (no hidden
+ * memories), and the /dream prompt stays bounded. Overflow (lowest priority for fitBudget) goes to the archive.
+ */
+export function enforceCap(memory: MemoryEntry[], archive: MemoryEntry[], maxChars: number, today: string) {
+	const kept = new Set(fitBudget(memory, maxChars));
+	const overflow = memory.filter((entry) => !kept.has(entry)).map((entry) => ({ ...entry, archived: today, reason: "oltre il tetto della memoria" }));
+	return { memory: memory.filter((entry) => kept.has(entry)), archive: [...archive, ...overflow], moved: overflow.length };
+}
+
 // ---- Proposal from the model ------------------------------------------------------------------------------------
+
+/** The model sometimes echoes the metadata it was shown ("(conferme 3, ultima 2026-10-01)", "(c 1, ultima …)"). */
+const cleanText = (text: string) => text.replace(/\s*\((?:c|conferme)[:\s]+\d+[^)]*ultima[^)]*\)/gi, "").trim();
 
 export function parseProposal(text: string, memoryCount: number): { ok: true; proposal: Proposal; skipped: string[] } | { ok: false; error: string } {
 	const cleaned = text.replace(/```(?:json)?/g, "");
@@ -213,10 +254,10 @@ export function parseProposal(text: string, memoryCount: number): { ok: true; pr
 	const list = (key: string) => (Array.isArray(raw[key]) ? (raw[key] as unknown[]) : []);
 	type Item = Record<string, unknown>;
 	const proposal: Proposal = {
-		add: list("add").filter((item): item is Item => typeof item === "object" && item !== null).filter((item) => validType(item.type) && validText(item.text)).map((item) => ({ type: item.type as MemoryType, text: (item.text as string).trim() })),
+		add: list("add").filter((item): item is Item => typeof item === "object" && item !== null).filter((item) => validType(item.type) && validText(item.text)).map((item) => ({ type: item.type as MemoryType, text: cleanText(item.text as string) })),
 		reinforce: list("reinforce").filter(validId),
-		merge: list("merge").filter((item): item is Item => typeof item === "object" && item !== null).filter((item) => Array.isArray(item.ids) && item.ids.every(validId) && validText(item.text) && validType(item.type, true)).map((item) => ({ ids: item.ids as string[], text: (item.text as string).trim(), type: item.type as MemoryType | undefined })),
-		update: list("update").filter((item): item is Item => typeof item === "object" && item !== null).filter((item) => validId(item.id) && validText(item.text) && validType(item.type, true)).map((item) => ({ id: item.id as string, text: (item.text as string).trim(), type: item.type as MemoryType | undefined })),
+		merge: list("merge").filter((item): item is Item => typeof item === "object" && item !== null).filter((item) => Array.isArray(item.ids) && item.ids.every(validId) && validText(item.text) && validType(item.type, true)).map((item) => ({ ids: item.ids as string[], text: cleanText(item.text as string), type: item.type as MemoryType | undefined })),
+		update: list("update").filter((item): item is Item => typeof item === "object" && item !== null).filter((item) => validId(item.id) && validText(item.text) && validType(item.type, true)).map((item) => ({ id: item.id as string, text: cleanText(item.text as string), type: item.type as MemoryType | undefined })),
 		forget: list("forget").filter((item): item is Item => typeof item === "object" && item !== null).filter((item) => validId(item.id)).map((item) => ({ id: item.id as string, reason: typeof item.reason === "string" ? item.reason : undefined })),
 	};
 	// Defense in depth: a memory never holds credentials, whatever the model wrote.
@@ -232,7 +273,8 @@ export function parseProposal(text: string, memoryCount: number): { ok: true; pr
 	return { ok: true, proposal, skipped: problems };
 }
 
-export function buildDreamPrompt(memory: MemoryEntry[], sessions: string, today: string, options: { global?: boolean } = {}): string {
+export function buildDreamPrompt(memory: MemoryEntry[], sessions: string, today: string, options: { global?: boolean; capChars?: number } = {}): string {
+	const fill = options.capChars ? Math.round((memory.map(contextLine).join("\n").length / options.capChars) * 100) : 0;
 	const current = memory.length > 0
 		? memory.map((entry, position) => `${idOf(position)} ${contextLine(entry).slice(2)}${entry.pinned ? " 📌" : ""} (conferme ${entry.confirmations}, ultima ${entry.last || "?"})`).join("\n")
 		: "(vuota)";
@@ -253,6 +295,7 @@ export function buildDreamPrompt(memory: MemoryEntry[], sessions: string, today:
 		"- Sessione che conferma un ricordo → reinforce. Duplicati → merge. Contraddizione → update con la versione più recente.",
 		"- Il perché di una decisione o un episodio utile solo su richiesta → add con type \"episodio\" (va in archivio).",
 		"- forget solo per ricordi chiaramente sbagliati o inutili (allo sbiadire nel tempo pensa il codice).",
+		...(fill >= 70 ? [`- La memoria è al ${fill}% del suo spazio: unisci i ricordi simili e sintetizza; aggiungi solo ciò che vale più di quello che c'è (il codice archivia l'eccedenza meno importante).`] : []),
 		"",
 		'Rispondi SOLO con JSON: {"add":[{"type":"correzione|preferenza|decisione|fatto|episodio","text":"..."}],"reinforce":["m1"],"merge":[{"ids":["m2","m3"],"type":"...","text":"..."}],"update":[{"id":"m4","text":"..."}],"forget":[{"id":"m5","reason":"..."}]}',
 	].join("\n");
@@ -364,6 +407,59 @@ export function lookback(files: string[], options: { since: string; maxChars: nu
 		used += block.length + 2;
 	}
 	return blocks.reverse().join("\n\n").slice(0, options.maxChars);
+}
+
+/**
+ * One batch of the backlog, oldest messages first (like sleep, in order): `until` is the timestamp of the last message
+ * included, to be stored as the new `since`, and `pending` counts the sessions with messages left for later batches.
+ * Nothing is marked consolidated unless it was actually read.
+ */
+export function lookbackBatch(files: string[], options: { since: string; maxChars: number; exclude?: string }): { text: string; until: string; pending: number } {
+	type Message = { at: string; line: string };
+	const sessions: { started: string; messages: Message[] }[] = [];
+	for (const file of files) {
+		if (file === options.exclude) continue;
+		const messages: Message[] = [];
+		for (const raw of readFileSync(file, "utf8").split("\n")) {
+			if (!raw.trim()) continue;
+			let record: { type?: string; timestamp?: string; message?: { role?: string; content?: unknown } };
+			try {
+				record = JSON.parse(raw);
+			} catch {
+				continue;
+			}
+			const at = record.timestamp ?? "";
+			if (record.type !== "message" || !record.message || at <= options.since) continue;
+			const text = maskSecrets(textOf(record.message.content)).trim();
+			if (!text) continue;
+			if (record.message.role === "user") messages.push({ at, line: `Utente: ${clip(text, 1500)}` });
+			else if (record.message.role === "assistant") messages.push({ at, line: `Pi: ${clip(text, 800)}` });
+		}
+		if (messages.length > 0) sessions.push({ started: messages[0].at, messages });
+	}
+	sessions.sort((a, b) => a.started.localeCompare(b.started));
+	const blocks: string[] = [];
+	let used = 0;
+	let until = options.since;
+	let consumed = 0;
+	for (const session of sessions) {
+		const header = `## Sessione ${session.started.slice(0, 10)}`;
+		const lines: string[] = [];
+		let size = header.length + 3;
+		for (const message of session.messages) {
+			if (used + size + message.line.length + 1 > options.maxChars) break;
+			lines.push(message.line);
+			size += message.line.length + 1;
+			until = message.at;
+		}
+		if (lines.length > 0) {
+			blocks.push(`${header}\n${lines.join("\n")}`);
+			used += size;
+		}
+		if (lines.length < session.messages.length) break; // the rest of this session goes to the next batch
+		consumed++;
+	}
+	return { text: blocks.join("\n\n"), until, pending: sessions.length - consumed };
 }
 
 /** Session files modified after `since` (ISO; "" = all). Only stats: free enough for session_start. */

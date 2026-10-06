@@ -18,7 +18,9 @@ import {
 	contextLine,
 	countNewSessions,
 	findProjectSessions,
+	enforceCap,
 	fitBudget,
+	lookbackBatch,
 	lookback,
 	parseMemory,
 	parseProposal,
@@ -129,14 +131,16 @@ export default function (pi: ExtensionAPI) {
 			try {
 				exclude = ctx.sessionManager.getSessionFile();
 			} catch {}
-			const sessions = lookback(sessionFiles(ctx), { since, maxChars: LOOKBACK_CHARS, exclude });
+			// Oldest first, in batches: only what was actually read is marked consolidated.
+			const batch = lookbackBatch(sessionFiles(ctx), { since, maxChars: LOOKBACK_CHARS, exclude });
+			const sessions = batch.text;
 			if (!sessions) return ctx.ui.notify("Niente di nuovo da consolidare.", "info");
 
 			const memory = parseMemory(read(target.memory));
 			const archive = parseMemory(read(target.archive));
 			const date = today();
 			ctx.ui.notify(`Consolido la memoria${global ? " globale" : ""}…`, "info");
-			const answer = await consolidate(ctx, buildDreamPrompt(memory, sessions, date, { global }));
+			const answer = await consolidate(ctx, buildDreamPrompt(memory, sessions, date, { global, capChars: CONTEXT_BUDGET_CHARS }));
 			const parsed = answer.error ? { ok: false as const, error: answer.error } : parseProposal(answer.text, memory.length);
 			if (!parsed.ok) {
 				write(target.proposal, `# Proposta non valida\n\n${parsed.error}\n\n${answer.text}\n`);
@@ -148,8 +152,8 @@ export default function (pi: ExtensionAPI) {
 
 			const lines = describe(memory, proposal);
 			if (lines.length === 0) {
-				write(target.state, JSON.stringify({ lastConsolidated: new Date().toISOString() }));
-				return ctx.ui.notify("Niente da ricordare in queste sessioni.", "info");
+				write(target.state, JSON.stringify({ lastConsolidated: batch.until }));
+				return ctx.ui.notify(`Niente da ricordare in queste sessioni.${batch.pending ? ` Restano ${batch.pending} sessioni: rilancia /dream.` : ""}`, "info");
 			}
 			let approved: Proposal | undefined = proposal;
 			if (process.env.PI_DREAM_AUTO_APPROVE !== "1") {
@@ -178,17 +182,20 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (!approved) return ctx.ui.notify("Memoria invariata.", "info");
 
-			const result = applyProposal(memory, archive, approved, date);
+			const applied = applyProposal(memory, archive, approved, date);
+			// The cap holds for the file too: what Pi sees is what memory.md contains.
+			const capped = enforceCap(applied.memory, applied.archive, CONTEXT_BUDGET_CHARS, date);
+			const result = { ...applied, memory: capped.memory, archive: capped.archive };
 			write(target.memory, renderMemory(result.memory));
 			write(target.archive, renderMemory(result.archive, "archive"));
-			const now = new Date().toISOString();
+			const now = batch.until;
 			write(target.state, JSON.stringify({ lastConsolidated: now }));
 			if (global) write(stateFile, JSON.stringify({ ...state, lastConsolidated: state.lastConsolidated ?? "" }));
 			const contextChars = fitBudget(result.memory, CONTEXT_BUDGET_CHARS).map(contextLine).join("\n").length;
-			const summary = { ...result.counts, entries: result.memory.length, contextTokens: Math.round(contextChars / 3.6), usage: answer.usage };
+			const summary = { ...result.counts, overCap: capped.moved, pending: batch.pending, entries: result.memory.length, contextTokens: Math.round(contextChars / 3.6), usage: answer.usage };
 			write(target.last, JSON.stringify(summary, null, 2));
 			const { added, reinforced, merged, updated, forgotten } = result.counts;
-			ctx.ui.notify(`Memoria aggiornata: +${added} nuovi, ${reinforced} rinforzati, ${merged} uniti, ${updated} aggiornati, ${forgotten} dimenticati · ${result.memory.length} ricordi (~${summary.contextTokens} token in contesto)`, "info");
+			ctx.ui.notify(`Memoria aggiornata: +${added} nuovi, ${reinforced} rinforzati, ${merged} uniti, ${updated} aggiornati, ${forgotten} dimenticati${capped.moved ? `, ${capped.moved} archiviati per spazio` : ""} · ${result.memory.length} ricordi (~${summary.contextTokens} token in contesto)${batch.pending ? ` · restano ${batch.pending} sessioni: rilancia /dream` : ""}`, "info");
 		},
 	});
 
