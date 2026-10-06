@@ -2,3 +2,6 @@ node_modules/
 upstream/
 dist/
 .DS_Store
+
+# Intent evaluation logs (full transcripts, ~16 MB per run): results/ keeps the metrics.
+eval/logs/intent-*/

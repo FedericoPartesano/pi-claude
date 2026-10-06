@@ -215,3 +215,34 @@ Difetti trovati e corretti durante la valutazione:
 - **Il manager a volte non usa il team** (2/12) anche se gli viene chiesto: fa da solo, e riesce comunque.
 
 Test unitari di pi-team: 16/16 (piano, ruoli, budget, orchestratore con agenti e verifiche finti, baseline).
+
+## Con e senza intent.md — 2026-10-06
+
+6 richieste vaghe sulla fixture (`intent-cases.mjs`), ognuna con 4–6 requisiti nascosti verificati da controlli
+deterministici (32/32 su soluzioni di riferimento, 2/32 sul codice di partenza). Utente simulato (Haiku) che conosce solo
+i requisiti e risponde solo a ciò che gli viene chiesto. 2 giri per braccio, Sonnet, `intent-run.mjs` (run `intent-r1`),
+punteggi ricalcolati con `intent-recheck.mjs` (una funzione giusta in un altro file non azzera i requisiti di
+comportamento; quello sull'API resta rigido).
+
+| Braccio | Requisiti | Senza API | Casi completi | Domande (giri) | Input medio | Tempo medio |
+|---|---|---|---|---|---|---|
+| A: Pi diretto, nessuno risponde | 28% | 23% | 0/12 | 0 | 25,7k | 19 s |
+| C: Pi diretto, l'utente risponde se Pi chiede | 38% | 33% | 0/12 | 0,2 | 34,9k | 25 s |
+| D: "chiedi prima" (istruzione aggiunta alle richieste vaghe) | 75% | 73% | 2/12 | 1,0 | 43,9k | 59 s |
+| B: intent, intervista "da analista", una domanda per turno | 56% | 56% | 1/12 | 3,3 | 86,1k | n.d.* |
+| **B2: intent, intervista con ≤ 3 domande concrete per turno** | **83%** | **83%** | **6/12** | 1,2 | 75,5k | 80 s |
+
+\* tempo di B falsato da un'interruzione di rete durante il giro.
+
+- **Pi chiede pochissimo da solo** (0,2 giri di domande per lavoro): assume e procede. Farlo chiedere è la leva principale.
+- **Lo stile delle domande conta più del formato**: l'intervista "da analista" del playbook (problema, utenti, contesto,
+  niente scelte tecniche, una domanda per turno) resta al 56%; la stessa intervista con domande concrete sul
+  comportamento, nomi di file e funzioni compresi, a gruppi di 3, arriva all'83% con 1,2 giri.
+- **D vs B2**: D costa ~60% dei token di B2 e non lascia file; B2 soddisfa più requisiti, chiude il doppio dei casi e
+  lascia un intent persistente (goal, team, compaction, ripresa).
+- Scelte che ne derivano: "chiedi prima" automatico sulle richieste vaghe (consigliere, esito `ask`); intervista
+  dell'intent riscritta nello stile B2; intent completo per i lavori grandi o lunghi.
+- Limiti: l'utente simulato conosce sempre la risposta (in realtà a volte sarà "decidi tu"); 12 job per braccio;
+  i requisiti nascosti includono nomi di API, che premiano chi li chiede.
+- Errore di misura trovato e corretto: nel primo giro di B il runner riconosceva come domanda solo le frasi con "?", e
+  5 interviste su 12 sono andate avanti senza risposte (risultati conservati in `results/intent-r1.with-bad-B.jsonl`).
