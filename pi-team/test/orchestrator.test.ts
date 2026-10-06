@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { extractSummary, parseReviewVerdict, runTeamPlan, type OrchestratorDependencies } from "../src/orchestrator.ts";
+import { extractSummary, parseReviewVerdict, renderReport, runTeamPlan, type OrchestratorDependencies } from "../src/orchestrator.ts";
 import type { TeamPlan } from "../src/plan.ts";
 import type { Role } from "../src/roles.ts";
 import type { AgentRequest, AgentRun } from "../src/runner.ts";
@@ -176,4 +176,14 @@ test("a check that passed before and fails after is a regression", async () => {
 	const { dependencies } = harness({ baseline: true, verify: () => false });
 	const report = await runTeamPlan(plan, dependencies);
 	assert.equal(report.outcome, "failed");
+});
+
+test("a check that failed before and passes after is reported as fixed by the team", async () => {
+	const plan: TeamPlan = { goal: "g", tasks: [{ id: "t1", role: "implementer", title: "a", instructions: "y" }], finalVerify: ["npm test"], review: false };
+	const { dependencies } = harness({ baseline: false, verify: () => true });
+	const report = await runTeamPlan(plan, dependencies);
+	assert.equal(report.outcome, "verified");
+	const rendered = renderReport(report);
+	assert.match(rendered, /Fallivano prima del team, ora passano: `npm test`/);
+	assert.doesNotMatch(rendered, /Già falliti prima del lavoro del team/);
 });
