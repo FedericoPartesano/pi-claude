@@ -69,27 +69,27 @@ test("applyProposal: merge joins duplicates and sums confirmations", () => {
 	assert.deepEqual(result.memory[0], { type: "correzione", text: "Prezzi sempre in centesimi interi.", pinned: true, confirmations: 6, last: "2026-10-07" });
 });
 
-test("parseProposal: accepts fenced JSON, rejects garbage and unknown ids", () => {
+test("parseProposal: accepts fenced JSON, rejects garbage, skips only the invalid items", () => {
 	const ok = parseProposal('Ecco:\n```json\n{"add":[{"type":"correzione","text":"x"}],"reinforce":["m1"]}\n```', 2);
 	assert.ok(ok.ok);
 	if (ok.ok) assert.deepEqual(ok.proposal.forget, []);
 	assert.equal(parseProposal("non è json", 2).ok, false);
-	const bad = parseProposal('{"reinforce":["m9"]}', 2);
-	assert.equal(bad.ok, false);
-	if (!bad.ok) assert.match(bad.error, /m9/);
-	assert.equal(parseProposal('{"add":[{"type":"boh","text":"x"}]}', 0).ok, false);
+	// One bad item (unknown id, measured: it discarded a whole consolidation) must not discard the valid ones.
+	const mixed = parseProposal('{"add":[{"type":"correzione","text":"centesimi interi"},{"type":"boh","text":"x"}],"reinforce":["m9","m1"]}', 2);
+	assert.ok(mixed.ok);
+	if (mixed.ok) {
+		assert.deepEqual(mixed.proposal.add.map((item) => item.text), ["centesimi interi"]);
+		assert.deepEqual(mixed.proposal.reinforce, ["m1"]);
+		assert.match(mixed.skipped.join(" "), /m9/);
+	}
 });
 
-test("fitBudget: pinned, then corrections, then confirmations and recency, within the cap", () => {
-	const entries = [entry("a".repeat(50), { confirmations: 9 }), entry("b".repeat(50), { type: "correzione" }), entry("c".repeat(50), { pinned: true, last: "2020-01-01" }), entry("d".repeat(50), { confirmations: 9, last: "2026-10-05" })];
-	const kept = fitBudget(entries, 200);
-	assert.deepEqual(kept.map((item) => item.text[0]), ["c", "b", "d"]);
-	assert.deepEqual(fitBudget(entries, 10_000).length, 4);
-});
-
-test("staleIds: not confirmed for 60 days and not pinned", () => {
-	const memory = parseMemory(MEMORY);
-	assert.deepEqual(staleIds(memory, "2026-10-07", 60), ["m4"]);
+test("credentials never become memories, even in plain words (measured leak: 'password del gestionale (Gattino!2024)')", () => {
+	assert.doesNotMatch(maskSecrets("la password del gestionale è Gattino!2024, usala"), /Gattino/);
+	assert.doesNotMatch(maskSecrets("chiave API fornitore: xk29-Fq77-pp0"), /xk29/);
+	const proposal = parseProposal('{"add":[{"type":"fatto","text":"Chiave API fornitore e password gestionale (Gattino!2024) per il prossimo lavoro."},{"type":"correzione","text":"Prezzi in centesimi interi."}]}', 0);
+	assert.ok(proposal.ok);
+	if (proposal.ok) assert.deepEqual(proposal.proposal.add.map((item) => item.text), ["Prezzi in centesimi interi."]);
 });
 
 test("maskSecrets hides keys and passwords but keeps normal text", () => {

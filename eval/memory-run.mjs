@@ -84,12 +84,13 @@ function budgetProblem() {
 
 // Runs /dream once in `directory` on the synthetic sessions; returns its token usage from the JSON event stream.
 function consolidate(directory, sessionsRoot, label) {
+	const started = Date.now();
 	const result = spawnSync("pi", ["--no-session", "--mode", "json", "--provider", "claude-code", "--model", model, "-p", "/dream", "-e", memoryExtension], {
 		cwd: directory,
 		input: "", // stdin closed: pi -p otherwise waits for EOF
 		encoding: "utf8",
 		timeout: 600_000,
-		env: { ...process.env, PI_DREAM_AUTO_APPROVE: "1", PI_DREAM_SESSIONS_DIR: sessionsRoot },
+		env: { ...process.env, PI_DREAM_AUTO_APPROVE: "1", PI_DREAM_SESSIONS_DIR: sessionsRoot, PI_MEMORY_GLOBAL_PATH: "" },
 	});
 	writeFileSync(join(logDirectory, `${label}.dream.jsonl`), result.stdout ?? "");
 	const usage = { requests: 0, inputTokens: 0, outputTokens: 0, exit: result.status, error: result.error?.message ?? (result.status ? (result.stderr ?? "").slice(-300) : undefined) };
@@ -103,6 +104,14 @@ function consolidate(directory, sessionsRoot, label) {
 			}
 		} catch {}
 	}
+	// The consolidation call goes through the model registry, not the session: its usage is in dream-last.json.
+	try {
+		const last = JSON.parse(readFileSync(join(directory, ".pi/dream-last.json"), "utf8"));
+		usage.requests++;
+		usage.inputTokens += (last.usage?.input ?? 0) + (last.usage?.cacheRead ?? 0) + (last.usage?.cacheWrite ?? 0);
+		usage.outputTokens += last.usage?.output ?? 0;
+	} catch {}
+	usage.seconds = Math.round((Date.now() - started) / 1000);
 	return usage;
 }
 
@@ -123,7 +132,7 @@ async function runJob({ task, arm, repetition }) {
 		execSync("git add -A .pi 2>/dev/null; git commit -qm memoria --allow-empty", { cwd: directory, stdio: "ignore" });
 	}
 	const extraArgs = arm === "dream" ? ["-e", memoryExtension] : [];
-	const harness = new PiHarness(directory, model, join(logDirectory, `${label}.log`), { extraArgs, environment: { PI_INTENT_ADVISOR: "off" } });
+	const harness = new PiHarness(directory, model, join(logDirectory, `${label}.log`), { extraArgs, environment: { PI_INTENT_ADVISOR: "off", PI_MEMORY_GLOBAL_PATH: "" } });
 	const prompt = task.id === "probe" ? "Rispondi solo: ok" : task.prompt;
 	const text = arm === "full" ? `Contesto: queste sono le conversazioni passate su questo progetto.\n\n${rawSessionsText()}\n\n---\n\n${prompt}` : prompt;
 	const turn = await harness.runTurn(text);

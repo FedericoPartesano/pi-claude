@@ -183,7 +183,7 @@ export function fitBudget(entries: MemoryEntry[], maxChars: number): MemoryEntry
 
 // ---- Proposal from the model ------------------------------------------------------------------------------------
 
-export function parseProposal(text: string, memoryCount: number): { ok: true; proposal: Proposal } | { ok: false; error: string } {
+export function parseProposal(text: string, memoryCount: number): { ok: true; proposal: Proposal; skipped: string[] } | { ok: false; error: string } {
 	const cleaned = text.replace(/```(?:json)?/g, "");
 	const start = cleaned.indexOf("{");
 	const end = cleaned.lastIndexOf("}");
@@ -219,8 +219,17 @@ export function parseProposal(text: string, memoryCount: number): { ok: true; pr
 		update: list("update").filter((item): item is Item => typeof item === "object" && item !== null).filter((item) => validId(item.id) && validText(item.text) && validType(item.type, true)).map((item) => ({ id: item.id as string, text: (item.text as string).trim(), type: item.type as MemoryType | undefined })),
 		forget: list("forget").filter((item): item is Item => typeof item === "object" && item !== null).filter((item) => validId(item.id)).map((item) => ({ id: item.id as string, reason: typeof item.reason === "string" ? item.reason : undefined })),
 	};
-	if (problems.length > 0) return { ok: false, error: problems.join("; ") };
-	return { ok: true, proposal };
+	// Defense in depth: a memory never holds credentials, whatever the model wrote.
+	const credential = (text: string) => {
+		const hit = CREDENTIAL_PATTERN.test(text);
+		if (hit) problems.push(`scartato (credenziali): ${text.slice(0, 60)}`);
+		return !hit;
+	};
+	proposal.add = proposal.add.filter((item) => credential(item.text));
+	proposal.merge = proposal.merge.filter((item) => credential(item.text));
+	proposal.update = proposal.update.filter((item) => credential(item.text));
+	// Invalid items are skipped one by one (reported), never the whole consolidation.
+	return { ok: true, proposal, skipped: problems };
 }
 
 export function buildDreamPrompt(memory: MemoryEntry[], sessions: string, today: string, options: { global?: boolean } = {}): string {
@@ -251,8 +260,12 @@ export function buildDreamPrompt(memory: MemoryEntry[], sessions: string, today:
 
 // ---- Sessions (short-term memory) -------------------------------------------------------------------------------
 
+const CREDENTIAL_PATTERN = /\b(password|passwd|pwd|parola d'ordine|api[ _-]?key|chiave api|token|secret|credenzial\w*)\b|\[segreto\]/i;
+
 const SECRET_PATTERNS: [RegExp, string][] = [
 	[/\b(password|passwd|pwd|secret|token|api[_-]?key)\s*[=:]\s*\S+/gi, "$1=[segreto]"],
+	// Plain words: "la password del gestionale è Gattino!2024", "chiave API fornitore: xk29-…".
+	[/\b(password|passwd|pwd|parola d'ordine|chiave(?: api)?|api[ _-]?key|token|secret|segreto|credenziali)\b([^\n.;:=]{0,40}?)(?:\s*[=:]|\s(?:è|e'|is)\s)\s*["'(]?[^\s"'),;]+/gi, "$1$2: [segreto]"],
 	[/\bBearer\s+[A-Za-z0-9._~+/=-]{10,}/gi, "Bearer [segreto]"],
 	[/\bsk-[A-Za-z0-9_-]{16,}/g, "[segreto]"],
 	[/\bgh[pousr]_[A-Za-z0-9]{20,}/g, "[segreto]"],
