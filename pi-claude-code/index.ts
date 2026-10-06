@@ -10,6 +10,7 @@
  *   PI_CLAUDE_DEBUG   file path; when set, the bridge logs the Claude Code stream there
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { renderSubscriptionStatus } from "./src/footer.ts";
 import { disposeAllSessions, onSubscriptionStatus, prewarmSession, streamClaudeCode } from "./src/provider.ts";
 
 const zeroCost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
@@ -61,7 +62,10 @@ export default function (pi: ExtensionAPI) {
 		streamSimple: streamClaudeCode,
 	});
 
-	pi.on("session_shutdown", () => disposeAllSessions());
+	pi.on("session_shutdown", () => {
+		latestContext = undefined;
+		disposeAllSessions();
+	});
 
 	// Start Claude Code before the first prompt so its cold start is hidden while the user types.
 	// Only in the interactive TUI: one-shot print/json runs send their prompt immediately anyway.
@@ -78,8 +82,15 @@ export default function (pi: ExtensionAPI) {
 	// Claude Code reports usage right after each answer (after Pi already closed the turn), so the
 	// footer is updated when the record arrives, through the latest UI context.
 	let latestContext: ExtensionContext | undefined;
-	onSubscriptionStatus((text) => {
-		if (latestContext?.model?.provider === "claude-code") latestContext.ui.setStatus("claude-code", text);
+	onSubscriptionStatus((info) => {
+		try {
+			if (latestContext?.model?.provider !== "claude-code") return;
+			const theme = latestContext.ui.theme;
+			latestContext.ui.setStatus("claude-code", renderSubscriptionStatus(info, Date.now(), (role, text) => theme.fg(role, text)));
+		} catch {
+			// The context went stale (session replaced or shut down before the usage record arrived).
+			latestContext = undefined;
+		}
 	});
 	pi.on("message_end", (_event, ctx) => {
 		latestContext = ctx;

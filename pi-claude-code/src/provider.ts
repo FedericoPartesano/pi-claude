@@ -36,6 +36,7 @@ import {
 import { ClaudeSession, type ClaudeRecord, MCP_TOOL_PREFIX } from "./claude-session.ts";
 import { toContentBlocks, writeClaudeSession } from "./claude-transcript.ts";
 import { McpHttpServer, type McpToolCallResult, type McpToolDefinition } from "./mcp-http-server.ts";
+import type { RateLimitInfo } from "./footer.ts";
 
 const MAX_LIVE_SESSIONS = 3;
 
@@ -92,18 +93,11 @@ function sessionSignature(modelId: string, effort: string | undefined, systemPro
 	return hash(JSON.stringify([modelId, effort, systemPrompt, sortedTools]));
 }
 
-/** Subscription usage as reported by Claude Code's `rate_limit_event` records. */
-export interface RateLimitInfo {
-	status?: string;
-	isUsingOverage?: boolean;
-	unifiedWindows?: Record<string, { utilization?: number; resetsAt?: number }>;
-}
-
 let latestRateLimit: RateLimitInfo | undefined;
-let subscriptionListener: ((text: string) => void) | undefined;
+let subscriptionListener: ((info: RateLimitInfo) => void) | undefined;
 
-/** Called with the new footer text whenever Claude Code reports subscription usage. */
-export function onSubscriptionStatus(listener: (text: string) => void): void {
+/** Called with the latest usage whenever Claude Code reports subscription usage. */
+export function onSubscriptionStatus(listener: (info: RateLimitInfo) => void): void {
 	subscriptionListener = listener;
 }
 
@@ -112,8 +106,7 @@ const USAGE_FILE = join(homedir(), ".pi/agent/claude-code-usage.json");
 
 function recordRateLimit(info: unknown): void {
 	latestRateLimit = info as RateLimitInfo;
-	const text = subscriptionStatusText();
-	if (text) subscriptionListener?.(text);
+	subscriptionListener?.(latestRateLimit);
 	try {
 		mkdirSync(dirname(USAGE_FILE), { recursive: true });
 		writeFileSync(
@@ -128,20 +121,6 @@ function recordRateLimit(info: unknown): void {
 	} catch {
 		// Usage sharing is best effort.
 	}
-}
-
-/** Short footer text, e.g. "abbonamento 5h 8% · 7g 35%", or undefined before the first request. */
-export function subscriptionStatusText(): string | undefined {
-	if (!latestRateLimit) return undefined;
-	const windowLabels: Record<string, string> = { five_hour: "5h", seven_day: "7g" };
-	const windows = Object.entries(latestRateLimit.unifiedWindows ?? {})
-		.filter(([name]) => windowLabels[name])
-		.map(([name, window]) => `${windowLabels[name]} ${Math.round((window.utilization ?? 0) * 100)}%`);
-	const warnings = [
-		latestRateLimit.isUsingOverage ? "⚠ EXTRA USAGE" : undefined,
-		latestRateLimit.status && latestRateLimit.status !== "allowed" ? `⚠ ${latestRateLimit.status}` : undefined,
-	].filter(Boolean);
-	return [`abbonamento ${windows.join(" · ")}`, ...warnings].join(" ");
 }
 
 export function disposeAllSessions(): void {
