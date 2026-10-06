@@ -165,6 +165,18 @@ if (!s.extensions.includes(extension)) {
 }
 JS
 ok "goal ($REPO/extensions/goal.ts)"
+# memory.ts importa ./memory-core.ts: stesso motivo, percorso reale in settings.json.
+node - "$AGENT/settings.json" "$REPO/extensions/memory.ts" <<'JS'
+const fs = require("fs");
+const [file, extension] = process.argv.slice(2);
+const s = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
+s.extensions ??= [];
+if (!s.extensions.includes(extension)) {
+  s.extensions.push(extension);
+  fs.writeFileSync(file, JSON.stringify(s, null, 2) + "\n");
+}
+JS
+ok "memoria ($REPO/extensions/memory.ts)"
 
 if [ "$EXTRAS" = 1 ]; then
   step "pi-full"
@@ -185,5 +197,6 @@ echo "    pi          → Pi minimale su claude-code/sonnet (abbonamento Claude)
 echo "    Alt+O       → inserisci file o cartelle del progetto nel prompt (anche /pick)"
 echo "    /intent     → intervista e scrive intents/<data>-<slug>.md"
 echo "    /goal       → lavora in autonomia fino all'obiettivo (anche @intents/...; senza argomenti: scegli un intent)"
+echo "    /dream      → consolida le sessioni passate in .pi/memory.md (memoria tra sessioni); /ricorda cerca nell'archivio"
 echo "    /loop       → ripete un prompt (/loop 5m ..., --when \"cmd\" chiama il modello solo se il comando fallisce)"
 echo "    Se claude non è ancora loggato: lancia 'claude' e poi /login."

@@ -94,6 +94,19 @@ Con `--when` il giro è un monitoraggio: il modello fa la diagnosi in sola lettu
 passa non si spende nessun token, e lo stesso errore viene passato al modello una volta sola. Il loop scade dopo 24 h (`--for 8h`) e si ferma se l'abbonamento arriva al 90%
 della finestra di 5 ore o passa in extra usage. Se Pi è occupato, il giro aspetta che sia libero. `/loop` mostra lo stato.
 
+## Memoria (`/dream`, `/ricorda`)
+
+Come la memoria umana: le sessioni salvate sono la memoria a breve termine; `/dream` le consolida ("il sonno") in
+`.pi/memory.md` (progetto) o, con `--global`, in `~/.pi/agent/memory.md` (preferenze personali). Una sola chiamata a
+Haiku propone cosa aggiungere, rinforzare, unire, aggiornare (in caso di contraddizione vince la più recente) o
+dimenticare; approvi tu. Le correzioni dell'utente hanno la priorità; i segreti non vengono mai copiati; i ricordi non
+riconfermati da 60 giorni sbiadiscono nell'archivio (📌 = mai). La memoria entra nel prompt entro ~1k token; senza
+file non costa nulla. `/ricorda <cosa>` cerca nell'archivio (BM25 locale) e, con `--use`, rimette i ricordi nel contesto.
+All'avvio una notifica gratuita segnala quando ci sono ≥ 5 sessioni da consolidare.
+
+Variabili: `PI_DREAM_SESSIONS_DIR`, `PI_DREAM_AUTO_APPROVE=1`, `PI_DREAM_MODEL` (default `haiku`),
+`PI_MEMORY_GLOBAL_PATH` (vuota = niente memoria globale). Design: `docs/specs/2026-10-06-memory-dream-design.md`.
+
 ## Rilasci
 
 Ogni pacchetto ha la sua versione (SemVer) e le sue tag: `pi-claude-code-vX.Y.Z`, `pi-team-vX.Y.Z`, `pi-picker-vX.Y.Z`.
