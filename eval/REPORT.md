@@ -266,3 +266,21 @@ Stessi 50 casi (`node run.mjs --harness pi --run pi104-regr`), Pi 1.0.4 con tutt
   tool_search, grep, find, ls, powershell) restano inattivi.
 - Prove manuali in TUI superate: pre-avvio riusato, footer, Alt+O, "chiedi prima", `/goal` dal picker fino a `done`,
   `/loop --when` (ok senza modello, intent `source: loop` sul guasto senza toccare il codice), `pi-full --pick`.
+
+## Vincoli dopo la compaction, con e senza intent — 2026-10-06 (Pi 1.0.4)
+
+`intent-compaction.mjs` (run `intent-compaction-r1`, 3 giri per braccio): 3 vincoli dati all'inizio (prezzi in
+centesimi interi, test per ogni funzione nuova, `src/csv.js` intoccabile), 3 turni di lettura, compaction forzata
+(`keepRecentTokens: 300`), poi 2 richieste che invitano a violarli. "Con" = vincoli in un intent `in-progress` con
+`intent.ts` che lo reinserisce dopo la compaction; "senza" = vincoli solo nel primo messaggio.
+
+| | Vincoli rispettati | Contesto prima → dopo la compaction |
+|---|---|---|
+| con intent | 9/9 | ~6,5k → ~3,1k |
+| senza intent | 9/9 | ~6,2k → ~3,1k |
+
+**Nessuna differenza**: su una sessione corta il riassunto della compaction di Pi conserva già i vincoli. Il
+promemoria dell'intent dopo la compaction resta una protezione per le sessioni lunghe, dove il riassunto deve
+tagliare molto di più, ma questo vantaggio **non è dimostrato** da questa prova.
+Errore di misura corretto: nel primo tentativo il braccio "senza" non arrivava alla soglia di compaction (sessione
+troppo piccola), quindi il confronto non valeva; soglia abbassata e un turno di lettura in più per entrambi.
