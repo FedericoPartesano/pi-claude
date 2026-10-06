@@ -11,6 +11,10 @@ export const MEMORY_TYPES = ["correzione", "preferenza", "decisione", "fatto", "
 export type MemoryType = (typeof MEMORY_TYPES)[number];
 
 export interface MemoryEntry {
+	/** Stable id in the deep store (absent in the capped files). */
+	id?: string;
+	/** Entities (paths, identifiers, concepts) used by deep recall for associations. */
+	entities?: string[];
 	type: MemoryType | string;
 	text: string;
 	pinned: boolean;
@@ -22,10 +26,10 @@ export interface MemoryEntry {
 }
 
 export interface Proposal {
-	add: { type: MemoryType; text: string }[];
+	add: { type: MemoryType; text: string; entities?: string[] }[];
 	reinforce: string[];
-	merge: { ids: string[]; text: string; type?: MemoryType }[];
-	update: { id: string; text: string; type?: MemoryType }[];
+	merge: { ids: string[]; text: string; type?: MemoryType; entities?: string[] }[];
+	update: { id: string; text: string; type?: MemoryType; entities?: string[] }[];
 	forget: { id: string; reason?: string }[];
 }
 
@@ -89,6 +93,8 @@ export const contextLine = (entry: MemoryEntry) => `- [${entry.type}] ${entry.te
 const normalize = (text: string) => text.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
 const idOf = (index: number) => `m${index + 1}`;
 
+const withEntities = (entities: string[] | undefined) => (entities && entities.length > 0 ? { entities } : {});
+
 /** Applies an approved proposal. Deterministic: ids are positions in `memory` (m1 = first entry). */
 export function applyProposal(memory: MemoryEntry[], archive: MemoryEntry[], proposal: Proposal, today: string) {
 	const counts = { added: 0, reinforced: 0, merged: 0, updated: 0, forgotten: 0 };
@@ -97,12 +103,12 @@ export function applyProposal(memory: MemoryEntry[], archive: MemoryEntry[], pro
 	const index = (id: string) => Number(id.slice(1)) - 1;
 	const touched = new Set<number>();
 
-	for (const { id, text, type } of proposal.update) {
+	for (const { id, text, type, entities } of proposal.update) {
 		const position = index(id);
 		const old = slots[position];
 		if (!old || touched.has(position)) continue;
 		newArchive.push({ ...old, archived: today, reason: `superato da "${text}"` });
-		slots[position] = { type: type ?? old.type, text, pinned: old.pinned, confirmations: old.confirmations + 1, last: today };
+		slots[position] = { type: type ?? old.type, text, pinned: old.pinned, confirmations: old.confirmations + 1, last: today, ...withEntities(entities ?? old.entities) };
 		touched.add(position);
 		counts.updated++;
 	}
@@ -115,7 +121,7 @@ export function applyProposal(memory: MemoryEntry[], archive: MemoryEntry[], pro
 		touched.add(position);
 		counts.forgotten++;
 	}
-	for (const { ids, text, type } of proposal.merge) {
+	for (const { ids, text, type, entities } of proposal.merge) {
 		const positions = ids.map(index).filter((position) => slots[position] && !touched.has(position));
 		if (positions.length < 2) continue;
 		const parts = positions.map((position) => slots[position] as MemoryEntry);
@@ -125,6 +131,7 @@ export function applyProposal(memory: MemoryEntry[], archive: MemoryEntry[], pro
 			pinned: parts.some((part) => part.pinned),
 			confirmations: parts.reduce((sum, part) => sum + part.confirmations, 0) + 1,
 			last: today,
+			...withEntities(entities ?? [...new Set(parts.flatMap((part) => part.entities ?? []))]),
 		};
 		for (const position of positions.slice(1)) slots[position] = undefined;
 		for (const position of positions) touched.add(position);
@@ -141,7 +148,7 @@ export function applyProposal(memory: MemoryEntry[], archive: MemoryEntry[], pro
 	}
 	const known = new Set([...memory, ...slots.filter(Boolean) as MemoryEntry[]].map((entry) => normalize(entry.text)));
 	const added: MemoryEntry[] = [];
-	for (const { type, text } of proposal.add) {
+	for (const { type, text, entities } of proposal.add) {
 		const key = normalize(text);
 		if (!key || known.has(key)) continue;
 		known.add(key);
@@ -154,7 +161,7 @@ export function applyProposal(memory: MemoryEntry[], archive: MemoryEntry[], pro
 				// The new text contains the old one: a fuller version or a correction ("…in inglese, non più in italiano").
 				const old = slots[position]!;
 				newArchive.push({ ...old, archived: today, reason: `superato da "${text}"` });
-				slots[position] = { type, text, pinned: old.pinned, confirmations: old.confirmations + 1, last: today };
+				slots[position] = { type, text, pinned: old.pinned, confirmations: old.confirmations + 1, last: today, ...withEntities(entities ?? old.entities) };
 				counts.updated++;
 				continue;
 			}
@@ -167,7 +174,7 @@ export function applyProposal(memory: MemoryEntry[], archive: MemoryEntry[], pro
 				continue;
 			}
 		}
-		const entry: MemoryEntry = { type, text, pinned: false, confirmations: 1, last: today };
+		const entry: MemoryEntry = { type, text, pinned: false, confirmations: 1, last: today, ...withEntities(entities) };
 		if (type === "episodio") newArchive.push({ ...entry, archived: today, reason: "episodio" });
 		else added.push(entry);
 		counts.added++;
@@ -251,13 +258,19 @@ export function parseProposal(text: string, memoryCount: number): { ok: true; pr
 		if (!ok) problems.push("testo mancante");
 		return ok;
 	};
+	/** Entities proposed by the model: short strings only, at most 8. */
+	const entitiesOf = (value: unknown): string[] | undefined => {
+		if (!Array.isArray(value)) return undefined;
+		const kept = value.filter((item): item is string => typeof item === "string" && item.trim().length > 0 && item.length <= 60).map((item) => item.trim()).slice(0, 8);
+		return kept.length > 0 ? kept : undefined;
+	};
 	const list = (key: string) => (Array.isArray(raw[key]) ? (raw[key] as unknown[]) : []);
 	type Item = Record<string, unknown>;
 	const proposal: Proposal = {
-		add: list("add").filter((item): item is Item => typeof item === "object" && item !== null).filter((item) => validType(item.type) && validText(item.text)).map((item) => ({ type: item.type as MemoryType, text: cleanText(item.text as string) })),
+		add: list("add").filter((item): item is Item => typeof item === "object" && item !== null).filter((item) => validType(item.type) && validText(item.text)).map((item) => ({ type: item.type as MemoryType, text: cleanText(item.text as string), ...withEntities(entitiesOf(item.entities)) })),
 		reinforce: list("reinforce").filter(validId),
-		merge: list("merge").filter((item): item is Item => typeof item === "object" && item !== null).filter((item) => Array.isArray(item.ids) && item.ids.every(validId) && validText(item.text) && validType(item.type, true)).map((item) => ({ ids: item.ids as string[], text: cleanText(item.text as string), type: item.type as MemoryType | undefined })),
-		update: list("update").filter((item): item is Item => typeof item === "object" && item !== null).filter((item) => validId(item.id) && validText(item.text) && validType(item.type, true)).map((item) => ({ id: item.id as string, text: cleanText(item.text as string), type: item.type as MemoryType | undefined })),
+		merge: list("merge").filter((item): item is Item => typeof item === "object" && item !== null).filter((item) => Array.isArray(item.ids) && item.ids.every(validId) && validText(item.text) && validType(item.type, true)).map((item) => ({ ids: item.ids as string[], text: cleanText(item.text as string), type: item.type as MemoryType | undefined, ...withEntities(entitiesOf(item.entities)) })),
+		update: list("update").filter((item): item is Item => typeof item === "object" && item !== null).filter((item) => validId(item.id) && validText(item.text) && validType(item.type, true)).map((item) => ({ id: item.id as string, text: cleanText(item.text as string), type: item.type as MemoryType | undefined, ...withEntities(entitiesOf(item.entities)) })),
 		forget: list("forget").filter((item): item is Item => typeof item === "object" && item !== null).filter((item) => validId(item.id)).map((item) => ({ id: item.id as string, reason: typeof item.reason === "string" ? item.reason : undefined })),
 	};
 	// Defense in depth: a memory never holds credentials, whatever the model wrote.
@@ -273,7 +286,7 @@ export function parseProposal(text: string, memoryCount: number): { ok: true; pr
 	return { ok: true, proposal, skipped: problems };
 }
 
-export function buildDreamPrompt(memory: MemoryEntry[], sessions: string, today: string, options: { global?: boolean; capChars?: number } = {}): string {
+export function buildDreamPrompt(memory: MemoryEntry[], sessions: string, today: string, options: { global?: boolean; capChars?: number; deep?: boolean } = {}): string {
 	const fill = options.capChars ? Math.round((memory.map(contextLine).join("\n").length / options.capChars) * 100) : 0;
 	const current = memory.length > 0
 		? memory.map((entry, position) => `${idOf(position)} ${contextLine(entry).slice(2)}${entry.pinned ? " 📌" : ""} (conferme ${entry.confirmations}, ultima ${entry.last || "?"})`).join("\n")
@@ -293,11 +306,15 @@ export function buildDreamPrompt(memory: MemoryEntry[], sessions: string, today:
 		"- Niente dettagli di un singolo compito (cosa fa una funzione appena scritta), niente cose deducibili dal codice, mai segreti.",
 		"- Ricordi brevi (≤ 20 parole), generali, come regola o fatto, SCRITTI IN ITALIANO anche se le sessioni sono in altre lingue.",
 		"- Sessione che conferma un ricordo → reinforce. Duplicati → merge. Contraddizione → update con la versione più recente.",
-		"- Il perché di una decisione o un episodio utile solo su richiesta → add con type \"episodio\" (va in archivio).",
+		options.deep
+			? "- Il perché di una decisione o un episodio → add con type \"episodio\" (resta ricordabile, ma viene richiamato solo se pertinente). Ogni ricordo ha \"entities\": 1-5 parole chiave (percorsi, identificatori, nomi di concetti) con cui lo si richiamerà."
+			: "- Il perché di una decisione o un episodio utile solo su richiesta → add con type \"episodio\" (va in archivio).",
 		"- forget solo per ricordi chiaramente sbagliati o inutili (allo sbiadire nel tempo pensa il codice).",
 		...(fill >= 70 ? [`- La memoria è al ${fill}% del suo spazio: unisci i ricordi simili e sintetizza; aggiungi solo ciò che vale più di quello che c'è (il codice archivia l'eccedenza meno importante).`] : []),
 		"",
-		'Rispondi SOLO con JSON: {"add":[{"type":"correzione|preferenza|decisione|fatto|episodio","text":"..."}],"reinforce":["m1"],"merge":[{"ids":["m2","m3"],"type":"...","text":"..."}],"update":[{"id":"m4","text":"..."}],"forget":[{"id":"m5","reason":"..."}]}',
+		options.deep
+			? 'Rispondi SOLO con JSON: {"add":[{"type":"correzione|preferenza|decisione|fatto|episodio","text":"...","entities":["..."]}],"reinforce":["m1"],"merge":[{"ids":["m2","m3"],"type":"...","text":"...","entities":["..."]}],"update":[{"id":"m4","text":"...","entities":["..."]}],"forget":[{"id":"m5","reason":"..."}]}'
+			: 'Rispondi SOLO con JSON: {"add":[{"type":"correzione|preferenza|decisione|fatto|episodio","text":"..."}],"reinforce":["m1"],"merge":[{"ids":["m2","m3"],"type":"...","text":"..."}],"update":[{"id":"m4","text":"..."}],"forget":[{"id":"m5","reason":"..."}]}',
 	].join("\n");
 }
 
