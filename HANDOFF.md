@@ -28,6 +28,15 @@ Per riprendere: apri Claude Code **in `~/documents/projects/pi-claude`** (non in
   Installazione: `install.sh` registra intent/goal/loop in settings.json con percorso reale (Pi non segue i symlink
   negli import relativi).
 
+- **2026-10-06 — memoria (`/dream`, `/ricorda`)**, branch `feat/memory-dream` (sopra `chore/pi-1.0.4`): spec
+  `docs/specs/2026-10-06-memory-dream-design.md` (con tetto) e `docs/specs/2026-10-06-deep-memory-design.md` (profonda a
+  richiamo, default; `PI_MEMORY_MODE=capped` per la vecchia). Risultati in `eval/MEMORY-REPORT.md`: regole rispettate
+  none 67% · capped 88% · deep 83% con 44–100 token iniettati per richiesta (capped 271–910). Pacchetto `pi-memory/`
+  (embedding locale, 888 MB di node_modules). Prossimi passi: soglia un po' più alta (domanda estranea: 1 ricordo
+  iniettato), regole di stile trasversali sempre richiamate nei compiti che scrivono codice, poi **TUI per vedere e
+  gestire la memoria** (`/memoria`: elenco con filtri, anteprima con entità e origine, azioni 📌/modifica/unisci/
+  superato/archivia/elimina, "perché è stato richiamato" dal recall-log), costruita sul picker, costo zero.
+
 ## Problemi aperti noti
 - BUG-2: via bridge il modello preferisce bash a read/edit (158 vs 10). NON dipende dal prefisso nomi (verificato). Comportamento del modello.
 - Ricerca web di pi-web-access (Exa senza chiave) può dare dati vecchi (es. versione npm sbagliata).

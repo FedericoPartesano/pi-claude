@@ -1,0 +1,20 @@
+{
+  "name": "pi-memory",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Deep recall memory for Pi: local multilingual embeddings, hybrid recall, bounded injection",
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "check": "tsc -p .",
+    "bench": "node bench/recall-bench.ts"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^3.7.0"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "1.0.4",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}
