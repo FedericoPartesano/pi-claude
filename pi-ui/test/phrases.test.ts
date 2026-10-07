@@ -38,3 +38,7 @@ test("phrase covers Pi's and pi-full's tools, also while arguments are still str
 	assert.equal(phrase("load_tools", { groups: ["web"] }).text, "Carico web");
 	assert.equal(phrase("mcp__thing_do_stuff", { a: 1 }).text, "mcp thing do stuff");
 });
+
+test("an edit whose JSON arguments did not parse still names its file", () => {
+	assert.equal(phrase("edit", { __unparsedToolInput: '{"path": "src/pagination.js", "edits": [{"oldText":"\\tconst' }).text, "Modifico pagination.js");
+});

@@ -1,4 +1,5 @@
 /** The status bar above the editor: one line, one color per state (Neon Night principle 1). */
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { C, bold, fg, fit, label } from "./palette.ts";
 import { elapsedSeconds, type TurnStatus } from "./status.ts";
 
@@ -21,16 +22,23 @@ export function renderStatusBar(status: TurnStatus, width: number, now: number, 
 			const left = `${label(C.cyan, ` ${SPINNER[frame % SPINNER.length]} AL LAVORO `)}  ${bold(fg(C.text, status.activity))}${fg(C.dim, `${step} · ${seconds}s`)}`;
 			return fit(left, hint("esc", "interrompi"), width);
 		}
-		case "waiting":
-			return fit(`${label(C.yel, " ◆ TOCCA A TE ")}  ${fg(C.text, status.question ?? "")}`, fg(C.yel, status.answers ?? ""), width);
+		case "waiting": {
+			// The answer keys must always stay visible: the question gives way.
+			const tag = label(C.yel, " ◆ TOCCA A TE ");
+			const answers = fg(C.yel, status.answers ?? "");
+			const room = Math.max(0, width - visibleWidth(tag) - visibleWidth(answers) - 4);
+			return fit(`${tag}  ${fg(C.text, truncateToWidth(status.question ?? "", room))}`, answers, width);
+		}
 		case "stopped":
 			return fit(`${label(C.err, " ✗ FERMO ")}  ${fg(C.text, status.activity)}`, hint("↵", "scrivi tu"), width);
-		case "done":
-			return fit(
-				`${label(C.ok, " ✓ FATTO ")}  ${fg(C.text, `${seconds}s · ↑${formatTokens(status.tokensIn)} ↓${formatTokens(status.tokensOut)} tok`)}${status.warning ? `  ${fg(C.warn, `⚠ ${status.warning}`)}` : ""}`,
-				status.suggestions ? `${fg(C.ok, `1-${status.suggestions}`)} ${fg(C.dim, "suggerimenti")}` : "",
-				width,
-			);
+		case "done": {
+			const head = `${label(C.ok, " ✓ FATTO ")}  ${fg(C.text, `${seconds}s · ↑${formatTokens(status.tokensIn)} ↓${formatTokens(status.tokensOut)} tok`)}`;
+			const keys = status.suggestions ? `${fg(C.ok, `1-${status.suggestions}`)} ${fg(C.dim, "suggerimenti")}` : "";
+			// The warning gives way to the suggestion keys.
+			const room = width - visibleWidth(head) - visibleWidth(keys) - 4;
+			const warning = status.warning && room > 6 ? `  ${fg(C.warn, truncateToWidth(`⚠ ${status.warning}`, room))}` : "";
+			return fit(head + warning, keys, width);
+		}
 		default:
 			return fit(label(C.faint, " PRONTO "), "", width);
 	}

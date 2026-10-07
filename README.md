@@ -5,6 +5,7 @@ Pacchetti:
 - [`pi-claude-code`](pi-claude-code/) — provider Pi che usa la CLI ufficiale Claude Code (abbonamento) al posto dell'API Anthropic.
 - [`pi-team`](pi-team/) — team di sub-agenti specializzati guidati da un orchestratore.
 - [`pi-picker`](pi-picker/) — picker modale globale (file, cartelle, progetti recenti, liste) per Pi e per gli script.
+- [`pi-ui`](pi-ui/) — chat ridisegnata "Neon Night": barra di stato, passi compatti, immagini, suggerimenti, pannello.
 
 ## Installazione
 
@@ -106,6 +107,28 @@ All'avvio una notifica gratuita segnala quando ci sono ≥ 5 sessioni da consoli
 
 Variabili: `PI_DREAM_SESSIONS_DIR`, `PI_DREAM_AUTO_APPROVE=1`, `PI_DREAM_MODEL` (default `haiku`),
 `PI_MEMORY_GLOBAL_PATH` (vuota = niente memoria globale). Design: `docs/specs/2026-10-06-memory-dream-design.md`.
+
+## Chat Neon Night (`pi-ui`)
+
+Attiva in `pi` e `pi-full` (tema `neon-night`, impostato da `install.sh` solo se non ne hai già scelto un altro).
+
+- **Barra di stato** sopra il prompt: `PRONTO`, `AL LAVORO` (cosa sta facendo, passo, secondi), `TOCCA A TE`,
+  `FERMO` (interrotto o errore del modello), `FATTO` (tempo, token, ⚠ se l'ultimo controllo è fallito).
+- **Passi**: una riga per tool con frase in italiano ("Modifico cart.js e eseguo i test"), esito a destra; a fine turno
+  si piegano in `✓ N passi · F file · T test ok`. Gli errori restano aperti con i test falliti (`file:riga`, ricevuto/atteso).
+  `Ctrl+O` apre tutto, diff compresi.
+- **Immagini**: percorsi e URL di immagini nelle risposte, e le immagini lette/scritte dai tool, diventano miniature a
+  colori (funzionano anche in tmux/WSL). `/img` le elenca con anteprima; Invio le apre a piena qualità (`wslview`).
+- **Suggerimenti**: fino a 4 prossimi passi sotto il turno, `1`–`4` a prompt vuoto li inserisce (`PI_UI_SUGGEST=0` li spegne,
+  costano ~70 token di istruzione in cache).
+- **Comandi pericolosi** (`rm -rf`, `sudo`, `777`, force push, `reset --hard`, `curl | sh`…): domanda nella barra,
+  `s` sì · `n` no · `a` sempre per quel comando. Resta attiva anche con `PI_UI=off` (dialogo); senza interfaccia blocca.
+- **Pannello** `Alt+I`: goal/loop/team, file modificati con `+/-`, test falliti, ultima immagine, uso 5h/7g/contesto.
+- **Notifica** di Windows e campanella a fine turni lunghi (≥ 30 s; `PI_UI_NOTIFY=0`).
+- Link `file:riga` → VS Code nelle risposte, solo dove il terminale mostra i link. In tmux:
+  `set -as terminal-features ',*:hyperlinks'` nel `~/.tmux.conf`.
+
+`PI_UI=off` torna alla chat originale; `PI_UI_STEPS=0`, `PI_UI_IMAGES=0`, `PI_UI_PERMISSION=0` spengono i singoli pezzi.
 
 ## Rilasci
 

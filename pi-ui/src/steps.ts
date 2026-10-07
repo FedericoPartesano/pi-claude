@@ -36,6 +36,7 @@ export function completeStep(step: Step, result: { output: string; isError: bool
 		const { added, removed } = diffCounts(result.details.patch);
 		summary = { text: `${fg(C.add, `+${added}`)} ${fg(C.del, `-${removed}`)}`, color: C.text };
 	} else if (step.tool === "write") summary = { text: `+${String(step.args.content ?? "").split("\n").length}`, color: C.add };
+	else if (step.tool === "read" && /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(String(step.args.path ?? ""))) summary = { text: "immagine", color: C.dim };
 	else if (step.tool === "read" || step.tool === "bash") summary = { text: `${output ? output.split("\n").length : 0} righe`, color: C.dim };
 	else summary = { text: "fatto", color: C.dim };
 	return { ...step, done: true, error: outcome.failed, summary, output, details: result.details, pass: "pass" in outcome ? outcome.pass : undefined };

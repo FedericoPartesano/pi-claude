@@ -48,3 +48,19 @@ test("formatTokens", () => {
 	assert.equal(formatTokens(12_400), "12,4k");
 	assert.equal(formatTokens(1_250_000), "1,3M");
 });
+
+test("a long question never pushes the answer keys out of the bar", () => {
+	const question = `posso eseguire ${"rm -rf build ".repeat(8)}? cancella file ricorsivamente o forzatamente`;
+	for (const width of [80, 120]) {
+		const line = renderStatusBar(nextStatus(working, { type: "waiting", question, answers: "s sì · n no · a sempre per questo comando" }), width, 0, 0);
+		assert.equal(visibleWidth(line), width);
+		assert.match(strip(line), /s sì · n no · a sempre per questo comando$/);
+	}
+});
+
+test("a long warning never pushes the suggestion keys out of the bar", () => {
+	const status = nextStatus({ ...states.FATTO, warning: "ultimo passo non riuscito: eseguo un comando lunghissimo che non entra" }, { type: "suggestions", count: 3 });
+	const line = renderStatusBar(status, 80, 0, 0);
+	assert.equal(visibleWidth(line), 80);
+	assert.match(strip(line), /1-3 suggerimenti$/);
+});

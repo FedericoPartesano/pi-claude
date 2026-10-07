@@ -54,3 +54,7 @@ test("a test run piped through tail that hides the summary is still a failure", 
 	assert.match(rows[0], /✗ Eseguo i test/);
 	assert.match(rows[1], /ricevuto 1500, atteso 4000/);
 });
+
+test("reading an image is summarised as an image, not as lines", () => {
+	assert.equal(done("read", { path: "data/grafico.png" }, "Read image file [image/png]").summary?.text, "immagine");
+});

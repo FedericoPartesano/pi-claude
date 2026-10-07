@@ -85,7 +85,9 @@ const FIXED: Record<string, string> = {
 
 /** Phrase for the step row and its argument column. */
 export function phrase(tool: string, args: Record<string, unknown> | undefined): { text: string; arg: string } {
-	const path = String(args?.path ?? args?.file_path ?? "");
+	// Arguments the provider could not parse arrive as raw JSON text: the path can still be read from it.
+	const raw = typeof args?.__unparsedToolInput === "string" ? args.__unparsedToolInput : "";
+	const path = String(args?.path ?? args?.file_path ?? /"(?:path|file_path)"\s*:\s*"([^"]+)"/.exec(raw)?.[1] ?? "");
 	switch (tool) {
 		case "read":
 			return { text: path ? `Leggo ${base(path)}` : "Leggo…", arg: path };

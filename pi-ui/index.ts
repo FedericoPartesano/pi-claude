@@ -263,10 +263,8 @@ export default function (pi: ExtensionAPI) {
 		clearInterval(spinner);
 		update({ type: "settled", at: Date.now(), outcome });
 		const failed = (liveTurn ?? []).filter((step) => step.error);
-		lastFailures = failed.flatMap((step) => {
-			const tests = failingTests(step.output ?? "");
-			return tests.length ? tests : [phrase(step.tool, step.args).text];
-		});
+		// The panel's TEST section lists failing tests only (other errors stay visible in the step list).
+		lastFailures = failed.flatMap((step) => failingTests(step.output ?? ""));
 		liveTurn = undefined;
 		const answer = extractSuggestions(lastAnswer);
 		suggestions = outcome === "completed" ? answer.suggestions : [];
@@ -317,7 +315,9 @@ export default function (pi: ExtensionAPI) {
 	pi.registerEntryRenderer<{ ref: string }>("pi-ui-image", (entry) => ({
 		render: (width: number) => {
 			const ref = entry.data?.ref ?? "";
-			return renderImageEntry(ref, thumbnail(ref, thumbnailColumns(width)), width);
+			// Leave room for the panel: a thumbnail under the overlay would bleed its colors.
+			const room = width - (width >= 100 ? reservedRight : 0);
+			return renderImageEntry(ref, thumbnail(ref, thumbnailColumns(room)), room);
 		},
 		invalidate() {},
 	}));
@@ -402,7 +402,9 @@ export default function (pi: ExtensionAPI) {
 
 	// Answers: ⬢ in front, file:riga as VS Code links where the terminal shows links (never printed as raw URLs).
 	pi.registerMarkdownTransformer((markdown, context) => {
-		if (!active || context.messageType !== "assistant" || !markdown.trim()) return markdown;
+		if (!active || !markdown.trim()) return markdown;
+		if (context.messageType === "assistant-thinking") return /^\s*◇/.test(markdown) ? markdown : `◇ ${markdown.trimStart()}`;
+		if (context.messageType !== "assistant") return markdown;
 		// The suggestions block is shown under the turn, not in the answer (while streaming, cut a half-written mark too).
 		let out = extractSuggestions(markdown).text;
 		const partial = out.lastIndexOf("<!--");
