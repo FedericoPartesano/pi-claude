@@ -279,7 +279,13 @@ export function renderReport(report: TeamReport): string {
 		if (task.summary) lines.push(`  ${task.summary.replace(/\n/g, "\n  ").slice(0, 800)}`);
 	}
 	lines.push("", "## Verifica finale");
-	if (report.preexistingFailures.length) lines.push(`Già falliti prima del lavoro del team: ${report.preexistingFailures.map((command) => `\`${command}\``).join(", ")}`);
+	// Checks that failed in the baseline: the ones passing now were fixed by the team (often the point of the job).
+	const passingNow = new Set(report.finalVerify.filter((result) => result.ok).map((result) => result.command));
+	const quote = (commands: string[]) => commands.map((command) => `\`${command}\``).join(", ");
+	const fixed = report.preexistingFailures.filter((command) => passingNow.has(command));
+	const stillFailing = report.preexistingFailures.filter((command) => !passingNow.has(command));
+	if (fixed.length) lines.push(`Fallivano prima del team, ora passano: ${quote(fixed)}`);
+	if (stillFailing.length) lines.push(`Già falliti prima del lavoro del team: ${quote(stillFailing)}`);
 	if (report.finalVerify.length === 0) lines.push(report.finalOk ? "(nessun comando)" : "non eseguita: compiti non completati");
 	for (const result of report.finalVerify) lines.push(`- ${result.ok ? "✓" : "✗"} \`${result.command}\`${result.ok ? "" : `\n\`\`\`\n${result.outputTail.slice(-1500)}\n\`\`\``}`);
 	lines.push("", `## Revisione: ${report.review.verdict}${report.review.notes ? `\n${report.review.notes}` : ""}`);

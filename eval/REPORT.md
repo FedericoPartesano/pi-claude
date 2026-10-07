@@ -246,3 +246,57 @@ comportamento; quello sull'API resta rigido).
   i requisiti nascosti includono nomi di API, che premiano chi li chiede.
 - Errore di misura trovato e corretto: nel primo giro di B il runner riconosceva come domanda solo le frasi con "?", e
   5 interviste su 12 sono andate avanti senza risposte (risultati conservati in `results/intent-r1.with-bad-B.jsonl`).
+
+## Regressione su Pi 1.0.4 — 2026-10-06
+
+Stessi 50 casi (`node run.mjs --harness pi --run pi104-regr`), Pi 1.0.4 con tutte le estensioni installate.
+
+| | 0.87.1 (`pi-sdk`) | 1.0.4 |
+|---|---|---|
+| Casi superati | 50/50 | 49/50 |
+| Input token | 1,35M | 1,44M |
+| Output token | 37,9k | 39,4k |
+| Tempo mediano per caso | 9,9 s | 12,7 s |
+
+- L'unico FAIL (`sh01`) è un controllo rigido: branch e sezione corretti, ma Pi ha fatto un secondo commit per sistemare la
+  formattazione del CHANGELOG e il controllo vuole esattamente un commit.
+- Tempi misurati con la macchina carica (altre sessioni attive): la misura isolata a parità di condizioni dava +4%
+  (4,2–5,4 s contro 4,4–5,6 s), nel rumore. Prima richiesta: `pi` 3.615 token (0.87.1: 3.568), `pi-full` 3.848 (3.801);
+  i +47 sono una frase in più del system prompt della 1.0 (MCP/codemode). I tool nuovi della 1.0 (codemode,
+  tool_search, grep, find, ls, powershell) restano inattivi.
+- Prove manuali in TUI superate: pre-avvio riusato, footer, Alt+O, "chiedi prima", `/goal` dal picker fino a `done`,
+  `/loop --when` (ok senza modello, intent `source: loop` sul guasto senza toccare il codice), `pi-full --pick`.
+
+## Vincoli dopo la compaction, con e senza intent — 2026-10-06 (Pi 1.0.4)
+
+`intent-compaction.mjs` (run `intent-compaction-r1`, 3 giri per braccio): 3 vincoli dati all'inizio (prezzi in
+centesimi interi, test per ogni funzione nuova, `src/csv.js` intoccabile), 3 turni di lettura, compaction forzata
+(`keepRecentTokens: 300`), poi 2 richieste che invitano a violarli. "Con" = vincoli in un intent `in-progress` con
+`intent.ts` che lo reinserisce dopo la compaction; "senza" = vincoli solo nel primo messaggio.
+
+| | Vincoli rispettati | Contesto prima → dopo la compaction |
+|---|---|---|
+| con intent | 9/9 | ~6,5k → ~3,1k |
+| senza intent | 9/9 | ~6,2k → ~3,1k |
+
+**Nessuna differenza**: su una sessione corta il riassunto della compaction di Pi conserva già i vincoli. Il
+promemoria dell'intent dopo la compaction resta una protezione per le sessioni lunghe, dove il riassunto deve
+tagliare molto di più, ma questo vantaggio **non è dimostrato** da questa prova.
+Errore di misura corretto: nel primo tentativo il braccio "senza" non arrivava alla soglia di compaction (sessione
+troppo piccola), quindi il confronto non valeva; soglia abbassata e un turno di lettura in più per entrambi.
+
+### Tentativo di ottimizzare l'intervista (B3) — scartato
+
+B3 = prompt dell'intervista compattato (~1.990 → ~1.450 caratteri) e lavoro proseguito nello stesso turno dopo aver
+scritto l'intent, senza rileggere ciò che è già nel contesto. Stessi 6 casi × 2.
+
+| | Requisiti | Casi completi | Richieste/lavoro | Input/lavoro | Input per requisito |
+|---|---|---|---|---|---|
+| B2 | 83% | 6/12 | 9,2 | 75,5k | 17,1k |
+| B3 | 63% | 2/12 | 7,5 | 55,8k | 16,7k |
+
+Token per lavoro −26%, ma qualità −20 punti e nessun risparmio per requisito soddisfatto: **scartato**, resta B2.
+Causa: nel compattare "opzioni concrete *quando aiutano*" è diventato "opzioni concrete" → domande chiuse a scelta
+multipla ("a) CSV b) JSON"), l'utente sceglie un'opzione e i dettagli che Pi non può indovinare (separatore,
+ordinamento, riga di totale) non emergono; in più, proseguendo nello stesso turno sparisce il secondo giro di domande.
+Lezione: le domande aperte su ciò che non si può dedurre valgono più dei token risparmiati.

@@ -12,6 +12,7 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSyn
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { cases } from "./intent-cases.mjs";
+import { interviewPrompt } from "../extensions/intent.ts";
 import { PiHarness } from "./harness.mjs";
 import { answer } from "./sim-user.mjs";
 
@@ -138,6 +139,14 @@ async function runJob({ testCase, arm, repetition }) {
 		while (isQuestion(turns.at(-1).answer) && !turns.at(-1).errors.length && turns.length < MAX_INTERVIEW_TURNS) {
 			turns.push(await runTurn(harness, await askSim(turns.at(-1).answer)));
 		}
+	} else if (arm === "B3") {
+		// The real advisor path: vague request → interview → intent → the work continues in the same turn (no separate
+		// "implement the intent" message, no re-reading of what is already in context). Answer whatever Pi asks.
+		turns.push(await runTurn(harness, interviewPrompt(testCase.vague, new Date().toISOString().slice(0, 10), { thenImplement: true })));
+		while ((intentFiles(directory).length === 0 || isQuestion(turns.at(-1).answer)) && !turns.at(-1).errors.length && turns.length < MAX_INTERVIEW_TURNS + MAX_FOLLOW_UP_TURNS) {
+			turns.push(await runTurn(harness, await askSim(turns.at(-1).answer)));
+		}
+		intentFile = intentFiles(directory)[0];
 	} else {
 		// Interview until the intent file exists.
 		turns.push(await runTurn(harness, `/intent ${testCase.vague}`));

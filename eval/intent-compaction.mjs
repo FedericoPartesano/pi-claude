@@ -72,9 +72,9 @@ async function runJob(arm, repetition) {
 	const directory = join(homedir(), ".cache/pi-eval/work", runName, label);
 	rmSync(directory, { recursive: true, force: true });
 	execSync(`node ${JSON.stringify(join(evalDirectory, "fixture/build.mjs"))} ${JSON.stringify(directory)}`);
-	// Keep only the last ~1k tokens out of the summary, so the constraint message is really compacted away.
+	// Keep only the last ~300 tokens out of the summary, so the constraint message is really compacted away.
 	mkdirSync(join(directory, ".pi"), { recursive: true });
-	writeFileSync(join(directory, ".pi/settings.json"), JSON.stringify({ compaction: { keepRecentTokens: 1000 } }));
+	writeFileSync(join(directory, ".pi/settings.json"), JSON.stringify({ compaction: { keepRecentTokens: 300 } }));
 	if (arm === "with") {
 		mkdirSync(join(directory, "intents"), { recursive: true });
 		writeFileSync(join(directory, "intents/2026-10-06-evoluzione-catalogo.md"), INTENT);
@@ -87,7 +87,7 @@ async function runJob(arm, repetition) {
 		? "Lavoriamo sull'evoluzione del catalogo: l'intent è in intents/2026-10-06-evoluzione-catalogo.md, rispetta i suoi vincoli per tutto il lavoro. Rispondi solo OK."
 		: `Lavoriamo sull'evoluzione del catalogo. Vincoli per tutto il lavoro:\n${CONSTRAINTS.map((constraint) => `- ${constraint}`).join("\n")}\nRispondi solo OK.`;
 	const turns = [];
-	for (const prompt of [first, "Leggi src/inventory.js e src/format.js e riassumi in 5 righe cosa fanno.", "Leggi README.md e CHANGELOG.md e dimmi in 3 righe lo stato del progetto."]) turns.push(await harness.runTurn(prompt));
+	for (const prompt of [first, "Leggi src/inventory.js e src/format.js e riassumi in 5 righe cosa fanno.", "Leggi README.md e CHANGELOG.md e dimmi in 3 righe lo stato del progetto.", "Leggi le prime 150 righe di data/books.csv e dimmi quanti generi diversi ci sono."]) turns.push(await harness.runTurn(prompt));
 	const compaction = await sendAndWait(harness, { type: "compact" }, "compact");
 	for (const prompt of [
 		"Aggiungi in src/inventory.js una funzione averagePrice(inventory) che restituisce il prezzo medio degli articoli.",
