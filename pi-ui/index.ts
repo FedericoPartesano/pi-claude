@@ -16,7 +16,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
 import { CustomEditor, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { getCapabilities, type Component, type TUI } from "@earendil-works/pi-tui";
+import { getCapabilities, setCapabilityOverrides, type Component, type TUI } from "@earendil-works/pi-tui";
 import { linkFileRefs, vscodeUrl, wslDistro } from "./src/answer.ts";
 import { subagentRows, teamRows, type AgentRow } from "./src/agents.ts";
 import { CHART_PROMPT, extractCharts, renderChart, type ChartSpec } from "./src/charts.ts";
@@ -87,6 +87,9 @@ export default function (pi: ExtensionAPI) {
 	let askInBar: (question: string) => Promise<"yes" | "no" | "always"> | undefined = () => undefined;
 	registerPermissionGate(pi, (question) => askInBar(question));
 	if (process.env.PI_UI === "off") return;
+	// Real images need a terminal protocol; when detection misses it (e.g. WSL started from WezTerm without its variables),
+	// PI_UI_IMAGES=kitty or iterm2 forces it. Under tmux they stay off unless forced (tmux needs allow-passthrough).
+	if (process.env.PI_UI_IMAGES === "kitty" || process.env.PI_UI_IMAGES === "iterm2") setCapabilityOverrides({ images: process.env.PI_UI_IMAGES });
 	const panelKey = (process.env.PI_UI_PANEL_KEY || PANEL_KEY).toLowerCase();
 
 	let status = initialStatus();

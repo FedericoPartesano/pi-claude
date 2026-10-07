@@ -40,12 +40,23 @@ const BACKGROUND = [12, 12, 12];
 /** Thumbnail `cols` cells wide; rows keep the aspect ratio (a cell is two pixels tall). */
 export function halfBlocks(image: Pixels, cols: number): string[] {
 	const rows = Math.max(1, Math.round((cols * image.height) / image.width / 2));
+	// Each half cell is the average of the source area it covers (box filter): no jagged nearest-pixel aliasing.
 	const sample = (cx: number, cy: number) => {
-		const x = Math.min(image.width - 1, Math.floor(((cx + 0.5) * image.width) / cols));
-		const y = Math.min(image.height - 1, Math.floor(((cy + 0.5) * image.height) / (rows * 2)));
-		const offset = (y * image.width + x) * 4;
-		const alpha = image.data[offset + 3] / 255;
-		return [0, 1, 2].map((channel) => Math.round(image.data[offset + channel] * alpha + BACKGROUND[channel] * (1 - alpha))).join(";");
+		const x0 = Math.floor((cx * image.width) / cols);
+		const x1 = Math.max(x0 + 1, Math.floor(((cx + 1) * image.width) / cols));
+		const y0 = Math.floor((cy * image.height) / (rows * 2));
+		const y1 = Math.max(y0 + 1, Math.floor(((cy + 1) * image.height) / (rows * 2)));
+		const sum = [0, 0, 0];
+		let count = 0;
+		for (let y = y0; y < Math.min(y1, image.height); y++) {
+			for (let x = x0; x < Math.min(x1, image.width); x++) {
+				const offset = (y * image.width + x) * 4;
+				const alpha = image.data[offset + 3] / 255;
+				for (let channel = 0; channel < 3; channel++) sum[channel] += image.data[offset + channel] * alpha + BACKGROUND[channel] * (1 - alpha);
+				count++;
+			}
+		}
+		return sum.map((value) => Math.round(value / Math.max(1, count))).join(";");
 	};
 	const lines: string[] = [];
 	for (let row = 0; row < rows; row++) {
@@ -76,7 +87,8 @@ async function download(url: string, cacheDir: string, maxBytes: number): Promis
 	}
 }
 
-export type Thumbnail = { lines: string[]; info: string; path: string } | { error: string };
+/** Half-block lines, caption info, local path, and the image as PNG base64 for terminals that show real images. */
+export type Thumbnail = { lines: string[]; info: string; path: string; png?: string; width: number; height: number } | { error: string };
 
 /** Thumbnail of a local path (relative to cwd) or URL. Never throws: failures come back as a reason. */
 export async function thumbnailFor(ref: string, cwd: string, cols: number, options: { maxBytes?: number; cacheDir?: string } = {}): Promise<Thumbnail> {
@@ -99,7 +111,14 @@ export async function thumbnailFor(ref: string, cwd: string, cols: number, optio
 		// Refuse huge canvases before decoding (a small PNG can expand to gigabytes).
 		if (format === "png" && buffer.readUInt32BE(16) * buffer.readUInt32BE(20) > 40_000_000) return { error: "troppo grande per l'anteprima" };
 		const image: Pixels = format === "png" ? PNG.sync.read(buffer) : jpeg.decode(buffer, { useTArray: true, formatAsRGBA: true, maxResolutionInMP: 40 });
-		return { lines: halfBlocks(image, cols), info: `${image.width}×${image.height} · ${format.toUpperCase()} · ${formatBytes(size)}`, path };
+		// Kitty-protocol terminals accept PNG only: a JPEG is re-encoded once here.
+		let png = buffer.toString("base64");
+		if (format === "jpeg") {
+			const encoded = new PNG({ width: image.width, height: image.height });
+			encoded.data = Buffer.from(image.data);
+			png = PNG.sync.write(encoded).toString("base64");
+		}
+		return { lines: halfBlocks(image, cols), info: `${image.width}×${image.height} · ${format.toUpperCase()} · ${formatBytes(size)}`, path, png, width: image.width, height: image.height };
 	} catch {
 		return { error: "immagine non leggibile" };
 	}

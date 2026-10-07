@@ -56,3 +56,22 @@ test("thumbnailFor never throws: missing, corrupt, unsupported or too large file
 	assert.deepEqual(await thumbnailFor("x.svg", dir, 16), { error: "anteprima non disponibile per SVG" });
 	assert.deepEqual(await thumbnailFor("bad.png", dir, 16, { maxBytes: 3 }), { error: "troppo grande per l'anteprima" });
 });
+
+test("halfBlocks averages each cell's area: a fine checkerboard becomes even grey, not a jagged pattern", () => {
+	const width = 64, height = 32;
+	const data = new Uint8Array(width * height * 4);
+	for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) data.set((x + y) % 2 ? [255, 255, 255, 255] : [0, 0, 0, 255], (y * width + x) * 4);
+	const colors = new Set(halfBlocks({ width, height, data }, 8).join("").match(/38;2;\d+;\d+;\d+/g));
+	assert.equal(colors.size, 1, [...colors].join(" "));
+	assert.match([...colors][0], /38;2;12[78];12[78];12[78]/);
+});
+
+test("thumbnailFor also returns the image as PNG base64 (for real terminal images), JPEG converted", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "pi-ui-img-"));
+	const image = pixels(16, 8);
+	writeFileSync(join(dir, "b.jpg"), jpeg.encode({ width: 16, height: 8, data: Buffer.from(image.data) }, 90).data);
+	const result = await thumbnailFor("b.jpg", dir, 16);
+	assert.ok("png" in result && result.png);
+	assert.equal(Buffer.from(result.png, "base64").subarray(1, 4).toString(), "PNG");
+	assert.deepEqual([result.width, result.height], [16, 8]);
+});
