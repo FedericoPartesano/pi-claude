@@ -4,11 +4,18 @@
  * - Status bar above the editor: PRONTO / AL LAVORO / TOCCA A TE / FERMO / FATTO, with what Pi is doing now.
  * - Prompt editor framed `╱─ PROMPT ──┐ … └──╱`, one-line footer (goal/loop/team, project, git, usage).
  * - Steps of a turn as one compact list, folded at the end of the turn unless the last step failed (ctrl+o opens it).
+ * - Images named in answers or read/written by tools appear as half-block thumbnails; /img lists and opens them.
+ * - `file:riga` in answers link to VS Code where the terminal supports links; answers start with ⬢.
  * Interactive TUI only; PI_UI=off turns it off (the theme stays selectable with /theme).
  */
-import { basename } from "node:path";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { basename, resolve } from "node:path";
 import { CustomEditor, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { Component, TUI } from "@earendil-works/pi-tui";
+import { getCapabilities, type Component, type TUI } from "@earendil-works/pi-tui";
+import { linkFileRefs, vscodeUrl, wslDistro } from "./src/answer.ts";
+import { renderImageEntry, thumbnailColumns } from "./src/image-entry.ts";
+import { findImageRefs, thumbnailFor, type Thumbnail } from "./src/images.ts";
 import { frameEditor } from "./src/editor.ts";
 import { phrase } from "./src/phrases.ts";
 import { completeStep, renderTurn, type Step } from "./src/steps.ts";
@@ -26,6 +33,16 @@ const resultText = (result: unknown) =>
 		.join("\n");
 
 const lower = (text: string) => text[0].toLowerCase() + text.slice(1);
+const IMAGE_FILE = /\.(png|jpe?g|gif|webp|svg|bmp)$/i;
+
+/** Opens a file with the desktop's viewer: Windows from WSL (wslview), Linux (xdg-open) or macOS (open). */
+async function openExternally(pi: ExtensionAPI, path: string): Promise<boolean> {
+	const found = await pi.exec("sh", ["-c", "command -v wslview || command -v xdg-open || command -v open"]).catch(() => undefined);
+	const opener = found?.stdout.trim().split("\n")[0];
+	if (!opener) return false;
+	const result = await pi.exec(opener, [path]).catch(() => undefined);
+	return result?.code === 0;
+}
 
 export default function (pi: ExtensionAPI) {
 	if (process.env.PI_UI === "off") return;
@@ -43,6 +60,32 @@ export default function (pi: ExtensionAPI) {
 	const argsOf = new Map<string, Record<string, unknown>>();
 	/** Columns kept free on the right while the session panel is open (part 5). */
 	let reservedRight = 0;
+	let cwd = process.cwd();
+
+	// Images of the session: shown once each, thumbnails cached per width.
+	const images: string[] = [];
+	const thumbnails = new Map<string, Thumbnail | undefined>();
+	const thumbnail = (ref: string, cols: number) => {
+		const key = `${cols}|${ref}`;
+		if (!thumbnails.has(key)) {
+			thumbnails.set(key, undefined);
+			void thumbnailFor(ref, cwd, cols).then((result) => {
+				thumbnails.set(key, result);
+				tui?.requestRender();
+			});
+		}
+		return thumbnails.get(key);
+	};
+	const noteImages = (refs: string[]) => {
+		if (process.env.PI_UI_IMAGES === "0") return;
+		for (const ref of refs) {
+			if (images.includes(ref)) continue;
+			const local = ref.startsWith("~/") ? `${homedir()}/${ref.slice(2)}` : resolve(cwd, ref);
+			if (!/^https?:\/\//i.test(ref) && !existsSync(local)) continue;
+			images.push(ref);
+			pi.appendEntry("pi-ui-image", { ref });
+		}
+	};
 
 	const update = (event: StatusEvent) => {
 		status = nextStatus(status, event);
@@ -64,6 +107,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx: ExtensionContext) => {
 		if (ctx.mode !== "tui") return;
 		active = true;
+		cwd = ctx.cwd;
 		ctx.ui.setWorkingVisible(false);
 		ctx.ui.setWidget("pi-ui-status", (widgetTui) => {
 			tui = widgetTui;
@@ -112,15 +156,20 @@ export default function (pi: ExtensionAPI) {
 	pi.on("tool_execution_end", (event) => {
 		if (!active || event.parentToolCallId) return;
 		const isTestRun = event.toolName === "bash" && /test/.test(phrase("bash", argsOf.get(event.toolCallId)).text);
-		argsOf.delete(event.toolCallId);
 		const failed = event.toolName === "bash" ? checkOutcome(resultText(event.result), event.isError, isTestRun).failed : event.isError;
 		update({ type: "tool_end", failed });
+		// Images a tool read or wrote (not every path in its output: an ls of a folder would flood the chat).
+		const path = String(argsOf.get(event.toolCallId)?.path ?? "");
+		if (!event.isError && IMAGE_FILE.test(path)) noteImages([path]);
+		argsOf.delete(event.toolCallId);
 	});
 	pi.on("message_end", (event) => {
 		const message = event.message as { role?: string; usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number } };
 		if (!active || message.role !== "assistant" || !message.usage) return;
 		const usage = message.usage;
 		update({ type: "usage", input: (usage.input ?? 0) + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0), output: usage.output ?? 0 });
+		const content = (event.message as { content?: { type: string; text?: string }[] }).content ?? [];
+		noteImages(findImageRefs(content.filter((block) => block.type === "text").map((block) => block.text ?? "").join("\n")));
 	});
 	// The outcome (completed / aborted / error) is only known at the last boundary before settling.
 	pi.on("agent_before_settle", (event) => {
@@ -166,6 +215,45 @@ export default function (pi: ExtensionAPI) {
 				return { render: () => [], invalidate() {} };
 			},
 		};
+	});
+
+	pi.registerEntryRenderer<{ ref: string }>("pi-ui-image", (entry) => ({
+		render: (width: number) => {
+			const ref = entry.data?.ref ?? "";
+			return renderImageEntry(ref, thumbnail(ref, thumbnailColumns(width)), width);
+		},
+		invalidate() {},
+	}));
+
+	pi.registerCommand("img", {
+		description: "Immagini della sessione: anteprima e apertura a piena qualità (Invio)",
+		handler: async (_args, ctx) => {
+			if (images.length === 0) return ctx.ui.notify("Nessuna immagine in questa sessione.", "info");
+			const [{ pick }, { listSource }] = await Promise.all([import("../pi-picker/src/pick.ts"), import("../pi-picker/src/sources.ts")]);
+			const items = [...images].reverse().map((ref) => ({ value: ref, label: ref }));
+			const chosen = await pick(ctx, {
+				title: "Immagini della sessione",
+				source: listSource(items),
+				rawPreview: true,
+				preview: async (item) => {
+					const result = await thumbnailFor(item.value, cwd, 36);
+					return "lines" in result ? [...result.lines, "", result.info].join("\n") : result.error;
+				},
+			});
+			const ref = chosen?.[0];
+			if (!ref) return;
+			const result = await thumbnailFor(ref, cwd, 8);
+			const path = "path" in result ? result.path : resolve(cwd, ref);
+			if (!(await openExternally(pi, path))) ctx.ui.notify(`Non riesco ad aprire ${path}: installa wslu (wslview) o xdg-utils.`, "warning");
+		},
+	});
+
+	// Answers: ⬢ in front, file:riga as VS Code links where the terminal shows links (never printed as raw URLs).
+	pi.registerMarkdownTransformer((markdown, context) => {
+		if (!active || context.messageType !== "assistant" || !markdown.trim()) return markdown;
+		let out = markdown;
+		if (!context.isStreaming && getCapabilities().hyperlinks) out = linkFileRefs(out, cwd, (path, line) => vscodeUrl(path, line, wslDistro()));
+		return /^\s*(#|[-*+] |\d+\.|```|>|\|)/.test(out) ? out : `⬢ ${out.trimStart()}`;
 	});
 
 	pi.on("session_shutdown", () => {

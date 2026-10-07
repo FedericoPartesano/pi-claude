@@ -97,3 +97,13 @@ test("mouse click picks a row, wheel scrolls", async () => {
 	picker.handleMouse({ type: "click", button: "left", x: 5, y: row, screenX: 5, screenY: row, width: 80, height: lines.length, shift: false, alt: false, ctrl: false, clickCount: 1 });
 	assert.deepEqual(results, [["package.json"]]);
 });
+
+test("rawPreview keeps the preview's own colors and still fits the pane", async () => {
+	const red = "\x1b[38;2;255;0;0m\x1b[48;2;0;0;255m▀\x1b[0m".repeat(80);
+	const results: (string[] | undefined)[] = [];
+	const picker = new PickerComponent({ title: "Img", source: tree(), preview: () => red, rawPreview: true, maxVisible: 5 }, plain, (result) => results.push(result), () => {});
+	await picker.load();
+	const lines = picker.render(120);
+	assert.ok(lines.some((line) => line.includes("\x1b[38;2;255;0;0m")), "colors kept");
+	for (const line of lines) assert.equal(visibleWidth(line), 120);
+});

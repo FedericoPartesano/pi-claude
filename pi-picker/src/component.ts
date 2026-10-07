@@ -23,6 +23,8 @@ export interface PickerOptions {
 	preview?: (item: PickerItem) => string | undefined | Promise<string | undefined>;
 	/** List rows (default 12). */
 	maxVisible?: number;
+	/** The preview is trusted ANSI made by code (e.g. an image thumbnail): keep its colors instead of sanitizing it. */
+	rawPreview?: boolean;
 }
 
 export const PREVIEW_MIN_WIDTH = 100;
@@ -180,7 +182,9 @@ export class PickerComponent implements Component, Focusable {
 		const listWidth = withPreview ? Math.floor((inner - 3) * 0.6) : inner;
 		const previewWidth = inner - listWidth - 3;
 		const current = model.current();
-		const previewLines = withPreview && current ? sanitize(this.previewOf(current) ?? "").split("\n") : [];
+		const rawPreview = this.options.rawPreview === true;
+		const previewText = withPreview && current ? (this.previewOf(current) ?? "") : "";
+		const previewLines = previewText ? (rawPreview ? previewText : sanitize(previewText)).split("\n") : [];
 
 		const body: string[] = [];
 		for (let index = 0; index < this.maxVisible; index++) {
@@ -188,7 +192,8 @@ export class PickerComponent implements Component, Focusable {
 			let text = "";
 			if (item) text = this.itemText(item, item === current, listWidth);
 			else if (index === 0) text = theme.fg("muted", this.loaded ? (model.query ? "nessun risultato" : "(vuoto)") : "caricamento…");
-			body.push(row(withPreview ? `${pad(text, listWidth)} ${border("│")} ${theme.fg("muted", pad(previewLines[index] ?? "", previewWidth))}` : text));
+			const preview = truncateToWidth(previewLines[index] ?? "", previewWidth, "");
+			body.push(row(withPreview ? `${pad(text, listWidth)} ${border("│")} ${rawPreview ? pad(preview, previewWidth) : theme.fg("muted", pad(preview, previewWidth))}` : text));
 		}
 
 		const count = items.length === 0 ? "0" : `${model.cursor + 1}/${items.length}`;
