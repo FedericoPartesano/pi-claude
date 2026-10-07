@@ -43,6 +43,8 @@ export const UNRELATED: string[] = [
 	"suggeriscimi una ricetta per la carbonara", "chi ha vinto i mondiali del 2006?", "spiegami la teoria della relatività", "consigliami un film di fantascienza", "come si coltiva il basilico?",
 	"raccontami una barzelletta", "quanti abitanti ha Tokyo?", "cos'è la fotosintesi?", "dammi un consiglio per dormire meglio", "chi ha dipinto la Gioconda?",
 	"ciao, come stai?", "ok grazie", "come si inverte una stringa in Python?", "spiega la differenza tra let e const", "cos'è la complessità computazionale di un algoritmo di ordinamento?",
+	// Near-domain unrelated: questions about data and explanations of code, no change requested (the first one was a measured false positive).
+	"Quanti libri del genere giallo ci sono in data/books.csv? Rispondi solo con il numero", "Quante righe ha il file data/clienti.csv?", "Spiega cosa fa la funzione calcolaTotale in src/utils.ts, senza modificarla", "Che differenza c'è tra un database relazionale e uno a documenti?", "Cosa significa l'errore TypeError: undefined is not a function? Non toccare il codice",
 ];
 
 const TOPICS = "fatturazione magazzino ordini spedizioni pagamenti catalogo report notifiche ricerca permessi esportazione audit backup monitoraggio mobile frontend scheduler code resi fornitori promozioni contratti inventario fidelity assistenza analytics archivio workflow integrazioni dashboard".split(" ");
@@ -87,6 +89,7 @@ export interface Metrics {
 	recallParaphrase: number;
 	recallAll: number;
 	falsePositives: number;
+	falsePositiveQueries: string[];
 	falsePositiveRate: number;
 	meanTokensRelevant: number;
 	maxTokens: number;
@@ -106,6 +109,7 @@ export async function evaluate(embedder: Embedder | undefined, threshold: number
 	const idOfTarget = (i: number) => records.find((record) => record.text === TARGETS[i].text)!.id;
 	const hitsBy = { lexical: 0, paraphrase: 0 };
 	let falsePositives = 0;
+	const falsePositiveQueries: string[] = [];
 	let tokens = 0;
 	let relevantRuns = 0;
 	let maxTokens = 0;
@@ -118,7 +122,10 @@ export async function evaluate(embedder: Embedder | undefined, threshold: number
 		const used = hits.length === 0 ? 0 : Math.min(chars, 1080) / 3.6;
 		maxTokens = Math.max(maxTokens, used);
 		if (query.kind === "unrelated") {
-			if (hits.length > 0) falsePositives++;
+			if (hits.length > 0) {
+				falsePositives++;
+				falsePositiveQueries.push(`${query.q} -> ${hits.map((hit) => `${hit.record.text.slice(0, 40)} (${hit.score.toFixed(2)})`).join(" | ")}`);
+			}
 		} else {
 			relevantRuns++;
 			tokens += used;
@@ -131,6 +138,7 @@ export async function evaluate(embedder: Embedder | undefined, threshold: number
 		recallParaphrase: hitsBy.paraphrase / n,
 		recallAll: (hitsBy.lexical + hitsBy.paraphrase) / (2 * n),
 		falsePositives,
+		falsePositiveQueries,
 		falsePositiveRate: falsePositives / UNRELATED.length,
 		meanTokensRelevant: tokens / relevantRuns,
 		maxTokens,

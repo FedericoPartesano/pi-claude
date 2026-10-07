@@ -33,14 +33,20 @@ const row = (floor: number, threshold: number, m: Awaited<ReturnType<typeof eval
 	`floor ${floor.toFixed(2)} thr ${threshold.toFixed(2)} | recall@5 lex ${m.recallLexical.toFixed(2)} para ${m.recallParaphrase.toFixed(2)} all ${m.recallAll.toFixed(2)} | FP ${m.falsePositives}/${UNRELATED.length} | tok mean ${m.meanTokensRelevant.toFixed(0)} max ${m.maxTokens.toFixed(0)} | recall ms mean ${m.recallMsMean.toFixed(1)} max ${m.recallMsMax.toFixed(1)}`;
 const profile = MODELS[key];
 const run = (floor: number, span: number, threshold: number) => evaluate({ embed: embedder.embed.bind(embedder), semFloor: floor, semSpan: span }, threshold, prepared);
-console.log("\nGrid (rows with at most 1 false positive):");
+console.log("\nGrid (rows with 0 false positives and recall@5 >= 0.8):");
 for (const floor of [profile.semFloor - 0.1, profile.semFloor - 0.05, profile.semFloor, profile.semFloor + 0.05, profile.semFloor + 0.1]) {
 	for (const span of [profile.semSpan * 0.5, profile.semSpan * 0.75, profile.semSpan, profile.semSpan * 1.5]) {
-		for (const threshold of [0.35, 0.4, 0.45]) {
+		for (const threshold of [0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7]) {
 			const m = await run(floor, span, threshold);
-			if (m.falsePositives <= 1) console.log(`span ${span.toFixed(2)} ` + row(floor, threshold, m));
+			if (m.falsePositives <= 1 && m.recallAll >= 0.75) console.log(`span ${span.toFixed(2)} ` + row(floor, threshold, m));
 		}
 	}
 }
 console.log(`\nDEFAULT (floor ${profile.semFloor}, span ${profile.semSpan}, thr ${DEFAULT_THRESHOLD}):`);
 console.log(row(profile.semFloor, DEFAULT_THRESHOLD, await run(profile.semFloor, profile.semSpan, DEFAULT_THRESHOLD)));
+
+const base = await run(profile.semFloor, profile.semSpan, DEFAULT_THRESHOLD);
+for (const line of base.falsePositiveQueries) console.log(`  FP: ${line}`);
+
+console.log("\nThreshold sweep at the default floor/span:");
+for (const threshold of [0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75]) console.log(row(profile.semFloor, threshold, await run(profile.semFloor, profile.semSpan, threshold)));

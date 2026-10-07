@@ -239,3 +239,16 @@ effetto su token o avvio, ma pesa sul disco.
   diventano aggiunte, il prompt dice quali id esistono, e una risposta vuota o tutta scartata non fa avanzare lo stato
   (la risposta grezza resta in `.pi/dream-proposal.md`).
 - Prima della correzione fino a 8 tentativi su 8 fallivano in alcuni casi; dopo: 1 esecuzione, 0 fallimenti su 10.
+
+## Domande di sola lettura: soglia più alta (2026-10-07)
+
+Falso positivo misurato: "Quanti libri del genere giallo ci sono in data/books.csv?" richiamava un ricordo sui CSV.
+Nessuna soglia unica lo elimina senza perdere richiamo sulle parafrasi (sweep: 0,35 → para 0,70; 0,45 → 0,40;
+0,75 → 0,00). Quindi `classifyRequest` (euristica locale, nessuna chiamata al modello) riconosce le domande di sola
+lettura e solo per loro la soglia sale a `INQUIRY_THRESHOLD = 0,75`.
+
+Benchmark (`npm run bench` in `pi-memory/`, 5 domande "vicine al dominio" aggiunte ai casi estranei):
+recall@5 lessicale 1,00 · parafrasi 0,70 · totale 0,85 · **falsi positivi 0/25** · 59 token medi iniettati.
+
+Preparato ma non ancora collegato all'estensione: `scope` dei ricordi (`sempre`/`contesto`, dedotto per i record
+vecchi), `alwaysRules` e `composeRecall` per far viaggiare al massimo 3 regole trasversali con ogni richiesta di modifica.

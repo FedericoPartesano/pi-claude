@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { join } from "node:path";
 import { parseMemory } from "../../extensions/memory-core.ts";
 import { extractEntities } from "./entities.ts";
+import { inferScope, type MemoryScope } from "./request.ts";
 
 export interface MemoryRecord {
 	id: string;
@@ -17,6 +18,8 @@ export interface MemoryRecord {
 	reason?: string;
 	entities: string[];
 	source?: string;
+	/** sempre = holds for any code change in the project; contesto (default) = only when relevant. */
+	scope?: MemoryScope;
 }
 
 export interface Store {
@@ -37,7 +40,7 @@ export function loadStore(dir: string, idPrefix = ""): Store {
 			if (!line.trim()) continue;
 			try {
 				const record = JSON.parse(line) as MemoryRecord;
-				records.push({ ...record, id: idPrefix + record.id, entities: record.entities ?? [] });
+				records.push({ ...record, id: idPrefix + record.id, entities: record.entities ?? [], scope: record.scope ?? inferScope(record.type, record.text) });
 			} catch {
 				// A corrupt line must not lose the others.
 			}

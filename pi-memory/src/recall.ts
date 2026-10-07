@@ -2,6 +2,7 @@
 import { strength } from "./strength.ts";
 import type { MemoryRecord } from "./store.ts";
 import { extractEntities } from "./entities.ts";
+import { classifyRequest } from "./request.ts";
 
 /** ~300 tokens (about 3.6 chars per token) at most. */
 export const RECALL_BUDGET_CHARS = 1080;
@@ -9,6 +10,12 @@ export const RECALL_LIMIT = 5;
 /** The always-present core (pinned memories only): ~100 tokens. */
 export const CORE_BUDGET_CHARS = 400;
 export const DEFAULT_THRESHOLD = 0.35;
+/**
+ * Read-only inquiries ("quante righe ha il file X", "che differenza c'è tra…") share words with memories without needing
+ * them. Measured: no single threshold removes those false positives without losing paraphrase recall (see
+ * eval/MEMORY-REPORT.md), so for them only strong evidence counts.
+ */
+export const INQUIRY_THRESHOLD = 0.75;
 const SEM_WEIGHT = 0.7;
 const RELATIVE_CUT = 0.6;
 
@@ -100,6 +107,8 @@ export interface RecallOptions {
 	/** Cosine range above the floor mapped to full similarity (default: up to cosine 1). */
 	semSpan?: number;
 	threshold?: number;
+	/** Threshold for read-only inquiries (default INQUIRY_THRESHOLD; 0 = same as threshold, e.g. /ricorda). */
+	inquiryThreshold?: number;
 	limit?: number;
 	includeSuperseded?: boolean;
 	/** Ids never returned (already present elsewhere in the context). */
@@ -113,7 +122,8 @@ const dot = (a: Float32Array, b: Float32Array) => {
 };
 
 export function recall(index: RecallIndex, query: string, options: RecallOptions): { hits: Scored[] } {
-	const threshold = options.threshold ?? DEFAULT_THRESHOLD;
+	const base = options.threshold ?? DEFAULT_THRESHOLD;
+	const threshold = classifyRequest(query) === "inquiry" ? Math.max(base, options.inquiryThreshold ?? INQUIRY_THRESHOLD) : base;
 	const floor = options.semFloor ?? 0.15;
 	const span = options.semSpan ?? 1 - floor;
 	const withVectors = Boolean(options.queryVector && options.vectors && options.vectors.size > 0);
