@@ -471,8 +471,8 @@ export default function (pi: ExtensionAPI) {
 	pi.registerShortcut(panelKey as Parameters<typeof pi.registerShortcut>[0], { description: "Pannello della sessione: goal/loop/team, file, test, immagini, uso", handler: togglePanel });
 	pi.registerCommand("pannello", { description: `Apre o chiude il pannello della sessione (come ${panelKey})`, handler: async (_args, ctx) => togglePanel(ctx) });
 
-	// /riavvia: full restart on the same conversation (Pi's /reload only reloads resources inside this process).
-	pi.registerCommand("riavvia", {
+	// /custom-reload: full restart on the same conversation (Pi's /reload only reloads resources inside this process).
+	pi.registerCommand("custom-reload", {
 		description: "Riavvia Pi da capo (estensioni, bridge, impostazioni) e riapre questa conversazione",
 		handler: async (_args, ctx) => {
 			if (process.env.PI_UI_LOOP !== "1") {

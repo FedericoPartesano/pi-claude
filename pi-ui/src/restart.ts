@@ -1,6 +1,6 @@
 /**
- * /riavvia: a full restart that reopens the same conversation. A process cannot restart itself on the same terminal, so
- * Pi writes which session and folder to reopen and quits; the launcher loop (shell/pi-riavvia.sh, bin/pi-full) reads the
+ * /custom-reload: a full restart that reopens the same conversation. A process cannot restart itself on the same terminal, so
+ * Pi writes which session and folder to reopen and quits; the launcher loop (shell/pi-custom-reload.sh, bin/pi-full) reads the
  * request and starts `pi --session <file>` again in that folder.
  */
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";

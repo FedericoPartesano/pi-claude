@@ -1,6 +1,6 @@
-# pi-ui: /riavvia restarts Pi completely and reopens the same conversation.
+# pi-ui: /custom-reload restarts Pi completely and reopens the same conversation.
 # Pi writes the session and folder to reopen in $PI_UI_RESTART_FILE and quits; this loop starts it again.
-# Loaded from ~/.bashrc by install.sh:  source <repo>/pi-ui/shell/pi-riavvia.sh
+# Loaded from ~/.bashrc by install.sh:  source <repo>/pi-ui/shell/pi-custom-reload.sh
 pi() {
 	local file="${PI_UI_RESTART_FILE:-$HOME/.pi/agent/pi-ui-restart}"
 	rm -f "$file"

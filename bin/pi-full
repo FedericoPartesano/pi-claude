@@ -28,7 +28,7 @@ for ext in "${EXTENSIONS[@]}"; do
   [ -e "$ext" ] || { echo "pi-full: manca $ext — rilancia $REPO/install.sh" >&2; exit 1; }
   args+=(-e "$ext")
 done
-# /riavvia (pi-ui): Pi writes the session to reopen and quits; start it again with the same extensions.
+# /custom-reload (pi-ui): Pi writes the session to reopen and quits; start it again with the same extensions.
 RESTART="${PI_UI_RESTART_FILE:-$A/pi-ui-restart}"
 rm -f "$RESTART"
 PI_UI_LOOP=1 pi "${args[@]}" "$@"
