@@ -18,6 +18,7 @@ import { basename, resolve } from "node:path";
 import { CustomEditor, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getCapabilities, type Component, type TUI } from "@earendil-works/pi-tui";
 import { linkFileRefs, vscodeUrl, wslDistro } from "./src/answer.ts";
+import { CHART_PROMPT, extractCharts, renderChart, type ChartSpec } from "./src/charts.ts";
 import { renderImageEntry, thumbnailColumns } from "./src/image-entry.ts";
 import { findImageRefs, thumbnailFor, type Thumbnail } from "./src/images.ts";
 import { C, bold, fg, fit, label } from "./src/palette.ts";
@@ -281,6 +282,8 @@ export default function (pi: ExtensionAPI) {
 		const text = content.filter((block) => block.type === "text").map((block) => block.text ?? "").join("\n");
 		if (text.trim()) lastAnswer = text;
 		noteImages(findImageRefs(extractSuggestions(text).text));
+		// Charts written by the model: drawn under the answer (the block itself is hidden by the transformer).
+		if (process.env.PI_UI_CHARTS !== "0") for (const chart of extractCharts(text).charts) pi.appendEntry("pi-ui-chart", { chart });
 	});
 	// The outcome (completed / aborted / error) is only known at the last boundary before settling.
 	pi.on("agent_before_settle", (event) => {
@@ -355,6 +358,16 @@ export default function (pi: ExtensionAPI) {
 		invalidate() {},
 	}));
 
+	pi.registerEntryRenderer<{ chart: ChartSpec }>("pi-ui-chart", (entry) => ({
+		render: (width: number) => {
+			if (!entry.data?.chart) return [];
+			// Full-width lines (and room for the open panel): see renderImageEntry.
+			const room = width - (width >= 100 ? reservedRight : 0);
+			return ["", ...renderChart(entry.data.chart, room).map((line) => line + " ".repeat(Math.max(0, width - room)))];
+		},
+		invalidate() {},
+	}));
+
 	pi.registerEntryRenderer<{ items: string[] }>("pi-ui-suggestions", (entry) => ({
 		render: (width: number) => (entry.data?.items?.length ? ["", renderSuggestions(entry.data.items, width)] : []),
 		invalidate() {},
@@ -363,6 +376,7 @@ export default function (pi: ExtensionAPI) {
 	// The suggestions instruction (about 70 tokens, cached with the system prompt).
 	pi.on("before_agent_start", (event) => {
 		if (active && process.env.PI_UI_SUGGEST !== "0") event.systemPromptOptions.sections.suggerimenti = SUGGESTION_PROMPT;
+		if (active && process.env.PI_UI_CHARTS !== "0") event.systemPromptOptions.sections.grafici = CHART_PROMPT;
 		return undefined;
 	});
 
@@ -439,6 +453,10 @@ export default function (pi: ExtensionAPI) {
 		if (context.messageType !== "assistant") return markdown;
 		// The suggestions block is shown under the turn, not in the answer (while streaming, cut a half-written mark too).
 		let out = extractSuggestions(markdown).text;
+		out = extractCharts(out).text;
+		// A chart block still being written: hide it until it is complete.
+		const open = out.search(/```(?:grafico|chart)\b/);
+		if (context.isStreaming && open >= 0) out = `${out.slice(0, open)}▦ *preparo un grafico…*`;
 		const partial = out.lastIndexOf("<!--");
 		if (context.isStreaming && partial >= 0 && SUGGESTION_MARK.startsWith(out.slice(partial).trim())) out = out.slice(0, partial).trimEnd();
 		if (!out.trim()) return out;
