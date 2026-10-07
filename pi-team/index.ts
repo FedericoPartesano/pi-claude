@@ -17,6 +17,7 @@ import { runTeamPlan, renderReport } from "./src/orchestrator.ts";
 import { renderPlan, validatePlan, type TeamPlan } from "./src/plan.ts";
 import { loadRoles } from "./src/roles.ts";
 import { CHILD_ENVIRONMENT_FLAG, runAgent } from "./src/runner.ts";
+import { snapshotFiles } from "./src/scope.ts";
 import { runVerifyCommands } from "./src/verify.ts";
 
 const TeamTaskSchema = Type.Object({
@@ -26,6 +27,7 @@ const TeamTaskSchema = Type.Object({
 	instructions: Type.String({ description: "Self-contained instructions: the agent sees only these, the goal and its dependencies' results" }),
 	dependsOn: Type.Optional(Type.Array(Type.String(), { description: "Ids of tasks that must finish first" })),
 	verify: Type.Optional(Type.Array(Type.String(), { description: "Shell commands that must exit 0 after the task (tests, build, a node -e check)" })),
+	files: Type.Optional(Type.Array(Type.String(), { description: "Files (or folders ending with /) a writer task may change; writers with disjoint files run in parallel" })),
 });
 
 const TeamPlanSchema = Type.Object({
@@ -70,10 +72,12 @@ export default function (pi: ExtensionAPI) {
 			"Delegate a multi-step job to a team of specialized sub-agents. You are the manager: split the job into small,",
 			"self-contained tasks, pick a role for each, order them with dependsOn, and give every task that changes files",
 			"a verify command (tests, build, a `node -e` assertion). The code runs the plan: it asks the user to approve it,",
-			"runs tasks (read-only roles in parallel, writers one at a time), re-runs failed checks with the error up to 3",
+			"runs tasks (read-only roles in parallel, writers in parallel only on disjoint files), re-runs failed checks with the error up to 3",
 			"times, runs finalVerify with corrective rounds, asks the reviewer, and returns a report. Checks decide success,",
 			"not the agents' claims. Use it for jobs with several distinct parts; do small edits yourself.",
 			"A plan needs 2+ separable tasks: a one-task plan is rejected (do that work yourself).",
+			"Give every implementer/tester task its `files`: writers with disjoint files run in parallel, without files one at a time.",
+			"Split work by file so tasks do not share files (e.g. one task per module with its own test file).",
 			"Plan from the request and at most a quick look (ls, one grep): do not read the code in depth before calling",
 			"the team, agents read what they need. Put open questions in a scout task (cheap model) that others depend on.",
 			"Prefer task verify commands scoped to the task (e.g. `node --test test/cart.test.js`). Final checks that already",
@@ -110,6 +114,7 @@ export default function (pi: ExtensionAPI) {
 				signal,
 				runAgent,
 				runVerify: runVerifyCommands,
+				snapshotFiles,
 				onProgress: (line) => {
 					progressLines.push(line);
 					onUpdate?.({ content: [{ type: "text", text: progressLines.slice(-12).join("\n") }], details: undefined });

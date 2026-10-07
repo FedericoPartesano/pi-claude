@@ -9,6 +9,8 @@ export interface TeamTask {
 	title: string;
 	instructions: string;
 	dependsOn?: string[];
+	/** Files (or folders ending with "/") the task may change: writers with disjoint files run in parallel. */
+	files?: string[];
 	/** Shell commands that must succeed after the task (run by code, not by the agent). */
 	verify?: string[];
 }

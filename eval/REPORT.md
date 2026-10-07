@@ -333,3 +333,17 @@ In 3 casi su 6 il piano da un compito è stato respinto e il manager ha fatto da
 si inverte: anche su 7 parti Pi da solo riesce e costa meno. Il team scrive più test (+40–50%).
 Il tempo è dominato dagli implementer in serie (chi scrive non va mai in parallelo): è il prossimo margine.
 Residuo: in tc01 il manager rilancia ancora 3 comandi dopo il report (54k su 90k).
+
+### Implementer in parallelo (file dichiarati) — 2026-10-07
+
+Compiti che scrivono con `files` disgiunti girano insieme (ondate); i controlli di ogni compito partono a ondata
+finita; i file cambiati fuori da tutti i `files` dell'ondata sono un avviso nel report (git vede cosa cambia, non chi).
+
+| Caso | Pi da solo | Team in serie | Team in parallelo |
+|---|---|---|---|
+| tl01 | 52,0k · 44 s | 93,2k · 101 s | 112,6k · 88 s (6 implementer) |
+| tl02 | 121,6k · 120 s | 158,9k · 147 s | 170,9k · **129 s** (6 implementer, avviso `data/report.md`) |
+
+Il parallelo toglie ~13% di tempo (tempo agenti 95 s / 165 s in 88 s / 129 s reali), ma i piani diventano più
+fini (6 compiti) e costano un po' più token; le catene di dipendenze limitano le ondate. Su tl02 il team arriva
+vicino a Pi da solo sul tempo (129 s contro 120 s) con 1,4× i token. Qualità uguale (tutti riusciti), più test.
