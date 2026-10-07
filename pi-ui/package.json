@@ -1,0 +1,29 @@
+{
+  "name": "pi-ui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Neon Night chat for Pi: status bar, framed prompt, one-line footer, compact steps, image thumbnails, suggestions and session panel",
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "themes": [
+      "./themes/*.json"
+    ]
+  },
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "check": "tsc -p ."
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "1.0.4",
+    "@earendil-works/pi-tui": "1.0.4",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}

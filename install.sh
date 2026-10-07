@@ -83,6 +83,7 @@ step "Dipendenze dei pacchetti"
 deps "$REPO/pi-claude-code"
 deps "$REPO/pi-picker"
 deps "$REPO/pi-memory"
+deps "$REPO/pi-ui"
 [ "$EXTRAS" = 1 ] && deps "$REPO/pi-team"
 
 step "Pacchetti Pi"
@@ -90,6 +91,8 @@ pi install "$REPO/pi-claude-code" >/dev/null
 ok "pi-claude-code"
 pi install "$REPO/pi-picker" >/dev/null
 ok "pi-picker (Alt+O, /pick)"
+pi install "$REPO/pi-ui" >/dev/null
+ok "pi-ui (chat Neon Night: barra di stato, prompt, footer)"
 if [ "$EXTRAS" = 1 ]; then
   for pkg in "${EXTRA_PACKAGES[@]}"; do
     pi install "$pkg" >/dev/null
@@ -107,6 +110,9 @@ const before = JSON.stringify(s);
 s.defaultProvider ??= "claude-code";
 s.defaultModel ??= "sonnet";
 s.defaultThinkingLevel ??= "medium";
+// pi-ui: Neon Night theme and no resource listing at startup, unless the user chose otherwise.
+s.theme ??= "neon-night";
+s.quietStartup ??= true;
 if (process.env.EXTRAS === "1") {
   s.packages = (s.packages ?? []).map((p) => {
     const source = typeof p === "string" ? p : p.source;
@@ -117,7 +123,7 @@ if (JSON.stringify(s) !== before) {
   if (fs.existsSync(file)) fs.copyFileSync(file, `${file}.bak-install`);
   fs.writeFileSync(file, JSON.stringify(s, null, 2) + "\n");
 }
-console.log(`    provider ${s.defaultProvider}/${s.defaultModel}, thinking ${s.defaultThinkingLevel}`);
+console.log(`    provider ${s.defaultProvider}/${s.defaultModel}, thinking ${s.defaultThinkingLevel}, tema ${s.theme}`);
 JS
 
 if [ "$HOOKS" = 1 ]; then
