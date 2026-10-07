@@ -18,7 +18,8 @@ export const CHART_PROMPT = [
 	"Quando dei numeri si capiscono meglio in un grafico (andamenti, confronti, distribuzioni), aggiungi alla risposta un blocco",
 	"```grafico con un JSON, e Pi lo disegna nel terminale:",
 	'{"tipo": "barre" | "barre-orizzontali" | "linee", "titolo": "…", "etichette": ["…"], "serie": [{"nome": "…", "valori": [1, 2]}], "unita": "…"}',
-	"Al massimo 40 valori per serie; usa i dati veri, senza inventarli.",
+	"Se l'utente chiede un grafico usa sempre questo blocco: niente script, ASCII art o barre stampate con un tool (l'output dei tool è piegato e non si vede).",
+	"Al massimo 40 valori per serie; usa i dati veri, senza inventarli (se servono, calcolali prima con un tool).",
 ].join("\n");
 
 const TYPES: Record<string, ChartSpec["type"]> = { barre: "bar", bar: "bar", colonne: "bar", "barre-orizzontali": "hbar", hbar: "hbar", orizzontali: "hbar", linee: "line", linea: "line", line: "line" };
