@@ -1,7 +1,7 @@
-/** Neon Night palette (Claude Design review) and the ANSI helpers pi-ui renders with. */
+/** pi-ui palettes (Neon Night from the Claude Design review, lilla from the user's WezTerm) and ANSI helpers. */
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
-export const C = {
+const NEON_NIGHT = {
 	bg: "#0c0c0c",
 	panel: "#13121a",
 	userBg: "#1c1326",
@@ -19,7 +19,45 @@ export const C = {
 	addBg: "#0e2a20",
 	del: "#ff8fa8",
 	delBg: "#2f1220",
-} as const;
+};
+
+export type Palette = typeof NEON_NIGHT;
+
+/** The pastels of the user's WezTerm theme (background #1C2023): panels are lighter than the background, not darker. */
+const LILLA: Palette = {
+	bg: "#1C2023",
+	panel: "#262b30",
+	userBg: "#2b2635",
+	text: "#C7CCD1",
+	dim: "#8a929a",
+	faint: "#555d65",
+	border: "#383f45",
+	mag: "#AE95C7",
+	cyan: "#95AEC7",
+	yel: "#C7AE95",
+	ok: "#95C7AE",
+	warn: "#d9b98f",
+	err: "#d98fa8",
+	add: "#95C7AE",
+	addBg: "#1f2e29",
+	del: "#d98fa8",
+	delBg: "#33242c",
+};
+
+export const PALETTES: Record<string, Palette> = { "neon-night": NEON_NIGHT, lilla: LILLA };
+
+/** Current colors. Renderers read them at render time, so switching the palette recolors everything. */
+export const C: Palette = { ...NEON_NIGHT };
+let current = "neon-night";
+
+/** Uses the palette of Pi's theme (neon-night or lilla; neon for any other theme). Returns whether it changed. */
+export function usePalette(themeName: string | undefined): boolean {
+	const name = themeName && PALETTES[themeName] ? themeName : "neon-night";
+	if (name === current) return false;
+	current = name;
+	Object.assign(C, PALETTES[name]);
+	return true;
+}
 
 const rgb = (hex: string) => [1, 3, 5].map((index) => parseInt(hex.slice(index, index + 2), 16)).join(";");
 export const fg = (color: string, text: string) => `\x1b[38;2;${rgb(color)}m${text}\x1b[39m`;

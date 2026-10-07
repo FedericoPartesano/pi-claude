@@ -21,7 +21,7 @@ import { linkFileRefs, vscodeUrl, wslDistro } from "./src/answer.ts";
 import { CHART_PROMPT, extractCharts, renderChart, type ChartSpec } from "./src/charts.ts";
 import { renderImageEntry, thumbnailColumns } from "./src/image-entry.ts";
 import { findImageRefs, thumbnailFor, type Thumbnail } from "./src/images.ts";
-import { C, bold, fg, fit, label } from "./src/palette.ts";
+import { C, bold, fg, fit, label, usePalette } from "./src/palette.ts";
 import { PANEL_KEY, PANEL_WIDTH, parseNumstat, parsePorcelain, renderPanel, type ChangedFile } from "./src/panel.ts";
 import { shouldNotify, toastScript } from "./src/notify.ts";
 import { answerFor, dangerReason } from "./src/permission.ts";
@@ -200,9 +200,14 @@ export default function (pi: ExtensionAPI) {
 			),
 		);
 		ctx.ui.setWidget("pi-ui-thinking", () => line_((width) => (status.mode === "working" ? renderThinkingBox(liveThinking, width) : [])), { placement: "aboveEditor" });
+		usePalette(ctx.ui.theme.name);
 		ctx.ui.setWidget("pi-ui-status", (widgetTui) => {
 			tui = widgetTui;
-			return line((width) => renderStatusBar(status, width, Date.now(), frame));
+			return line((width) => {
+				// The palette follows Pi's theme (/theme neon-night or lilla): on a switch, redraw everything once.
+				if (usePalette(ctx.ui.theme.name)) widgetTui.requestRender();
+				return renderStatusBar(status, width, Date.now(), frame);
+			});
 		}, { placement: "aboveEditor" });
 		ctx.ui.setEditorComponent((editorTui, theme, keybindings) => new PromptEditor(editorTui, theme, keybindings));
 		ctx.ui.setFooter((footerTui, _theme, footerData) => {

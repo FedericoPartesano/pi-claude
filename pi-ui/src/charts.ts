@@ -23,7 +23,8 @@ export const CHART_PROMPT = [
 
 const TYPES: Record<string, ChartSpec["type"]> = { barre: "bar", bar: "bar", colonne: "bar", "barre-orizzontali": "hbar", hbar: "hbar", orizzontali: "hbar", linee: "line", linea: "line", line: "line" };
 const MAX_POINTS = 60;
-const SERIES_COLORS = [C.cyan, C.mag, C.yel, C.ok];
+/** Series colors of the current palette (read at render time: the palette follows the theme). */
+const seriesColor = (index: number) => [C.cyan, C.mag, C.yel, C.ok][index % 4];
 
 /** JSON of a ```grafico block → spec (Italian or English keys), or the reason it cannot be drawn. */
 function normalize(raw: Record<string, unknown>): ChartSpec | string {
@@ -77,7 +78,7 @@ const EIGHTHS_H = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉"];
 const EIGHTHS_V = ["", "▁", "▂", "▃", "▄", "▅", "▆", "▇"];
 
 function header(spec: ChartSpec, width: number): string {
-	const legend = spec.series.length > 1 ? spec.series.map((entry, index) => `${fg(SERIES_COLORS[index % SERIES_COLORS.length], "■")} ${fg(C.dim, entry.name ?? `serie ${index + 1}`)}`).join("  ") : "";
+	const legend = spec.series.length > 1 ? spec.series.map((entry, index) => `${fg(seriesColor(index), "■")} ${fg(C.dim, entry.name ?? `serie ${index + 1}`)}`).join("  ") : "";
 	return fit(`  ${fg(C.cyan, "▦")} ${bold(fg(C.text, spec.title ?? "grafico"))}${spec.unit ? fg(C.dim, ` (${spec.unit})`) : ""}`, legend ? `${legend} ` : "", width);
 }
 
@@ -94,7 +95,7 @@ function horizontalBars(spec: ChartSpec, width: number): string[] {
 			if (value === undefined) return;
 			const eighths = Math.round((Math.max(0, value) / max) * barWidth * 8);
 			const bar = "█".repeat(Math.floor(eighths / 8)) + EIGHTHS_H[eighths % 8];
-			const color = spec.series.length > 1 ? SERIES_COLORS[seriesIndex % SERIES_COLORS.length] : value === max ? C.mag : C.cyan;
+			const color = spec.series.length > 1 ? seriesColor(seriesIndex) : value === max ? C.mag : C.cyan;
 			const label = seriesIndex === 0 ? truncateToWidth(spec.labels[index] ?? "", labelWidth) : "";
 			rows.push(pad(`  ${fg(C.dim, pad(label, labelWidth))} ${fg(color, bar)} ${fg(C.text, withUnit(value, spec.unit))}`, width));
 		});
@@ -117,7 +118,7 @@ function verticalBars(spec: ChartSpec, width: number): string[] {
 				const value = Math.max(0, entry.values[index] ?? 0);
 				const level = Math.round((value / max) * height * 8) - row * 8;
 				const cell = level >= 8 ? "█" : level <= 0 ? " " : EIGHTHS_V[level];
-				const color = spec.series.length > 1 ? SERIES_COLORS[seriesIndex % SERIES_COLORS.length] : value === max ? C.mag : C.cyan;
+				const color = spec.series.length > 1 ? seriesColor(seriesIndex) : value === max ? C.mag : C.cyan;
 				group += fg(color, cell.repeat(barWidth));
 			});
 			line += pad(group, groupWidth);
@@ -161,7 +162,7 @@ function lines(spec: ChartSpec, width: number): string[] {
 		colors[row][col] = color;
 	};
 	spec.series.forEach((entry, seriesIndex) => {
-		const color = SERIES_COLORS[seriesIndex % SERIES_COLORS.length];
+		const color = seriesColor(seriesIndex);
 		const points = entry.values.map((value, index) => ({
 			x: entry.values.length === 1 ? 0 : Math.round((index * (dotsX - 1)) / (entry.values.length - 1)),
 			y: max === min ? Math.floor(dotsY / 2) : Math.round(((value - min) / (max - min)) * (dotsY - 1)),
