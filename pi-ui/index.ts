@@ -3,26 +3,29 @@
  *
  * - Status bar above the editor: PRONTO / AL LAVORO / TOCCA A TE / FERMO / FATTO, with what Pi is doing now.
  * - Prompt editor framed `╱─ PROMPT ──┐ … └──╱`, one-line footer (goal/loop/team, project, git, usage).
+ * - Steps of a turn as one compact list, folded at the end of the turn unless the last step failed (ctrl+o opens it).
  * Interactive TUI only; PI_UI=off turns it off (the theme stays selectable with /theme).
  */
 import { basename } from "node:path";
 import { CustomEditor, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import { frameEditor } from "./src/editor.ts";
+import { phrase } from "./src/phrases.ts";
+import { completeStep, renderTurn, type Step } from "./src/steps.ts";
+import { checkOutcome } from "./src/test-output.ts";
 import { renderFooter } from "./src/footer.ts";
 import { renderStatusBar } from "./src/status-bar.ts";
 import { initialStatus, nextStatus, type StatusEvent } from "./src/status.ts";
 import { readUsage } from "./src/usage.ts";
 
-/** Short description of a tool call for the status bar (refined by src/phrases.ts). */
-function activityFor(toolName: string, args: Record<string, unknown> | undefined): string {
-	const path = String(args?.path ?? args?.file_path ?? "").split("/").pop();
-	if (toolName === "read") return `leggo ${path}`;
-	if (toolName === "edit") return `modifico ${path}`;
-	if (toolName === "write") return `scrivo ${path}`;
-	if (toolName === "bash") return `eseguo ${String(args?.command ?? "").split("\n")[0].slice(0, 40)}`;
-	return toolName.replace(/_/g, " ");
-}
+/** Text of a tool result (text blocks only). */
+const resultText = (result: unknown) =>
+	((result as { content?: { type: string; text?: string }[] } | undefined)?.content ?? [])
+		.filter((block) => block.type === "text")
+		.map((block) => block.text ?? "")
+		.join("\n");
+
+const lower = (text: string) => text[0].toLowerCase() + text.slice(1);
 
 export default function (pi: ExtensionAPI) {
 	if (process.env.PI_UI === "off") return;
@@ -34,6 +37,12 @@ export default function (pi: ExtensionAPI) {
 	let tui: TUI | undefined;
 	let spinner: ReturnType<typeof setInterval> | undefined;
 	let active = false;
+	// Steps grouped by turn. History replayed on resume has no turn events: each of its steps is a turn of its own.
+	let liveTurn: Step[] | undefined;
+	const turnOf = new Map<string, Step[]>();
+	const argsOf = new Map<string, Record<string, unknown>>();
+	/** Columns kept free on the right while the session panel is open (part 5). */
+	let reservedRight = 0;
 
 	const update = (event: StatusEvent) => {
 		status = nextStatus(status, event);
@@ -88,6 +97,7 @@ export default function (pi: ExtensionAPI) {
 		if (!active) return;
 		outcome = "completed";
 		update({ type: "agent_start", at: Date.now() });
+		liveTurn = [];
 		clearInterval(spinner);
 		spinner = setInterval(() => {
 			frame++;
@@ -95,10 +105,16 @@ export default function (pi: ExtensionAPI) {
 		}, 100);
 	});
 	pi.on("tool_execution_start", (event) => {
-		if (active && !event.parentToolCallId) update({ type: "tool_start", activity: activityFor(event.toolName, event.args) });
+		if (!active || event.parentToolCallId) return;
+		argsOf.set(event.toolCallId, event.args);
+		update({ type: "tool_start", activity: lower(phrase(event.toolName, event.args).text) });
 	});
 	pi.on("tool_execution_end", (event) => {
-		if (active && !event.parentToolCallId) update({ type: "tool_end", failed: event.isError });
+		if (!active || event.parentToolCallId) return;
+		const isTestRun = event.toolName === "bash" && /test/.test(phrase("bash", argsOf.get(event.toolCallId)).text);
+		argsOf.delete(event.toolCallId);
+		const failed = event.toolName === "bash" ? checkOutcome(resultText(event.result), event.isError, isTestRun).failed : event.isError;
+		update({ type: "tool_end", failed });
 	});
 	pi.on("message_end", (event) => {
 		const message = event.message as { role?: string; usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number } };
@@ -115,8 +131,43 @@ export default function (pi: ExtensionAPI) {
 		if (!active) return;
 		clearInterval(spinner);
 		update({ type: "settled", at: Date.now(), outcome });
+		liveTurn = undefined;
 		void refreshChanges(ctx.cwd);
 	});
+	pi.registerToolRenderer((toolName, next) => {
+		if (process.env.PI_UI_STEPS === "0") return next();
+		return {
+			...next(),
+			renderShell: "self",
+			renderCall: (args, _theme, context) => {
+				let turn = turnOf.get(context.toolCallId);
+				if (!turn) {
+					turn = liveTurn ?? [];
+					turn.push({ id: context.toolCallId, tool: toolName, args: (args ?? {}) as Record<string, unknown> });
+					turnOf.set(context.toolCallId, turn);
+				}
+				const owner = turn;
+				const step = owner.find((candidate) => candidate.id === context.toolCallId);
+				if (step && args) step.args = args as Record<string, unknown>;
+				return {
+					render: (width: number) =>
+						owner[0]?.id === context.toolCallId
+							? renderTurn(owner, Math.max(30, width - reservedRight), { expanded: context.expanded, finished: owner !== liveTurn, frame })
+							: [],
+					invalidate() {},
+				};
+			},
+			renderResult: (result, options, _theme, context) => {
+				const turn = turnOf.get(context.toolCallId);
+				const index = turn?.findIndex((candidate) => candidate.id === context.toolCallId) ?? -1;
+				if (turn && index >= 0 && !options.isPartial) {
+					turn[index] = completeStep(turn[index], { output: resultText(result), isError: context.isError, details: (result as { details?: { patch?: string } }).details });
+				}
+				return { render: () => [], invalidate() {} };
+			},
+		};
+	});
+
 	pi.on("session_shutdown", () => {
 		clearInterval(spinner);
 		active = false;

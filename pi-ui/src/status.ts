@@ -14,6 +14,8 @@ export interface TurnStatus {
 	lastFailed: boolean;
 	question?: string;
 	answers?: string;
+	/** Done, but the last check failed (the model answered anyway, e.g. a test that was already broken). */
+	warning?: string;
 }
 
 export type StatusEvent =
@@ -44,7 +46,7 @@ export function nextStatus(status: TurnStatus, event: StatusEvent): TurnStatus {
 		case "settled": {
 			if (event.outcome === "aborted") return { ...status, mode: "stopped", activity: "interrotto", endedAt: event.at };
 			if (event.outcome === "error") return { ...status, mode: "stopped", activity: "errore del modello", endedAt: event.at };
-			if (status.lastFailed) return { ...status, mode: "stopped", activity: `non riuscito: ${status.activity}`, endedAt: event.at };
+			if (status.lastFailed) return { ...status, mode: "done", warning: `ultimo passo non riuscito: ${status.activity}`, endedAt: event.at };
 			return { ...status, mode: "done", endedAt: event.at };
 		}
 	}

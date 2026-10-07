@@ -26,7 +26,11 @@ export function renderStatusBar(status: TurnStatus, width: number, now: number, 
 		case "stopped":
 			return fit(`${label(C.err, " ✗ FERMO ")}  ${fg(C.text, status.activity)}`, hint("↵", "scrivi tu"), width);
 		case "done":
-			return fit(`${label(C.ok, " ✓ FATTO ")}  ${fg(C.text, `${seconds}s · ↑${formatTokens(status.tokensIn)} ↓${formatTokens(status.tokensOut)} tok`)}`, "", width);
+			return fit(
+				`${label(C.ok, " ✓ FATTO ")}  ${fg(C.text, `${seconds}s · ↑${formatTokens(status.tokensIn)} ↓${formatTokens(status.tokensOut)} tok`)}${status.warning ? `  ${fg(C.warn, `⚠ ${status.warning}`)}` : ""}`,
+				"",
+				width,
+			);
 		default:
 			return fit(label(C.faint, " PRONTO "), "", width);
 	}

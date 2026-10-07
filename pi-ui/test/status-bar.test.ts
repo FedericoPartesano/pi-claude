@@ -35,6 +35,7 @@ test("waiting shows the question and the answers; done shows time and tokens", (
 	assert.match(strip(renderStatusBar(states["TOCCA A TE"], 120, 0, 0)), /posso eseguire npm test\?.*s sì · n no · a sempre/);
 	assert.match(strip(renderStatusBar(states.FATTO, 120, 0, 0)), /48s · ↑12,4k ↓2,1k tok/);
 	assert.match(strip(renderStatusBar(states.FERMO, 120, 0, 0)), /interrotto/);
+	assert.match(strip(renderStatusBar({ ...states.FATTO, warning: "ultimo passo non riuscito: eseguo i test" }, 120, 0, 0)), /FATTO.*⚠ ultimo passo non riuscito: eseguo i test/);
 });
 
 test("formatTokens", () => {

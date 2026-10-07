@@ -21,13 +21,13 @@ test("usage adds up tokens of the turn and a new turn resets them", () => {
 	assert.equal(nextStatus(s, { type: "agent_start", at: 9 }).tokensIn, 0);
 });
 
-test("aborted or error turns stop; so does a turn whose last step failed", () => {
+test("aborted or error turns stop; a turn whose last step failed ends done with a warning", () => {
 	assert.equal(run({ type: "agent_start", at: 0 }, { type: "settled", at: 1, outcome: "aborted" }).mode, "stopped");
 	assert.equal(run({ type: "agent_start", at: 0 }, { type: "settled", at: 1, outcome: "aborted" }).activity, "interrotto");
 	assert.equal(run({ type: "agent_start", at: 0 }, { type: "settled", at: 1, outcome: "error" }).mode, "stopped");
 	const failedLast = run({ type: "agent_start", at: 0 }, { type: "tool_start", activity: "eseguo i test" }, { type: "tool_end", failed: true }, { type: "settled", at: 1, outcome: "completed" });
-	assert.equal(failedLast.mode, "stopped");
-	assert.match(failedLast.activity, /eseguo i test/);
+	assert.equal(failedLast.mode, "done");
+	assert.match(failedLast.warning ?? "", /eseguo i test/);
 });
 
 test("a failure fixed by a later step ends done", () => {
