@@ -300,3 +300,36 @@ Causa: nel compattare "opzioni concrete *quando aiutano*" è diventato "opzioni 
 multipla ("a) CSV b) JSON"), l'utente sceglie un'opzione e i dettagli che Pi non può indovinare (separatore,
 ordinamento, riga di totale) non emergono; in più, proseguendo nello stesso turno sparisce il secondo giro di domande.
 Lezione: le domande aperte su ciò che non si può dedurre valgono più dei token risparmiati.
+
+## Team ottimizzato e casi grandi — 2026-10-07
+
+Modifiche a pi-team: piani da un solo compito respinti ("fallo tu"), tetto di token per ruolo (scout 80k,
+revisore 150k, tester 300k, implementer 400k), `--no-skills` nei sub-agenti (~500 token in meno per richiesta),
+manager che non esplora a fondo prima di delegare e non ricontrolla dopo il report, revisore informato dei
+controlli già rotti prima (in `team-opt1` aveva fatto correggere un test che l'utente aveva detto di non toccare).
+
+### 6 casi compositi (`team-cases.mjs`), solo pi-team
+
+| Giro | Riusciti | Input medio | Tempo medio |
+|---|---|---|---|
+| prima (r1+r2) | 12/12 | 73,7k | 47 s |
+| opt1 (piano minimo, tetto, no-skills) | 6/6 | 62,5k (−15%) | 50 s |
+| opt2 (+ manager e revisore) | 6/6 | **57,2k (−22%)** | 58 s* |
+| Pi da solo (r1+r2, riferimento) | 12/12 | 21,6k | 17 s |
+
+\* tc04 a 178 s: lo scout di verifica dei numeri resta lento (84k token agenti), ma sotto il tetto.
+In 3 casi su 6 il piano da un compito è stato respinto e il manager ha fatto da solo (24–35k).
+
+### 2 casi grandi (`team-large-cases.mjs`, 7 parti su più moduli), 1 giro
+
+| Caso | Harness | Esito | Input | Tempo | Test scritti (pass) |
+|---|---|---|---|---|---|
+| tl01 flusso ordini | Pi | ✅ | 52,0k | 44 s | 17 |
+| | pi-team (3 implementer + revisore) | ✅ | 93,2k (1,8×) | 101 s (2,3×) | 26 |
+| tl02 catalogo | Pi | ✅ | 121,6k | 120 s | 13 |
+| | pi-team (5 implementer + revisore) | ✅ | 158,9k (1,3×) | 147 s (1,2×) | 18 |
+
+**Conclusione onesta**: lo svantaggio del team si riduce con la dimensione del lavoro (da ~3× a 1,3×) ma non
+si inverte: anche su 7 parti Pi da solo riesce e costa meno. Il team scrive più test (+40–50%).
+Il tempo è dominato dagli implementer in serie (chi scrive non va mai in parallelo): è il prossimo margine.
+Residuo: in tc01 il manager rilancia ancora 3 comandi dopo il report (54k su 90k).
