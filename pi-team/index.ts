@@ -17,6 +17,7 @@ import { runTeamPlan, renderReport } from "./src/orchestrator.ts";
 import { renderPlan, validatePlan, type TeamPlan } from "./src/plan.ts";
 import { loadRoles } from "./src/roles.ts";
 import { CHILD_ENVIRONMENT_FLAG, runAgent } from "./src/runner.ts";
+import { teamStatus } from "./src/progress.ts";
 import { snapshotFiles } from "./src/scope.ts";
 import { runVerifyCommands } from "./src/verify.ts";
 
@@ -107,19 +108,26 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			const progressLines: string[] = [`${budget.reason}`];
-			const report = await runTeamPlan(plan, {
-				roles,
-				cwd: ctx.cwd,
-				concurrency: budget.concurrency,
-				signal,
-				runAgent,
-				runVerify: runVerifyCommands,
-				snapshotFiles,
-				onProgress: (line) => {
-					progressLines.push(line);
-					onUpdate?.({ content: [{ type: "text", text: progressLines.slice(-12).join("\n") }], details: undefined });
-				},
-			});
+			let report: Awaited<ReturnType<typeof runTeamPlan>>;
+			try {
+				report = await runTeamPlan(plan, {
+					roles,
+					cwd: ctx.cwd,
+					concurrency: budget.concurrency,
+					signal,
+					runAgent,
+					runVerify: runVerifyCommands,
+					snapshotFiles,
+					onProgress: (line) => {
+						progressLines.push(line);
+						onUpdate?.({ content: [{ type: "text", text: progressLines.slice(-12).join("\n") }], details: undefined });
+						// Shown in the footer (and in pi-ui's panel) while the team works.
+						if (ctx.hasUI) ctx.ui.setStatus("team", teamStatus(progressLines, plan.tasks.length));
+					},
+				});
+			} finally {
+				if (ctx.hasUI) ctx.ui.setStatus("team", undefined);
+			}
 			// The checks already ran in code: re-running them or re-reading the diff only spends the manager's tokens.
 			const next = report.outcome === "failed"
 				? "Il team non ha completato il lavoro: decidi se correggere tu le parti mancanti o chiedere all'utente."

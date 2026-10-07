@@ -8,6 +8,7 @@
  * - `file:riga` in answers link to VS Code where the terminal supports links; answers start with ⬢.
  * - Up to 4 suggestions after a turn, picked with keys 1-4; dangerous commands asked in the status bar (s/n/a);
  *   a Windows notification after long turns. The dangerous-command check stays on even with PI_UI=off.
+ * - Alt+I: session panel on the right (goal/loop/team, changed files, failing tests, last image, usage).
  * Interactive TUI only; PI_UI=off turns it off (the theme stays selectable with /theme).
  */
 import { existsSync } from "node:fs";
@@ -18,13 +19,15 @@ import { getCapabilities, type Component, type TUI } from "@earendil-works/pi-tu
 import { linkFileRefs, vscodeUrl, wslDistro } from "./src/answer.ts";
 import { renderImageEntry, thumbnailColumns } from "./src/image-entry.ts";
 import { findImageRefs, thumbnailFor, type Thumbnail } from "./src/images.ts";
+import { C, bold, fg, fit, label } from "./src/palette.ts";
+import { PANEL_WIDTH, parseNumstat, parsePorcelain, renderPanel, type ChangedFile } from "./src/panel.ts";
 import { shouldNotify, toastScript } from "./src/notify.ts";
 import { answerFor, dangerReason } from "./src/permission.ts";
 import { extractSuggestions, renderSuggestions, SUGGESTION_MARK, SUGGESTION_PROMPT } from "./src/suggestions.ts";
 import { frameEditor } from "./src/editor.ts";
 import { phrase } from "./src/phrases.ts";
 import { completeStep, renderTurn, type Step } from "./src/steps.ts";
-import { checkOutcome } from "./src/test-output.ts";
+import { checkOutcome, failingTests } from "./src/test-output.ts";
 import { renderFooter } from "./src/footer.ts";
 import { renderStatusBar } from "./src/status-bar.ts";
 import { elapsedSeconds, initialStatus, nextStatus, type StatusEvent } from "./src/status.ts";
@@ -81,7 +84,7 @@ export default function (pi: ExtensionAPI) {
 
 	let status = initialStatus();
 	let frame = 0;
-	let changes = 0;
+	let files: ChangedFile[] = [];
 	let outcome: "completed" | "aborted" | "error" = "completed";
 	let tui: TUI | undefined;
 	let spinner: ReturnType<typeof setInterval> | undefined;
@@ -96,6 +99,9 @@ export default function (pi: ExtensionAPI) {
 	let suggestions: string[] = [];
 	let lastAnswer = "";
 	let pendingAnswer: ((answer: "yes" | "no" | "always") => void) | undefined;
+	let statuses: ReadonlyMap<string, string> = new Map();
+	let lastFailures: string[] = [];
+	let closePanel: (() => void) | undefined;
 
 	// Images of the session: shown once each, thumbnails cached per width.
 	const images: string[] = [];
@@ -127,8 +133,12 @@ export default function (pi: ExtensionAPI) {
 		tui?.requestRender();
 	};
 	const refreshChanges = async (cwd: string) => {
-		const result = await pi.exec("git", ["status", "--porcelain"], { cwd }).catch(() => undefined);
-		changes = result?.code === 0 ? result.stdout.split("\n").filter(Boolean).length : 0;
+		const [status, numstat] = await Promise.all([
+			pi.exec("git", ["status", "--porcelain"], { cwd }).catch(() => undefined),
+			pi.exec("git", ["diff", "--numstat", "HEAD"], { cwd }).catch(() => undefined),
+		]);
+		const counts = numstat?.code === 0 ? parseNumstat(numstat.stdout) : new Map();
+		files = status?.code === 0 ? parsePorcelain(status.stdout).map((file) => ({ ...file, ...counts.get(file.path) })) : [];
 		tui?.requestRender();
 	};
 	const line = (render: (width: number) => string): Component => ({ render: (width) => [render(width)], invalidate() {} });
@@ -171,6 +181,11 @@ export default function (pi: ExtensionAPI) {
 			});
 		}
 		ctx.ui.setWorkingVisible(false);
+		ctx.ui.setHeader(() =>
+			line((width) =>
+				fit(`${label(C.mag, " PI//CLAUDE ")}${fg(C.mag, "╲")} ${bold(fg(C.text, basename(ctx.cwd)))}`, `${fg(C.text, "alt+i")} ${fg(C.dim, "pannello ▸")}`, width),
+			),
+		);
 		ctx.ui.setWidget("pi-ui-status", (widgetTui) => {
 			tui = widgetTui;
 			return line((width) => renderStatusBar(status, width, Date.now(), frame));
@@ -178,6 +193,7 @@ export default function (pi: ExtensionAPI) {
 		ctx.ui.setEditorComponent((editorTui, theme, keybindings) => new PromptEditor(editorTui, theme, keybindings));
 		ctx.ui.setFooter((footerTui, _theme, footerData) => {
 			const unsubscribe = footerData.onBranchChange(() => footerTui.requestRender());
+			statuses = footerData.getExtensionStatuses();
 			return {
 				...line((width) => {
 					const usage = readUsage();
@@ -185,7 +201,7 @@ export default function (pi: ExtensionAPI) {
 						statuses: footerData.getExtensionStatuses(),
 						project: basename(ctx.cwd),
 						branch: footerData.getGitBranch() ?? undefined,
-						changes,
+						changes: files.length,
 						fiveHour: usage?.fiveHour,
 						overage: usage?.overage,
 						contextPercent: ctx.getContextUsage()?.percent ?? undefined,
@@ -246,6 +262,11 @@ export default function (pi: ExtensionAPI) {
 		if (!active) return;
 		clearInterval(spinner);
 		update({ type: "settled", at: Date.now(), outcome });
+		const failed = (liveTurn ?? []).filter((step) => step.error);
+		lastFailures = failed.flatMap((step) => {
+			const tests = failingTests(step.output ?? "");
+			return tests.length ? tests : [phrase(step.tool, step.args).text];
+		});
 		liveTurn = undefined;
 		const answer = extractSuggestions(lastAnswer);
 		suggestions = outcome === "completed" ? answer.suggestions : [];
@@ -277,7 +298,7 @@ export default function (pi: ExtensionAPI) {
 				return {
 					render: (width: number) =>
 						owner[0]?.id === context.toolCallId
-							? renderTurn(owner, Math.max(30, width - reservedRight), { expanded: context.expanded, finished: owner !== liveTurn, frame })
+							? renderTurn(owner, Math.max(30, width - (width >= 100 ? reservedRight : 0)), { expanded: context.expanded, finished: owner !== liveTurn, frame })
 							: [],
 					invalidate() {},
 				};
@@ -310,6 +331,50 @@ export default function (pi: ExtensionAPI) {
 	pi.on("before_agent_start", (event) => {
 		if (active && process.env.PI_UI_SUGGEST !== "0") event.systemPromptOptions.sections.suggerimenti = SUGGESTION_PROMPT;
 		return undefined;
+	});
+
+	// Session panel: overlay on the right that never takes the keyboard; steps leave room for it on wide terminals.
+	pi.registerShortcut("alt+i", {
+		description: "Pannello della sessione: goal/loop/team, file, test, immagini, uso",
+		handler: async (ctx) => {
+			if (!active) return;
+			if (closePanel) return closePanel();
+			void refreshChanges(ctx.cwd);
+			reservedRight = PANEL_WIDTH + 1;
+			await ctx.ui.custom<void>(
+				(_panelTui, _theme, _keybindings, done) => {
+					closePanel = () => done();
+					return {
+						render: (width: number) => {
+							const usage = readUsage();
+							const context = ctx.getContextUsage();
+							const last = images[images.length - 1];
+							const thumb = last ? thumbnail(last, width - 4) : undefined;
+							return renderPanel({
+								session: statuses,
+								files,
+								failures: lastFailures,
+								image: last && thumb && "lines" in thumb ? { ref: last, lines: thumb.lines.slice(0, 8) } : undefined,
+								usage: {
+									fiveHour: usage?.fiveHour,
+									sevenDay: usage?.sevenDay,
+									contextPercent: context?.percent ?? undefined,
+									contextTokens: context?.tokens ?? undefined,
+									contextWindow: context?.contextWindow ?? ctx.model?.contextWindow,
+									model: ctx.model?.id ?? "?",
+									thinking: pi.getThinkingLevel(),
+								},
+							}, width);
+						},
+						invalidate() {},
+					};
+				},
+				{ overlay: true, overlayOptions: { anchor: "top-right", width: PANEL_WIDTH, margin: { top: 1, right: 0 }, nonCapturing: true, visible: (width) => width >= 60 } },
+			);
+			closePanel = undefined;
+			reservedRight = 0;
+			tui?.requestRender();
+		},
 	});
 
 	pi.registerCommand("img", {
