@@ -73,6 +73,9 @@ export default function (pi: ExtensionAPI) {
 			"runs tasks (read-only roles in parallel, writers one at a time), re-runs failed checks with the error up to 3",
 			"times, runs finalVerify with corrective rounds, asks the reviewer, and returns a report. Checks decide success,",
 			"not the agents' claims. Use it for jobs with several distinct parts; do small edits yourself.",
+			"A plan needs 2+ separable tasks: a one-task plan is rejected (do that work yourself).",
+			"Plan from the request and at most a quick look (ls, one grep): do not read the code in depth before calling",
+			"the team, agents read what they need. Put open questions in a scout task (cheap model) that others depend on.",
 			"Prefer task verify commands scoped to the task (e.g. `node --test test/cart.test.js`). Final checks that already",
 			"fail before the team starts are detected and reported as pre-existing, not as regressions.",
 			"",
@@ -112,7 +115,11 @@ export default function (pi: ExtensionAPI) {
 					onUpdate?.({ content: [{ type: "text", text: progressLines.slice(-12).join("\n") }], details: undefined });
 				},
 			});
-			return text(renderReport(report));
+			// The checks already ran in code: re-running them or re-reading the diff only spends the manager's tokens.
+			const next = report.outcome === "failed"
+				? "Il team non ha completato il lavoro: decidi se correggere tu le parti mancanti o chiedere all'utente."
+				: "Controlli già eseguiti dal codice: non rieseguirli e non rileggere il diff. Riassumi all'utente in breve.";
+			return text(`${renderReport(report)}\n\n${next}`);
 		},
 	});
 }

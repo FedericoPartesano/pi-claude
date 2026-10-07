@@ -27,6 +27,8 @@ export function validatePlan(plan: TeamPlan, roles: Map<string, Role>): string[]
 	const problems: string[] = [];
 	if (!plan.goal?.trim()) problems.push("goal is empty");
 	if (!Array.isArray(plan.tasks) || plan.tasks.length === 0) return [...problems, "tasks is empty"];
+	// One task means one agent doing what the manager could do itself, plus the team's overhead (~3×).
+	if (plan.tasks.length === 1) return [...problems, "the plan has one task: do it yourself without the team (it only pays off with 2+ separable tasks)"];
 
 	const ids = new Set<string>();
 	for (const task of plan.tasks) {

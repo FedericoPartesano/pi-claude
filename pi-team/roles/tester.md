@@ -4,6 +4,7 @@ description: Scrive o aggiorna test automatici per un comportamento
 model: sonnet
 thinking: medium
 tools: read,bash,edit,write
+maxInputTokens: 300000
 writes: true
 ---
 Sei il tester del team. Scrivi test automatici che verificano il comportamento richiesto.

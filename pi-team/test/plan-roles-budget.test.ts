@@ -46,9 +46,26 @@ test("validatePlan detects cycles and accepts a good plan", () => {
 		],
 	};
 	assert.match(validatePlan(cyclic, roles).join(), /dependency cycle/);
-	const good: TeamPlan = { goal: "g", tasks: [{ id: "a", role: "implementer", title: "a", instructions: "x", verify: ["npm test"] }] };
+	const good: TeamPlan = {
+		goal: "g",
+		tasks: [
+			{ id: "a", role: "implementer", title: "a", instructions: "x", verify: ["npm test"] },
+			{ id: "b", role: "tester", title: "b", instructions: "x", dependsOn: ["a"], verify: ["npm test"] },
+		],
+	};
 	assert.deepEqual(validatePlan(good, roles), []);
 	assert.match(renderPlan(good, roles), /a \[implementer · sonnet\] a[\s\S]*verifica: npm test/);
+});
+
+test("validatePlan rejects a one-task plan: the team only pays off with separable tasks", () => {
+	const single: TeamPlan = { goal: "g", tasks: [{ id: "a", role: "implementer", title: "a", instructions: "x", verify: ["npm test"] }] };
+	assert.match(validatePlan(single, roles).join(), /one task.*yourself/);
+});
+
+test("roles carry an input token cap", () => {
+	assert.equal(parseRole("---\nmaxInputTokens: 50000\n---\nx", "r").maxInputTokens, 50000);
+	assert.equal(parseRole("x", "r").maxInputTokens, undefined);
+	assert.ok((roles.get("scout")?.maxInputTokens ?? Infinity) < (roles.get("implementer")?.maxInputTokens ?? 0));
 });
 
 test("decideBudget thresholds", () => {
