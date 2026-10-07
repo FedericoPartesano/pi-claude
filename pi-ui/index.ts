@@ -31,6 +31,7 @@ import { checkOutcome, failingTests } from "./src/test-output.ts";
 import { renderFooter } from "./src/footer.ts";
 import { renderStatusBar } from "./src/status-bar.ts";
 import { elapsedSeconds, initialStatus, nextStatus, type StatusEvent } from "./src/status.ts";
+import { restoreSession } from "./src/restore.ts";
 import { readUsage } from "./src/usage.ts";
 
 /** Text of a tool result (text blocks only). */
@@ -174,6 +175,10 @@ export default function (pi: ExtensionAPI) {
 		if (ctx.mode !== "tui") return;
 		active = true;
 		cwd = ctx.cwd;
+		// Resumed session: images for /img and the panel, suggestions for keys 1-4.
+		const restored = restoreSession(ctx.sessionManager.getBranch() as Parameters<typeof restoreSession>[0]);
+		images.splice(0, images.length, ...restored.images);
+		suggestions = restored.suggestions;
 		if (process.env.PI_UI_PERMISSION !== "0") {
 			askInBar = (question) => new Promise((resolveAnswer) => {
 				pendingAnswer = resolveAnswer;

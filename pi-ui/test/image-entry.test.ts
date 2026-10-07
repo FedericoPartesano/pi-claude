@@ -9,10 +9,13 @@ const thumb = { lines: Array.from({ length: 6 }, () => "\x1b[38;2;1;2;3m\x1b[48;
 test("wide: thumbnail on the left, path, info and how to open on the right", () => {
 	const lines = renderImageEntry("out/vendite.png", thumb, 120);
 	assert.equal(lines.length, 6);
-	assert.match(strip(lines[0]), /^\s+│\s?▀+\s+out\/vendite.png$/);
+	assert.match(strip(lines[0]), /^\s+│\s?▀+\s+out\/vendite.png\s*$/);
 	assert.match(strip(lines[1]), /1280×640 · PNG · 84 KB/);
 	assert.match(strip(lines[3]), /\/img apri/);
-	for (const line of lines) assert.ok(visibleWidth(line) <= 120);
+	// Full width with plain spaces after the colors: Pi pads short lines under an overlay and would drop the final
+	// reset, letting the thumbnail's background bleed up to the panel.
+	for (const line of lines) assert.equal(visibleWidth(line), 120);
+	for (const line of renderImageEntry("out/vendite.png", thumb, 50)) assert.equal(visibleWidth(line), 50);
 });
 
 test("narrow: caption under the thumbnail; loading and errors are one line", () => {

@@ -58,3 +58,9 @@ test("a test run piped through tail that hides the summary is still a failure", 
 test("reading an image is summarised as an image, not as lines", () => {
 	assert.equal(done("read", { path: "data/grafico.png" }, "Read image file [image/png]").summary?.text, "immagine");
 });
+
+test("a one-step turn (also every step of a resumed session) shows its row, not a '1 passo' summary", () => {
+	const rows = renderTurn([read], 120, { expanded: false, finished: true, frame: 0 }).map(strip);
+	assert.equal(rows.length, 1);
+	assert.match(rows[0], /✓ Leggo cart.js\s+read\s+src\/cart.js\s+3 righe/);
+});

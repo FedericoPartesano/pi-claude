@@ -84,7 +84,8 @@ function stepDetails(step: Step, width: number, expanded: boolean): string[] {
 
 export function renderTurn(turn: Step[], width: number, options: { expanded: boolean; finished: boolean; frame: number }): string[] {
 	const last = turn[turn.length - 1];
-	if (options.finished && !options.expanded && turn.length > 0 && !last?.error) {
+	// Fold only lists: a single step says more as its own row.
+	if (options.finished && !options.expanded && turn.length > 1 && !last?.error) {
 		const tests = [...turn].reverse().find((step) => step.pass !== undefined)?.pass;
 		const files = changedFiles(turn);
 		const parts = [`${turn.length} ${turn.length === 1 ? "passo" : "passi"}`, `${files} file`, ...(tests !== undefined ? [fg(C.ok, `${tests} test ok`)] : [])];
