@@ -107,3 +107,13 @@ test("rawPreview keeps the preview's own colors and still fits the pane", async 
 	assert.ok(lines.some((line) => line.includes("\x1b[38;2;255;0;0m")), "colors kept");
 	for (const line of lines) assert.equal(visibleWidth(line), 120);
 });
+
+test("wrapPreview wraps long preview lines instead of cutting them", async () => {
+	const long = "Il package manager del progetto è pnpm e non va mai usato npm per installare le dipendenze.";
+	const results: (string[] | undefined)[] = [];
+	const picker = new PickerComponent({ title: "Memoria", source: tree(), preview: () => long, wrapPreview: true, maxVisible: 5 }, plain, (result) => results.push(result), () => {});
+	await picker.load();
+	const text = picker.render(120).join("\n");
+	assert.ok(text.includes("installare le dipendenze."), "the end of the line is visible");
+	for (const line of picker.render(120)) assert.equal(visibleWidth(line), 120);
+});

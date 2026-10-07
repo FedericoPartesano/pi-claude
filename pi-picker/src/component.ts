@@ -2,7 +2,7 @@
  * The picker UI: a bordered box with location, query, item list (with a preview pane on wide terminals) and a
  * key hint footer. Works as a Pi overlay (`ctx.ui.custom`) and in a standalone pi-tui program.
  */
-import { type Component, CURSOR_MARKER, decodeKittyPrintable, type Focusable, matchesKey, type TuiMouseEvent, type TuiMouseEventResult, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { type Component, CURSOR_MARKER, decodeKittyPrintable, type Focusable, matchesKey, type TuiMouseEvent, type TuiMouseEventResult, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { PickerModel } from "./model.ts";
 import type { PickerItem, PickerSource } from "./sources.ts";
 
@@ -25,6 +25,8 @@ export interface PickerOptions {
 	maxVisible?: number;
 	/** The preview is trusted ANSI made by code (e.g. an image thumbnail): keep its colors instead of sanitizing it. */
 	rawPreview?: boolean;
+	/** Wrap long preview lines (prose, e.g. memories) instead of cutting them (code previews read better cut). */
+	wrapPreview?: boolean;
 }
 
 export const PREVIEW_MIN_WIDTH = 100;
@@ -184,7 +186,8 @@ export class PickerComponent implements Component, Focusable {
 		const current = model.current();
 		const rawPreview = this.options.rawPreview === true;
 		const previewText = withPreview && current ? (this.previewOf(current) ?? "") : "";
-		const previewLines = previewText ? (rawPreview ? previewText : sanitize(previewText)).split("\n") : [];
+		const previewSource = previewText ? (rawPreview ? previewText : sanitize(previewText)).split("\n") : [];
+		const previewLines = this.options.wrapPreview ? previewSource.flatMap((line) => (line ? wrapTextWithAnsi(line, previewWidth) : [""])) : previewSource;
 
 		const body: string[] = [];
 		for (let index = 0; index < this.maxVisible; index++) {
