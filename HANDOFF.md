@@ -24,7 +24,7 @@ Per riprendere: apri Claude Code **in `~/documents/projects/pi-claude`** (non in
   `docs/superpowers/plans/2026-10-07-pi-ui.md`, design da Claude Design in `Download\Pi TUI Redesign review.zip`):
   barra di stato, prompt incorniciato, footer di una riga, passi compatti (la prima riga del turno disegna tutta la lista:
   Pi toglie la riga vuota ai componenti vuoti), miniature a mezzi blocchi, `/img`, suggerimenti 1-4, comandi pericolosi
-  nella barra (sostituisce permission-gate), notifica Windows, pannello `Alt+I`. 52 test; prova reale in tmux 120/80 con
+  nella barra (sostituisce permission-gate), notifica Windows, pannello `Alt+S` / `/pannello` (Alt+I e Alt+O sono di komorebi/whkd: picker spostato su `Alt+A`). 52 test; prova reale in tmux 120/80 con
   catture in `Download\pi-ui-prove`. Limiti noti: l'header di Pi scorre via (info nel footer), il pannello copre il
   testo delle risposte (non restringe la chat), le frasi dei passi sono dedotte dagli argomenti (niente "Correggo X").
   Prototipo usa-e-getta in `pi-ui/prototype/` (fuori da main).

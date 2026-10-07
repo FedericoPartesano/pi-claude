@@ -90,7 +90,7 @@ step "Pacchetti Pi"
 pi install "$REPO/pi-claude-code" >/dev/null
 ok "pi-claude-code"
 pi install "$REPO/pi-picker" >/dev/null
-ok "pi-picker (Alt+O, /pick)"
+ok "pi-picker (Alt+A, /pick)"
 pi install "$REPO/pi-ui" >/dev/null
 ok "pi-ui (chat Neon Night: barra di stato, prompt, footer)"
 if [ "$EXTRAS" = 1 ]; then
@@ -207,8 +207,8 @@ fi
 step "Fatto"
 echo "    pi          → Pi minimale su claude-code/sonnet (abbonamento Claude)"
 [ "$EXTRAS" = 1 ] && echo "    pi-full     → + web, todo, domande, subagent, team (pi-full --pick: scegli prima il progetto)"
-echo "    Alt+O       → inserisci file o cartelle del progetto nel prompt (anche /pick)"
-echo "    chat        → Neon Night: barra di stato, passi compatti, /img, suggerimenti 1-4, Alt+I pannello (PI_UI=off per spegnerla)"
+echo "    Alt+A       → inserisci file o cartelle del progetto nel prompt (anche /pick)"
+echo "    chat        → Neon Night: barra di stato, passi compatti, /img, suggerimenti 1-4, Alt+S o /pannello (PI_UI=off per spegnerla)"
 echo "    /intent     → intervista e scrive intents/<data>-<slug>.md"
 echo "    /goal       → lavora in autonomia fino all'obiettivo (anche @intents/...; senza argomenti: scegli un intent)"
 echo "    /dream      → consolida le sessioni passate in .pi/memory/ (memoria profonda: tutto su disco, richiamo solo dei ricordi pertinenti); /ricorda li cerca"

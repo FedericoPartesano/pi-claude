@@ -8,7 +8,8 @@
  * - `file:riga` in answers link to VS Code where the terminal supports links; answers start with ⬢.
  * - Up to 4 suggestions after a turn, picked with keys 1-4; dangerous commands asked in the status bar (s/n/a);
  *   a Windows notification after long turns. The dangerous-command check stays on even with PI_UI=off.
- * - Alt+I: session panel on the right (goal/loop/team, changed files, failing tests, last image, usage).
+ * - Alt+S (or /pannello; PI_UI_PANEL_KEY changes the key): session panel on the right (goal/loop/team, changed files,
+ *   failing tests, last image, usage).
  * Interactive TUI only; PI_UI=off turns it off (the theme stays selectable with /theme).
  */
 import { existsSync } from "node:fs";
@@ -20,7 +21,7 @@ import { linkFileRefs, vscodeUrl, wslDistro } from "./src/answer.ts";
 import { renderImageEntry, thumbnailColumns } from "./src/image-entry.ts";
 import { findImageRefs, thumbnailFor, type Thumbnail } from "./src/images.ts";
 import { C, bold, fg, fit, label } from "./src/palette.ts";
-import { PANEL_WIDTH, parseNumstat, parsePorcelain, renderPanel, type ChangedFile } from "./src/panel.ts";
+import { PANEL_KEY, PANEL_WIDTH, parseNumstat, parsePorcelain, renderPanel, type ChangedFile } from "./src/panel.ts";
 import { shouldNotify, toastScript } from "./src/notify.ts";
 import { answerFor, dangerReason } from "./src/permission.ts";
 import { extractSuggestions, renderSuggestions, SUGGESTION_MARK, SUGGESTION_PROMPT } from "./src/suggestions.ts";
@@ -82,6 +83,7 @@ export default function (pi: ExtensionAPI) {
 	let askInBar: (question: string) => Promise<"yes" | "no" | "always"> | undefined = () => undefined;
 	registerPermissionGate(pi, (question) => askInBar(question));
 	if (process.env.PI_UI === "off") return;
+	const panelKey = (process.env.PI_UI_PANEL_KEY || PANEL_KEY).toLowerCase();
 
 	let status = initialStatus();
 	let frame = 0;
@@ -188,7 +190,7 @@ export default function (pi: ExtensionAPI) {
 		ctx.ui.setWorkingVisible(false);
 		ctx.ui.setHeader(() =>
 			line((width) =>
-				fit(`${label(C.mag, " PI//CLAUDE ")}${fg(C.mag, "╲")} ${bold(fg(C.text, basename(ctx.cwd)))}`, `${fg(C.text, "alt+i")} ${fg(C.dim, "pannello ▸")}`, width),
+				fit(`${label(C.mag, " PI//CLAUDE ")}${fg(C.mag, "╲")} ${bold(fg(C.text, basename(ctx.cwd)))}`, `${fg(C.text, panelKey)} ${fg(C.dim, "pannello ▸")}`, width),
 			),
 		);
 		ctx.ui.setWidget("pi-ui-status", (widgetTui) => {
@@ -339,48 +341,47 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	// Session panel: overlay on the right that never takes the keyboard; steps leave room for it on wide terminals.
-	pi.registerShortcut("alt+i", {
-		description: "Pannello della sessione: goal/loop/team, file, test, immagini, uso",
-		handler: async (ctx) => {
-			if (!active) return;
-			if (closePanel) return closePanel();
-			void refreshChanges(ctx.cwd);
-			reservedRight = PANEL_WIDTH + 1;
-			await ctx.ui.custom<void>(
-				(_panelTui, _theme, _keybindings, done) => {
-					closePanel = () => done();
-					return {
-						render: (width: number) => {
-							const usage = readUsage();
-							const context = ctx.getContextUsage();
-							const last = images[images.length - 1];
-							const thumb = last ? thumbnail(last, width - 4) : undefined;
-							return renderPanel({
-								session: statuses,
-								files,
-								failures: lastFailures,
-								image: last && thumb && "lines" in thumb ? { ref: last, lines: thumb.lines.slice(0, 8) } : undefined,
-								usage: {
-									fiveHour: usage?.fiveHour,
-									sevenDay: usage?.sevenDay,
-									contextPercent: context?.percent ?? undefined,
-									contextTokens: context?.tokens ?? undefined,
-									contextWindow: context?.contextWindow ?? ctx.model?.contextWindow,
-									model: ctx.model?.id ?? "?",
-									thinking: pi.getThinkingLevel(),
-								},
-							}, width);
-						},
-						invalidate() {},
-					};
-				},
-				{ overlay: true, overlayOptions: { anchor: "top-right", width: PANEL_WIDTH, margin: { top: 1, right: 0 }, nonCapturing: true, visible: (width) => width >= 60 } },
-			);
-			closePanel = undefined;
-			reservedRight = 0;
-			tui?.requestRender();
-		},
-	});
+	const togglePanel = async (ctx: ExtensionContext) => {
+		if (!active) return;
+		if (closePanel) return closePanel();
+		void refreshChanges(ctx.cwd);
+		reservedRight = PANEL_WIDTH + 1;
+		await ctx.ui.custom<void>(
+			(_panelTui, _theme, _keybindings, done) => {
+				closePanel = () => done();
+				return {
+					render: (width: number) => {
+						const usage = readUsage();
+						const context = ctx.getContextUsage();
+						const last = images[images.length - 1];
+						const thumb = last ? thumbnail(last, width - 4) : undefined;
+						return renderPanel({
+							session: statuses,
+							files,
+							failures: lastFailures,
+							image: last && thumb && "lines" in thumb ? { ref: last, lines: thumb.lines.slice(0, 8) } : undefined,
+							usage: {
+								fiveHour: usage?.fiveHour,
+								sevenDay: usage?.sevenDay,
+								contextPercent: context?.percent ?? undefined,
+								contextTokens: context?.tokens ?? undefined,
+								contextWindow: context?.contextWindow ?? ctx.model?.contextWindow,
+								model: ctx.model?.id ?? "?",
+								thinking: pi.getThinkingLevel(),
+							},
+						}, width, panelKey);
+					},
+					invalidate() {},
+				};
+			},
+			{ overlay: true, overlayOptions: { anchor: "top-right", width: PANEL_WIDTH, margin: { top: 1, right: 0 }, nonCapturing: true, visible: (width) => width >= 60 } },
+		);
+		closePanel = undefined;
+		reservedRight = 0;
+		tui?.requestRender();
+	};
+	pi.registerShortcut(panelKey as Parameters<typeof pi.registerShortcut>[0], { description: "Pannello della sessione: goal/loop/team, file, test, immagini, uso", handler: togglePanel });
+	pi.registerCommand("pannello", { description: `Apre o chiude il pannello della sessione (come ${panelKey})`, handler: async (_args, ctx) => togglePanel(ctx) });
 
 	pi.registerCommand("img", {
 		description: "Immagini della sessione: anteprima e apertura a piena qualità (Invio)",

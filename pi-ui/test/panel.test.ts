@@ -13,10 +13,11 @@ const info: PanelInfo = {
 };
 
 test("the panel lists session, files, failing tests, last image and usage at its exact width", () => {
-	const lines = renderPanel(info, 40);
+	const lines = renderPanel(info, 40, "alt+s");
 	for (const line of lines) assert.equal(visibleWidth(line), 40);
 	const text = lines.map(strip).join("\n");
-	assert.match(text, /PANNELLO\s+alt\+i chiudi/);
+	assert.match(text, /PANNELLO\s+alt\+s chiudi/);
+	assert.match(renderPanel(info, 40, "f2").map(strip)[0], /f2 chiudi/);
 	assert.match(text, /GOAL 2\/5/);
 	assert.match(text, /LOOP 5m · giro 3/);
 	assert.match(text, /TEAM t2\/4 tester/);
@@ -32,7 +33,7 @@ test("the panel lists session, files, failing tests, last image and usage at its
 });
 
 test("empty sections are left out", () => {
-	const text = renderPanel({ ...info, session: new Map(), files: [], failures: [], image: undefined }, 40).map(strip).join("\n");
+	const text = renderPanel({ ...info, session: new Map(), files: [], failures: [], image: undefined }, 40, "alt+s").map(strip).join("\n");
 	assert.match(text, /nessun goal, loop o team/);
 	assert.doesNotMatch(text, /FILE|TEST|IMMAGINI/);
 	assert.match(text, /USO/);

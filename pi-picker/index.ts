@@ -1,8 +1,8 @@
 /**
  * pi-picker: global modal picker for Pi.
  *
- * - Alt+O (or /pick): browse the project and insert one or more @file / @folder/ mentions into the prompt.
- *   Ctrl+O is taken by Pi (expand tool output).
+ * - Alt+A (or /pick; PI_PICKER_KEY changes the key): browse the project and insert one or more @file / @folder/
+ *   mentions into the prompt. Ctrl+O is taken by Pi (expand tool output), Alt+O by komorebi/whkd.
  * - Library for other extensions: `pick(ctx, { title, source, multi, preview })` from `src/pick.ts`, with the
  *   sources in `src/sources.ts` (files, dirs, recent projects, plain lists).
  */
@@ -20,9 +20,10 @@ export default function (pi: ExtensionAPI) {
 		if (paths?.length) ctx.ui.pasteToEditor(formatMentions(paths));
 	};
 
-	pi.registerShortcut("alt+o", { description: "Inserisci file o cartelle del progetto nel prompt (@percorso)", handler: insertMentions });
+	const key = (process.env.PI_PICKER_KEY || "alt+a").toLowerCase() as Parameters<typeof pi.registerShortcut>[0];
+	pi.registerShortcut(key, { description: "Inserisci file o cartelle del progetto nel prompt (@percorso)", handler: insertMentions });
 	pi.registerCommand("pick", {
-		description: "Sfoglia il progetto e inserisci file o cartelle nel prompt (come Alt+O)",
+		description: `Sfoglia il progetto e inserisci file o cartelle nel prompt (come ${key})`,
 		handler: async (_args, ctx) => insertMentions(ctx),
 	});
 }

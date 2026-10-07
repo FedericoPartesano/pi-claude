@@ -1,5 +1,5 @@
 /**
- * The session panel (Alt+I, Neon Night principle 5): goal/loop/team, changed files, failing tests, the last image and
+ * The session panel (Alt+S by default, Neon Night principle 5): goal/loop/team, changed files, failing tests, the last image and
  * usage. Drawn as an overlay on the right that never takes the keyboard.
  */
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
@@ -51,14 +51,17 @@ const bar = (fraction: number | undefined, cells = 10) => {
 	return fg(C.cyan, "▰".repeat(filled)) + fg(C.faint, "▱".repeat(cells - filled));
 };
 
-export function renderPanel(info: PanelInfo, width: number): string[] {
+/** Default key of the panel: Alt+I and Alt+O are taken by komorebi/whkd, Ctrl+B by tmux. PI_UI_PANEL_KEY overrides it. */
+export const PANEL_KEY = "alt+s";
+
+export function renderPanel(info: PanelInfo, width: number, key = PANEL_KEY): string[] {
 	const inner = width - 2;
 	const section = (title: string, right = "") => {
 		const head = `${bold(fg(C.text, title))} `;
 		const tail = right ? ` ${right}` : "";
 		return head + fg(C.border, "─".repeat(Math.max(1, inner - visibleWidth(head) - visibleWidth(tail)))) + tail;
 	};
-	const lines: string[] = [fit(bold(fg(C.mag, "PANNELLO")), `${fg(C.text, "alt+i")} ${fg(C.dim, "chiudi")}`, inner), section("SESSIONE")];
+	const lines: string[] = [fit(bold(fg(C.mag, "PANNELLO")), `${fg(C.text, key)} ${fg(C.dim, "chiudi")}`, inner), section("SESSIONE")];
 
 	const session = [
 		["goal", "GOAL", C.mag],

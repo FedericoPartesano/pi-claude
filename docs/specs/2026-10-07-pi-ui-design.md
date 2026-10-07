@@ -21,8 +21,8 @@ e ha un'estetica futuristica cyberpunk sobria. Tutto con le API di estensione di
 | Design | pi-ui | Motivo |
 |---|---|---|
 | Header fisso in alto | header all'avvio + progetto/branch/✚ nel **footer** | l'header di Pi scorre via con la chat |
-| Binario laterale fisso a 120 colonne | **pannello a comparsa** `Alt+I` (overlay a destra, non ruba la tastiera) | Pi non restringe la chat: un pannello fisso la coprirebbe |
-| `Ctrl+B` pannello | `Alt+I` | `Ctrl+B` è il prefisso di tmux e "cursore a sinistra" in Pi |
+| Binario laterale fisso a 120 colonne | **pannello a comparsa** `Alt+S` / `/pannello` (overlay a destra, non ruba la tastiera) | Pi non restringe la chat: un pannello fisso la coprirebbe |
+| `Ctrl+B` pannello | `Alt+S` (configurabile `PI_UI_PANEL_KEY`) | `Ctrl+B` è il prefisso di tmux; `Alt+I`/`Alt+O` sono di komorebi/whkd |
 | Turni precedenti su una riga, Invio su un passo | solo le righe dei passi si comprimono; `Ctrl+O` globale | i messaggi utente/modello li disegna Pi, nessuna selezione per voce |
 | Frasi tipo "Correggo totalValue" | frasi dedotte da tool e argomenti ("Modifico cart.js", "Eseguo i test") | il modello non le fornisce; niente token in più |
 
@@ -70,7 +70,7 @@ Pacchetto Pi (come `pi-picker`): `pi install` da `install.sh`, attivo in `pi` e 
 | `src/answer.ts` | `⬢` davanti alla risposta; percorsi `file:riga` resi link `vscode://` (VS Code in WSL) | `registerMarkdownTransformer` |
 | `src/suggestions.ts` | chiede al modello, in coda al system prompt, fino a 4 suggerimenti in un blocco riconoscibile; li toglie dalla risposta e li mostra `[1] … [4]` | `before_agent_start`, transformer, entry |
 | `src/permission.ts` | sostituisce il dialogo di `permission-gate`: TOCCA A TE nella barra con `s` sì · `n` no · `a` sempre per questo comando | `tool_call` + input dell'editor |
-| `src/panel.ts` | `Alt+I`: overlay a destra, non cattura la tastiera: SESSIONE (goal/loop/team), FILE (git status), TEST falliti, IMMAGINI (ultima miniatura), USO (5h, 7g, contesto) | `ctx.ui.custom(overlay, nonCapturing)` |
+| `src/panel.ts` | `Alt+S`: overlay a destra, non cattura la tastiera: SESSIONE (goal/loop/team), FILE (git status), TEST falliti, IMMAGINI (ultima miniatura), USO (5h, 7g, contesto) | `ctx.ui.custom(overlay, nonCapturing)` |
 | `src/notify.ts` | turno > 30 s: campanella + notifica Windows via `powershell.exe` (API Windows di sistema, senza moduli da installare) | `agent_settled` |
 | `src/session-bus.ts` | goal/loop/team pubblicano il loro stato su `pi.events`; pi-ui lo legge per footer e pannello. Senza pi-ui restano i `setStatus` attuali | `pi.events` |
 
@@ -101,7 +101,7 @@ Pacchetto Pi (come `pi-picker`): `pi install` da `install.sh`, attivo in `pi` e 
 2. Passi, frasi, diff, lettura dei test, compressione a fine turno.
 3. Immagini, `/img`, link nelle risposte.
 4. Suggerimenti, permesso nella barra, notifica.
-5. Pannello `Alt+I` e bus di sessione per goal/loop/team.
+5. Pannello `Alt+S` e bus di sessione per goal/loop/team.
 
 ## Fuori scope
 TUI `/memoria` (progetto separato, userà gli stessi colori), chat interamente custom fullscreen, frasi generate dal

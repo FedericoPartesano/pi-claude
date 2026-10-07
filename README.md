@@ -53,7 +53,8 @@ Uso automatico (zero token: punteggio locale, nessuna chiamata al modello):
 
 Un picker modale unico (`pi-picker`), installato sempre, a costo zero finché non lo apri (nessun tool, nessun testo nel
 prompt, nessuna scansione all'avvio):
-- **Alt+O** (o `/pick`) nel prompt: sfogli il progetto e inserisci uno o più `@file` / `@cartella/`. Ctrl+O è già di Pi.
+- **Alt+A** (o `/pick`) nel prompt: sfogli il progetto e inserisci uno o più `@file` / `@cartella/`. Ctrl+O è già di Pi,
+  Alt+O è di komorebi/whkd; `PI_PICKER_KEY=f3` (per esempio) cambia il tasto.
 - **`pi-full --pick`**: prima di avviare Pi scegli il progetto tra i recenti (dalle sessioni di Pi) o navigando dal tuo home.
 
 Tasti: scrivi per filtrare (fuzzy) · ↑↓ PgUp/PgDn · Invio conferma · Spazio segna più voci · Tab/→ entra nella cartella ·
@@ -123,7 +124,7 @@ Attiva in `pi` e `pi-full` (tema `neon-night`, impostato da `install.sh` solo se
   costano ~70 token di istruzione in cache).
 - **Comandi pericolosi** (`rm -rf`, `sudo`, `777`, force push, `reset --hard`, `curl | sh`…): domanda nella barra,
   `s` sì · `n` no · `a` sempre per quel comando. Resta attiva anche con `PI_UI=off` (dialogo); senza interfaccia blocca.
-- **Pannello** `Alt+I`: goal/loop/team, file modificati con `+/-`, test falliti, ultima immagine, uso 5h/7g/contesto.
+- **Pannello** `Alt+S` (o `/pannello`; `PI_UI_PANEL_KEY` cambia il tasto, Alt+I è di komorebi): goal/loop/team, file modificati con `+/-`, test falliti, ultima immagine, uso 5h/7g/contesto.
 - **Notifica** di Windows e campanella a fine turni lunghi (≥ 30 s; `PI_UI_NOTIFY=0`).
 - Link `file:riga` → VS Code nelle risposte, solo dove il terminale mostra i link. In tmux:
   `set -as terminal-features ',*:hyperlinks'` nel `~/.tmux.conf`.
