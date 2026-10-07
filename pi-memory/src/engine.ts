@@ -68,7 +68,7 @@ export class Recaller {
 		return coreSection(this.all(dirs).flatMap((part) => part.records));
 	}
 
-	async run(query: string, dirs: StoreDirs, today: string, embedder?: Embedder, options: { includeSuperseded?: boolean; threshold?: number } = {}): Promise<RecallRun> {
+	async run(query: string, dirs: StoreDirs, today: string, embedder?: Embedder, options: { includeSuperseded?: boolean; threshold?: number; inquiryThreshold?: number; limit?: number } = {}): Promise<RecallRun> {
 		const started = performance.now();
 		const parts = this.all(dirs);
 		const records = parts.flatMap((part) => part.records);
@@ -86,7 +86,7 @@ export class Recaller {
 		// Pinned memories already sit in the system prompt: never repeat them in the request.
 		const pinned = new Set(coreIds(records));
 		const index = parts.length === 1 ? parts[0].index : new RecallIndex(records);
-		const { hits } = recall(index, query, { today, vectors, queryVector, semFloor: embedder?.semFloor, semSpan: embedder?.semSpan, includeSuperseded: options.includeSuperseded, threshold: options.threshold, exclude: options.includeSuperseded ? undefined : pinned });
+		const { hits } = recall(index, query, { today, vectors, queryVector, semFloor: embedder?.semFloor, semSpan: embedder?.semSpan, includeSuperseded: options.includeSuperseded, threshold: options.threshold, inquiryThreshold: options.inquiryThreshold, limit: options.limit, exclude: options.includeSuperseded ? undefined : pinned });
 		const text = renderRecall(hits);
 		return { text, hits, ids: text ? hits.map((hit) => hit.record.id).slice(0, text.split("\n").length - 1) : [], chars: text.length, estTokens: Math.round(text.length / 3.6), embedderReady: Boolean(queryVector), ms: Math.round((performance.now() - started) * 10) / 10 };
 	}

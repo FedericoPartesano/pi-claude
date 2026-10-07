@@ -38,6 +38,8 @@ import { Recaller, appendRecallLog, fillVectors, type StoreDirs } from "../pi-me
 import { entriesToRecords, recordsToEntries } from "../pi-memory/src/reconcile.ts";
 import { loadStore, migrateLegacy, pruneVectors, saveStore, storeExists, type MemoryRecord } from "../pi-memory/src/store.ts";
 import { applyAction, dreamEntry, memoryStatus, recordLabel, recordPreview, summarize, type DreamEntry, type MemoryAction } from "../pi-memory/src/dashboard.ts";
+import type { DashboardResult, View } from "../pi-memory/src/dashboard-tui.ts";
+import { answerPrompt, appendDreamRun, appendRecallEvent, readDreamRuns, readRecallEvents, type MemoryDashboardSource, type SearchHit } from "../pi-memory/src/dashboard-data.ts";
 
 /** ~1.000 tokens of memory in context at most. */
 export const CONTEXT_BUDGET_CHARS = 3600;
@@ -150,9 +152,68 @@ function describe(memory: MemoryEntry[], proposal: Proposal): string[] {
 	];
 }
 
+/** Embedder and recaller of the running extension, shared with the dashboard source. */
+let shared: { embedder: BackgroundEmbedder; recaller: Recaller } | undefined;
+
+/**
+ * Data for the memory dashboard (pi-memory/src/dashboard-tui.ts): project + global records ("g:" ids), /dream and recall
+ * history, local search (no tokens), the model's answer from memories only, and the actions on a memory.
+ */
+export function dashboardSource(ctx: ExtensionContext): MemoryDashboardSource {
+	const dirs = deepDirs(ctx.cwd);
+	return {
+		load: () => ({
+			records: allRecords(dirs),
+			runs: [...readDreamRuns(dirs.project), ...(dirs.global ? readDreamRuns(dirs.global) : [])].sort((a, b) => b.at.localeCompare(a.at)),
+			events: readRecallEvents(dirs.project),
+			lastDream: readState(projectFiles(ctx.cwd).state).lastConsolidated?.slice(0, 10),
+			where: `.pi/memory${dirs.global && storeExists(dirs.global) ? " + globale" : ""}`,
+		}),
+		search: async (question) => {
+			if (!hasStore(dirs)) return [];
+			const recaller = shared?.recaller ?? new Recaller();
+			const embedder = shared?.embedder.ready ? shared.embedder : undefined;
+			// A question about the memory is an inquiry: no raised threshold here, and more results than a request gets.
+			const run = await recaller.run(question, dirs, today(), embedder, { includeSuperseded: true, threshold: 0.2, inquiryThreshold: 0, limit: 20 });
+			return run.hits.map((hit): SearchHit => ({ record: hit.record, score: hit.score }));
+		},
+		answer: async (question, hits, onText, signal) => {
+			const model = ctx.modelRegistry.find("claude-code", process.env.PI_DREAM_MODEL ?? "haiku") ?? ctx.model;
+			if (!model) throw new Error("nessun modello disponibile");
+			const stream = ctx.modelRegistry.streamSimple(model, {
+				systemPrompt: "Rispondi solo con le informazioni dei ricordi forniti, citandoli con il loro id. Se non bastano, dillo.",
+				messages: [{ role: "user", content: [{ type: "text", text: answerPrompt(question, hits) }], timestamp: Date.now() }],
+			} as never, { signal } as never);
+			let text = "";
+			for await (const event of stream as AsyncIterable<{ type: string; delta?: string }>) {
+				if (signal?.aborted) break;
+				if (event.type === "text_delta" && event.delta) {
+					text += event.delta;
+					onText(text);
+				}
+			}
+			const message = await stream.result();
+			const final = message.content.filter((part) => part.type === "text").map((part) => (part as { text: string }).text).join("") || text;
+			if (final !== text) onText(final);
+			return final;
+		},
+		act: async (id, action) => {
+			const global = id.startsWith("g:");
+			const dir = global ? dirs.global : dirs.project;
+			if (!dir || !storeExists(dir)) return;
+			const store = loadStore(dir);
+			const next = applyAction(store.records, global ? id.slice(2) : id, action, today());
+			saveStore(dir, { records: next, vectors: pruneVectors(store.records, next, store.vectors), model: store.model });
+			// An edited text needs its embedding again to be recalled semantically.
+			if (shared?.embedder.ready) await fillVectors(dir, shared.embedder).catch(() => 0);
+		},
+	};
+}
+
 export default function (pi: ExtensionAPI) {
 	const embedder = new BackgroundEmbedder();
 	const recaller = new Recaller();
+	shared = { embedder, recaller };
 	const logRecall = process.env.PI_MEMORY_RECALL_LOG === "1";
 	/** Footer/panel line about memory (pi-ui shows it): loading, consolidating, or how many memories and recalled. */
 	const showStatus = (ctx: ExtensionContext, extra: { loading?: boolean; dreaming?: boolean; recalled?: number } = {}) => {
@@ -181,6 +242,13 @@ export default function (pi: ExtensionAPI) {
 		if (!ctx.hasUI && !embedder.ready && recaller.hasVectors(dirs)) await Promise.race([embedder.start(), new Promise((resolve) => setTimeout(resolve, 8000).unref())]);
 		const run = await recaller.run(event.prompt, dirs, date, embedder.ready ? embedder : undefined);
 		log(run.ids, run.chars, run.embedderReady);
+		// Always kept (last 500): the dashboard shows what was recalled, when and with which score.
+		try {
+			const injected = new Set(run.ids);
+			appendRecallEvent(dirs.project, { at: new Date().toISOString(), query: event.prompt.slice(0, 300), hits: run.hits.filter((hit) => injected.has(hit.record.id)).map((hit) => ({ id: hit.record.id, score: Math.round(hit.score * 1000) / 1000 })), ms: run.ms });
+		} catch {
+			// A read-only project folder must not break the request.
+		}
 		showStatus(ctx, { recalled: run.ids.length });
 		if (!run.text) return;
 		return { message: { customType: "memory-recall", content: run.text, display: false } };
@@ -349,6 +417,13 @@ export default function (pi: ExtensionAPI) {
 		const contextChars = deep ? 0 : fitBudget(result.memory, CONTEXT_BUDGET_CHARS).map(contextLine).join("\n").length;
 		const summary = { ...result.counts, overCap: capped.moved, pending: batch.pending, entries: result.memory.length, contextTokens: Math.round(contextChars / 3.6), usage: answer.usage };
 		write(target.last, JSON.stringify(summary, null, 2));
+		// History of /dream runs for the dashboard (what each run saved, when, at what cost).
+		try {
+			const usage = answer.usage as { input?: number; output?: number } | undefined;
+			appendDreamRun(storeDir, { at: new Date().toISOString(), date, scope: global ? "globale" : "progetto", counts: result.counts, lines: describe(memory, approved), tokens: usage ? (usage.input ?? 0) + (usage.output ?? 0) : undefined });
+		} catch {
+			// Logging must never undo a consolidation.
+		}
 		const { added, reinforced, merged, updated, forgotten } = result.counts;
 		if (deep) {
 			// New or edited memories get their embedding now, so the next request can recall them semantically.
@@ -365,54 +440,28 @@ export default function (pi: ExtensionAPI) {
 
 	/** /memoria: summary on top, every memory with its preview; Enter → pin, edit, mark superseded or delete. */
 	pi.registerCommand("memoria", {
-		description: "Dashboard della memoria: riassunto, elenco con anteprima; Invio per fissare, modificare, superare o eliminare",
+		description: "Dashboard della memoria: ricordi, cronologia dei /dream, richiami, e domande alla memoria",
 		handler: async (_args, ctx) => {
 			if (!deepMode()) return ctx.ui.notify("La dashboard serve la memoria profonda (il default; ora PI_MEMORY_MODE=capped): i ricordi sono in .pi/memory.md.", "info");
 			migrate(ctx.cwd, today());
-			const dirs = deepDirs(ctx.cwd);
-			const info = () => ({
-				lastDream: readState(projectFiles(ctx.cwd).state).lastConsolidated?.slice(0, 10),
-				where: `.pi/memory${dirs.global && storeExists(dirs.global) ? " + globale" : ""}`,
-			});
-			if (!ctx.hasUI || ctx.mode !== "tui") return ctx.ui.notify(summarize(allRecords(dirs), info()), "info");
-			const { pick } = (await import(PICKER)) as { pick: Pick };
-			// Until Esc: after every action the list opens again with the change visible.
+			const source = dashboardSource(ctx);
+			if (ctx.mode !== "tui") {
+				const data = source.load();
+				return ctx.ui.notify(summarize(data.records, { lastDream: data.lastDream, where: data.where }), "info");
+			}
+			// Modal over the chat; "e" closes it to open Pi's editor, then the dashboard comes back on the same view.
+			const { MemoryDashboard } = await import("../pi-memory/src/dashboard-tui.ts");
+			let view: View = "ricordi";
 			for (;;) {
-				const records = allRecords(dirs);
-				if (records.length === 0) return ctx.ui.notify(summarize(records, info()), "info");
-				const rank = (record: MemoryRecord) => (record.status !== "active" ? 2 : record.pinned ? 0 : 1);
-				const ordered = [...records].sort((a, b) => rank(a) - rank(b) || b.last.localeCompare(a.last));
-				const summary = summarize(records, info());
-				const chosen = await pick(ctx, {
-					title: "Memoria · Invio per le azioni",
-					wrapPreview: true,
-					source: { start: "", list: () => ordered.map((record) => ({ value: record.id, label: recordLabel(record) })), describe: () => summary },
-					preview: (item) => {
-						const record = records.find((candidate) => candidate.id === item.value);
-						return record ? recordPreview(record) : undefined;
-					},
-				});
-				const id = chosen?.[0];
-				const record = records.find((candidate) => candidate.id === id);
-				if (!id || !record) return;
-				const choice = await ctx.ui.select(recordLabel(record), [record.pinned ? "📌 Togli" : "📌 Fissa", "✎ Modifica", "~ Segna superato", "✗ Elimina", "Annulla"]);
-				let action: MemoryAction | undefined;
-				if (choice?.startsWith("📌")) action = { kind: "pin" };
-				else if (choice === "~ Segna superato") action = { kind: "supersede" };
-				else if (choice === "✎ Modifica") {
-					const text = (await ctx.ui.editor("Modifica il ricordo", record.text))?.trim();
-					if (text && text !== record.text) action = { kind: "edit", text };
-				} else if (choice === "✗ Elimina" && (await ctx.ui.confirm("Eliminare il ricordo?", record.text))) action = { kind: "delete" };
-				if (!action) continue;
-				const global = id.startsWith("g:");
-				const dir = global ? dirs.global : dirs.project;
-				if (!dir) continue;
-				const store = loadStore(dir);
-				const next = applyAction(store.records, global ? id.slice(2) : id, action, today());
-				saveStore(dir, { records: next, vectors: pruneVectors(store.records, next, store.vectors), model: store.model });
-				// An edited text needs its embedding again to be recalled semantically.
-				if (embedder.ready) await fillVectors(dir, embedder).catch(() => 0);
-				showStatus(ctx);
+				const result = await ctx.ui.custom<DashboardResult>(
+					(tui, theme, _keybindings, done) =>
+						new MemoryDashboard(source, { fg: (role, text) => theme.fg(role, text), bold: (text) => theme.bold(text) }, done, () => tui.requestRender(), () => Math.max(14, Math.floor((process.stdout.rows || 30) * 0.92)), today(), view),
+					{ overlay: true, overlayOptions: { anchor: "center", width: "96%", maxHeight: "94%" } },
+				);
+				if (!result) return;
+				view = result.view;
+				const text = await ctx.ui.editor("Modifica il ricordo", result.edit.text);
+				if (text?.trim() && text.trim() !== result.edit.text) await source.act(result.edit.id, { kind: "edit", text: text.trim() });
 			}
 		},
 	});
