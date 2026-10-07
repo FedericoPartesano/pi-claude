@@ -23,6 +23,9 @@ jobs:
           cache: npm
           cache-dependency-path: ${{ matrix.package }}/package-lock.json
       - run: npm ci
+      # pi-ui's /img uses pi-picker's sources directly: its dependencies are needed to typecheck them.
+      - if: matrix.package == 'pi-ui'
+        run: npm ci --prefix ../pi-picker
       - run: npx tsc -p .
       - run: npm test
 
