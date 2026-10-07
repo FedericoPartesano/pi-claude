@@ -31,6 +31,11 @@ done
 # /custom-reload (pi-ui): Pi writes the session to reopen and quits; start it again with the same extensions.
 RESTART="${PI_UI_RESTART_FILE:-$A/pi-ui-restart}"
 rm -f "$RESTART"
+# Intro animation (pi-ui): only on the first start, not after /custom-reload. PI_UI_INTRO=0 turns it off.
+if [ -t 1 ] && [ "${PI_UI_INTRO:-1}" != 0 ] && [ "${PI_UI:-}" != off ]; then
+  branch="$(git branch --show-current 2>/dev/null)"
+  node --disable-warning=ExperimentalWarning "$REPO/pi-ui/bin/intro.ts" "claude code · pi-full · $(basename "$PWD")${branch:+ ⎇ $branch}" || true
+fi
 PI_UI_LOOP=1 pi "${args[@]}" "$@"
 code=$?
 while [ -f "$RESTART" ]; do
