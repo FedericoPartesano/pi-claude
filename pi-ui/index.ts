@@ -18,6 +18,7 @@ import { basename, resolve } from "node:path";
 import { CustomEditor, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getCapabilities, type Component, type TUI } from "@earendil-works/pi-tui";
 import { linkFileRefs, vscodeUrl, wslDistro } from "./src/answer.ts";
+import { subagentRows, teamRows, type AgentRow } from "./src/agents.ts";
 import { CHART_PROMPT, extractCharts, renderChart, type ChartSpec } from "./src/charts.ts";
 import { renderImageEntry, thumbnailColumns } from "./src/image-entry.ts";
 import { findImageRefs, thumbnailFor, type Thumbnail } from "./src/images.ts";
@@ -92,6 +93,15 @@ export default function (pi: ExtensionAPI) {
 	let frame = 0;
 	let files: ChangedFile[] = [];
 	let git: PanelInfo["git"];
+	// Sub-agent tools of the current (or last) turn, for the panel's SUB-AGENTI section.
+	const agentCalls = new Map<string, { tool: string; args: Record<string, unknown>; partial?: unknown; lines: string[]; startedAt: number; finished?: { isError: boolean; at: number } }>();
+	const agentRows = (): AgentRow[] =>
+		[...agentCalls.entries()].flatMap(([id, call]) => {
+			if (call.tool === "subagent") return subagentRows(call.args, call.partial as Parameters<typeof subagentRows>[1], call.finished, call.startedAt).map((row) => ({ ...row, key: `${id}:${row.key}` }));
+			const rows = teamRows(call.lines, call.startedAt);
+			// When the team tool ends, tasks still marked running ended with it.
+			return call.finished ? rows.map((row) => (row.state === "running" ? { ...row, state: call.finished!.isError ? ("failed" as const) : ("done" as const), endedAt: call.finished!.at } : row)) : rows;
+		});
 	/** Latest finished steps for the panel's ATTIVITÀ section. */
 	const activity: NonNullable<PanelInfo["activity"]> = [];
 	let outcome: "completed" | "aborted" | "error" = "completed";
@@ -250,6 +260,7 @@ export default function (pi: ExtensionAPI) {
 		update({ type: "agent_start", at: Date.now() });
 		liveTurn = [];
 		liveThinking = "";
+		agentCalls.clear();
 		suggestions = [];
 		lastAnswer = "";
 		clearInterval(spinner);
@@ -261,6 +272,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("tool_execution_start", (event) => {
 		if (!active || event.parentToolCallId) return;
 		argsOf.set(event.toolCallId, event.args);
+		if (event.toolName === "subagent" || event.toolName === "team") agentCalls.set(event.toolCallId, { tool: event.toolName, args: event.args ?? {}, lines: [], startedAt: Date.now() });
 		liveThinking = "";
 		update({ type: "tool_start", activity: lower(phrase(event.toolName, event.args).text) });
 	});
@@ -269,6 +281,8 @@ export default function (pi: ExtensionAPI) {
 		const isTestRun = event.toolName === "bash" && /test/.test(phrase("bash", argsOf.get(event.toolCallId)).text);
 		const failed = event.toolName === "bash" ? checkOutcome(resultText(event.result), event.isError, isTestRun).failed : event.isError;
 		update({ type: "tool_end", failed });
+		const agentCall = agentCalls.get(event.toolCallId);
+		if (agentCall) agentCall.finished = { isError: event.isError, at: Date.now() };
 		const time = new Date().toTimeString().slice(0, 8);
 		activity.push({ time, icon: failed ? "✗" : "✓", ok: !failed, text: phrase(event.toolName, argsOf.get(event.toolCallId)).text });
 		if (activity.length > 20) activity.shift();
@@ -278,6 +292,15 @@ export default function (pi: ExtensionAPI) {
 		argsOf.delete(event.toolCallId);
 	});
 	// Thinking streamed by the model: the last lines in a dark box while it reasons; the box goes when it ends.
+	pi.on("tool_execution_update", (event) => {
+		const call = agentCalls.get(event.toolCallId);
+		if (!call) return;
+		call.partial = event.partialResult;
+		// The team sends its last progress lines each time: keep them all, in order.
+		if (call.tool === "team") for (const text of resultText(event.partialResult).split("\n")) if (text && !call.lines.includes(text)) call.lines.push(text);
+		tui?.requestRender();
+	});
+
 	pi.on("message_update", (event) => {
 		const streamed = event.assistantMessageEvent as { type: string; contentIndex?: number; partial?: { content?: { type: string; thinking?: string }[] } };
 		if (!active || status.mode !== "working") return;
@@ -423,6 +446,8 @@ export default function (pi: ExtensionAPI) {
 							git,
 							memory: statuses.get("memory"),
 							suggestions,
+							agents: agentRows(),
+							now: Date.now(),
 							usage: {
 								fiveHour: usage?.fiveHour,
 								sevenDay: usage?.sevenDay,

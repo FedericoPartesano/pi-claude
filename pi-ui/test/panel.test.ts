@@ -84,3 +84,13 @@ test("parseAheadBehind reads git rev-list --left-right --count", () => {
 	assert.deepEqual(parseAheadBehind("0\t2\n"), { behind: 0, ahead: 2 });
 	assert.deepEqual(parseAheadBehind(""), { behind: 0, ahead: 0 });
 });
+
+test("the panel shows sub-agents with how many are active", () => {
+	const text = renderPanel({ ...info, agents: [
+		{ key: "a", name: "t1 implementer", task: "Implementa cart", state: "running", startedAt: 1000, doing: "eseguo i test" },
+		{ key: "b", name: "t2 tester", task: "Scrivi i test", state: "queued" },
+	], now: 13_000 }, 40, "alt+s").map(strip).join("\n");
+	assert.match(text, /SUB-AGENTI ─+ 1 attivo \/ 2/);
+	assert.match(text, /t1 implementer/);
+	assert.ok(text.indexOf("SUB-AGENTI") < text.indexOf("FILE"), "agents come before files");
+});

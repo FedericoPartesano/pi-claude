@@ -5,6 +5,7 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { formatTokens } from "./status-bar.ts";
 import { formatDuration } from "./steps.ts";
+import { renderAgents, type AgentRow } from "./agents.ts";
 import { C, bg, bold, fg, fit, pad, underline } from "./palette.ts";
 
 export interface ChangedFile {
@@ -29,6 +30,10 @@ export interface PanelInfo {
 	/** setStatus("memory") of the memory extension. */
 	memory?: string;
 	suggestions?: string[];
+	/** Sub-agents of the subagent and team tools. */
+	agents?: AgentRow[];
+	/** Clock for the agents' running time (default: now). */
+	now?: number;
 }
 
 /** `git rev-list --left-right --count @{upstream}...HEAD` → commits behind / ahead of the remote. */
@@ -94,6 +99,11 @@ export function renderPanel(info: PanelInfo, width: number, key = PANEL_KEY): st
 		const mark = { working: fg(C.cyan, "⠋"), waiting: fg(C.yel, "◆"), stopped: fg(C.err, "✗"), done: fg(C.ok, "✓") }[turn.mode];
 		lines.push("", section("TURNO", mark));
 		lines.push(fg(C.text, `${turn.steps} passi · ${turn.seconds < 60 ? `${turn.seconds}s` : formatDuration(turn.seconds * 1000)} · ↑${formatTokens(turn.tokensIn)} ↓${formatTokens(turn.tokensOut)}`));
+	}
+	if (info.agents?.length) {
+		const active = info.agents.filter((agent) => agent.state === "running").length;
+		lines.push("", section("SUB-AGENTI", fg(active ? C.cyan : C.dim, `${active} ${active === 1 ? "attivo" : "attivi"} / ${info.agents.length}`)));
+		lines.push(...renderAgents(info.agents.slice(-6), inner, info.now ?? Date.now(), Math.floor((info.now ?? Date.now()) / 100)));
 	}
 	if (info.activity?.length) {
 		lines.push("", section("ATTIVITÀ"));
