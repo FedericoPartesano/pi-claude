@@ -126,6 +126,7 @@ Attiva in `pi` e `pi-full`. Temi: `neon-night` (cyberpunk, sfondo nero) e `lilla
   `s` sì · `n` no · `a` sempre per quel comando. Resta attiva anche con `PI_UI=off` (dialogo); senza interfaccia blocca.
 - **Pannello** `Alt+S` (o `/pannello`; `PI_UI_PANEL_KEY` cambia il tasto, Alt+I è di komorebi): goal/loop/team, file modificati con `+/-`, test falliti, ultima immagine, uso 5h/7g/contesto.
 - **Notifica** di Windows e campanella a fine turni lunghi (≥ 30 s; `PI_UI_NOTIFY=0`).
+- **Intro** col logo animato all'avvio di `pi-full` (un tasto la salta; `PI_UI_INTRO=0` la spegne).
 - Link `file:riga` → VS Code nelle risposte, solo dove il terminale mostra i link. In tmux:
   `set -as terminal-features ',*:hyperlinks'` nel `~/.tmux.conf`.
 
