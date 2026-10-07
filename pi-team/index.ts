@@ -43,7 +43,9 @@ export default function (pi: ExtensionAPI) {
 	const roleList = [...roles.values()].map((role) => `- ${role.name} (${role.model}${role.writes ? ", modifica file" : ", sola lettura"}): ${role.description}`).join("\n");
 
 	// Advisor: before a request starts, recommend the team only for clearly large jobs (asks, never forces).
+	// When the work advisor of extensions/intent.ts is loaded it decides for both (one dialog per request).
 	pi.on("input", async (event, ctx) => {
+		if ((globalThis as Record<symbol, unknown>)[Symbol.for("pi-claude.work-advisor")]) return { action: "continue" };
 		if (event.source !== "interactive" || event.streamingBehavior || !ctx.hasUI) return { action: "continue" };
 		const text = event.text.trim();
 		if (text.startsWith("/") || /\bteam\b/i.test(text)) return { action: "continue" };

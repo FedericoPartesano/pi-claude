@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package: [pi-claude-code, pi-team]
+        package: [pi-claude-code, pi-team, pi-picker]
     defaults:
       run:
         working-directory: ${{ matrix.package }}

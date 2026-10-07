@@ -1,0 +1,25 @@
+{
+  "name": "pi-picker",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Global modal picker for Pi: files, folders, recent projects or any list, inside Pi or standalone",
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "check": "tsc -p ."
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-tui": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "0.87.1",
+    "@earendil-works/pi-tui": "0.87.1",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}
