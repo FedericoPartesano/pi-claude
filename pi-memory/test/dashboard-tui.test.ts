@@ -5,7 +5,7 @@ import type { DreamRun, MemoryDashboardSource, RecallEvent, SearchHit } from "..
 import { MemoryDashboard, type DashboardResult } from "../src/dashboard-tui.ts";
 import type { MemoryRecord } from "../src/store.ts";
 
-const theme = { fg: (_role: string, text: string) => text, bold: (text: string) => text };
+const theme = { fg: (_role: string, text: string) => text, bg: (_role: string, text: string) => text, bold: (text: string) => text };
 const strip = (text: string) => text.replace(/\x1b\[[0-9;]*m/g, "").replace(/\x1b_pi:c\x07/g, "");
 const KEY = { tab: "\t", down: "\x1b[B", enter: "\r", escape: "\x1b", backspace: "\x7f" };
 const rec = (id: string, text: string, extra: Partial<MemoryRecord> = {}): MemoryRecord => ({ id, type: "preferenza", text, pinned: false, confirmations: 1, created: "2026-10-06", last: "2026-10-06", status: "active", entities: [], ...extra });
@@ -48,20 +48,29 @@ test("every line fits the width; header has the summary and the four views", () 
 		for (const line of lines) assert.equal(visibleWidth(line), width, strip(line));
 	}
 	assert.match(text(), /MEMORIA/);
-	assert.match(dashboard.render(120).map(strip)[0], /esc chiudi ╮$/, "top border complete");
-	assert.match(text(), /3 attivi · 1 📌 · 1 superato · progetto 2 · globale 1 · ultimo \/dream 06\/10/);
-	assert.match(text(), /⟦1 Ricordi⟧ +2 Cronologia +3 Richiami +4 Chiedi/);
+	const [top, title] = dashboard.render(120).map(strip);
+	assert.match(top, /^╭─+╮$/, "top border complete");
+	assert.match(title, /^│ +◆ MEMORIA +\.pi\/memory +esc +chiudi │$/, "title bar with the close key");
+	assert.match(text(), /ATTIVI +FISSATI +SUPERATI +PROGETTO\/GLOBALE +ULTIMO \/DREAM +RICHIAMI OGGI/);
+	assert.match(text(), /│ 3 +1 📌 +1 +2 · 1 +06\/10 +1 /);
+	assert.match(text(), /1 Ricordi 3 +2 Cronologia 2 +3 Richiami 1 +4 Chiedi/);
+	assert.match(text(), /━━━/, "active tab underlined");
 });
 
 test("Ricordi: grouped by type, details of the selected memory, filters", () => {
 	const { dashboard, text } = setup();
-	assert.match(text(), /CORREZIONI · 1/);
-	assert.match(text(), /PREFERENZE · 2/);
-	assert.match(text(), /› 📌 Messaggi d'errore sempre in italiano\./);
-	assert.match(text(), /forza: .* confermato 3 volte/);
-	assert.match(text(), /origine: \/dream del 2026-10-06 \(progetto\)/);
+	assert.match(text(), /✗ CORREZIONI · 1 ─+/);
+	assert.match(text(), /★ PREFERENZE · 2 ─+/);
+	assert.match(text(), /▎ ✗ 📌 Messaggi d'errore sempre in italiano\./, "selected row");
+	assert.match(text(), /✗ CORREZIONE +📌 FISSATO +ATTIVO +PROGETTO/);
+	assert.match(text(), /▌ Messaggi d'errore sempre in italiano\./);
+	assert.match(text(), /DETTAGLI ─+/);
+	assert.match(text(), /Forza +▰+▱* \d+%/);
+	assert.match(text(), /Conferme +3 volte/);
+	assert.match(text(), /Origine +\/dream del 06\/10 · progetto/);
 	dashboard.handleInput(KEY.down);
-	assert.match(text(), /richiamato: 1 volta · ultima 2026-10-07 09:12/);
+	assert.match(text(), /Richiamato +1 volta · ultima 2026-10-07 09:12/);
+	assert.match(text(), /Entità +pnpm/);
 	dashboard.handleInput("/");
 	for (const char of "pnpm") dashboard.handleInput(char);
 	assert.doesNotMatch(text(), /Messaggi d'errore/);
@@ -93,35 +102,39 @@ test("Ricordi actions: p pins, d asks before deleting, e asks the opener for the
 test("Cronologia: days with a bar of new memories, the /dream runs and what they saved", () => {
 	const { dashboard, text } = setup();
 	dashboard.handleInput("2");
-	assert.match(text(), /06\/10\s+█+\s+2 · \/dream ×1/);
-	assert.match(text(), /05\/10\s+█+\s+2/);
-	assert.match(text(), /\/dream progetto 14:09 · 1200 token/);
-	assert.match(text(), /\+1 nuovi ↑1 rinforzati/);
+	assert.match(text(), /06\/10 +█+░* +2 +◆ 1/);
+	assert.match(text(), /05\/10 +█+░* +2 +·/);
+	assert.match(text(), /6 ottobre 2026 +2 ricordi nuovi/);
+	assert.match(text(), /\/DREAM PROGETTO ─+ 14:09 · 1200 token/);
+	assert.match(text(), /\+1 nuovi +↑1 +⇄0 +✎0 +−0/);
 	assert.match(text(), /\+ \[preferenza\] Il package manager è pnpm\./);
 });
 
 test("Richiami: requests with the recalled memories and scores, and the most recalled", () => {
 	const { dashboard, text } = setup();
 	dashboard.handleInput("3");
-	assert.match(text(), /09:12  1 ◇ installa le dipendenze/);
-	assert.match(text(), /più richiamati:/);
-	assert.match(text(), /1× Il package manager è pnpm\./);
-	assert.match(text(), /▰+▱* Il package manager è pnpm\./);
+	assert.match(text(), /09:12 +◇ 1 +installa le dipendenze/);
+	assert.match(text(), /PIÙ RICHIAMATI ─+ 1 oggi · 1 in tutto/);
+	assert.match(text(), /█+ 1× Il package manager è pnpm\./);
+	assert.match(text(), /RICORDI AGGIUNTI AL CONTESTO/);
+	assert.match(text(), /82% ▰+▱* Il package manager è pnpm\./);
 });
 
 test("Chiedi: Enter searches the memory (no tokens), Enter again asks the model; Esc closes", async () => {
 	const { dashboard, calls, results, text } = setup();
 	dashboard.handleInput("4");
 	for (const char of "uso pnpm?") dashboard.handleInput(char);
-	assert.match(text(), /❯ uso pnpm\?/);
+	assert.match(text(), /│ ❯ uso pnpm\?▏/, "question in an input box");
 	dashboard.handleInput(KEY.enter);
 	await tick();
 	assert.deepEqual(calls, ["search:uso pnpm?"]);
 	assert.match(text(), /1 ricordo pertinente/);
-	assert.match(text(), /invio: risposta del modello/);
+	assert.match(text(), /90% ▰+ Il package manager è pnpm\./);
+	assert.match(text(), /invio +risposta del modello/);
 	dashboard.handleInput(KEY.enter);
 	await tick();
 	assert.ok(calls.includes("answer:uso pnpm?:1"));
+	assert.match(text(), /RISPOSTA DAI RICORDI ─+ 1 ricordo usato/);
 	assert.match(text(), /Usi pnpm \[r2\]\./);
 	assert.doesNotMatch(text(), /\*\*/, "markdown bold rendered, not shown raw");
 	dashboard.handleInput(KEY.escape);

@@ -10,7 +10,7 @@
  *   a Windows notification after long turns. The dangerous-command check stays on even with PI_UI=off.
  * - Alt+S (or /pannello; PI_UI_PANEL_KEY changes the key): session panel on the right (goal/loop/team, changed files,
  *   failing tests, last image, usage).
- * Interactive TUI only; PI_UI=off turns it off (the theme stays selectable with /theme).
+ * Interactive TUI only; PI_UI=off turns it off (the theme stays selectable in /settings → Theme).
  */
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
@@ -227,7 +227,7 @@ export default function (pi: ExtensionAPI) {
 		ctx.ui.setWidget("pi-ui-status", (widgetTui) => {
 			tui = widgetTui;
 			return line((width) => {
-				// The palette follows Pi's theme (/theme neon-night or lilla): on a switch, redraw everything once.
+				// The palette follows Pi's theme (/settings → Theme: neon-night or lilla): on a switch, redraw everything once.
 				if (usePalette(ctx.ui.theme.name)) widgetTui.requestRender();
 				return renderStatusBar(status, width, Date.now(), frame);
 			});

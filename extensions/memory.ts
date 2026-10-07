@@ -455,7 +455,7 @@ export default function (pi: ExtensionAPI) {
 			for (;;) {
 				const result = await ctx.ui.custom<DashboardResult>(
 					(tui, theme, _keybindings, done) =>
-						new MemoryDashboard(source, { fg: (role, text) => theme.fg(role, text), bold: (text) => theme.bold(text) }, done, () => tui.requestRender(), () => Math.max(14, Math.floor((process.stdout.rows || 30) * 0.92)), today(), view),
+						new MemoryDashboard(source, { fg: (role, text) => theme.fg(role, text), bg: (role, text) => theme.bg(role, text), bold: (text) => theme.bold(text) }, done, () => tui.requestRender(), () => Math.max(14, Math.floor((process.stdout.rows || 30) * 0.92)), today(), view),
 					{ overlay: true, overlayOptions: { anchor: "center", width: "96%", maxHeight: "94%" } },
 				);
 				if (!result) return;

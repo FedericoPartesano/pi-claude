@@ -13,10 +13,24 @@ import type { MemoryRecord } from "./store.ts";
 import { strength } from "./strength.ts";
 
 export type ThemeRole = "accent" | "muted" | "dim" | "text" | "success" | "warning" | "error" | "border" | "borderAccent";
+export type ThemeBg = "selectedBg" | "customMessageBg" | "userMessageBg";
 export interface DashboardTheme {
 	fg(role: ThemeRole, text: string): string;
+	bg(role: ThemeBg, text: string): string;
 	bold(text: string): string;
 }
+
+/** Icon and color of each memory type, used in lists, headers and chips. */
+const TYPE_STYLE: Record<string, { icon: string; role: ThemeRole }> = {
+	correzione: { icon: "✗", role: "error" },
+	preferenza: { icon: "★", role: "accent" },
+	decisione: { icon: "◆", role: "warning" },
+	fatto: { icon: "●", role: "success" },
+	episodio: { icon: "◷", role: "muted" },
+};
+const typeStyle = (type: string) => TYPE_STYLE[type] ?? { icon: "•", role: "text" as ThemeRole };
+const MONTHS = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"];
+const longDay = (date: string) => `${Number(date.slice(8, 10))} ${MONTHS[Number(date.slice(5, 7)) - 1] ?? ""} ${date.slice(0, 4)}`;
 
 export type View = "ricordi" | "cronologia" | "richiami" | "chiedi";
 const VIEWS: { id: View; label: string }[] = [
@@ -32,7 +46,7 @@ const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", 
 /** What the dashboard asks its opener to do after closing: nothing, or open the editor on a memory. */
 export type DashboardResult = { edit: { id: string; text: string }; view: View } | undefined;
 
-type Row = { kind: "header"; text: string } | { kind: "item"; key: string; text: string };
+type Row = { kind: "header"; key?: string; text: string } | { kind: "item"; key: string; text: string };
 
 const pad = (text: string, width: number) => text + " ".repeat(Math.max(0, width - visibleWidth(text)));
 const fit = (text: string, width: number) => pad(truncateToWidth(text, width), width);
@@ -118,7 +132,7 @@ export class MemoryDashboard implements Component, Focusable {
 					.filter((record) => record.type === type)
 					.sort((a, b) => Number(b.pinned) - Number(a.pinned) || Number(a.status !== "active") - Number(b.status !== "active") || strength(b, this.today) - strength(a, this.today));
 				if (ofType.length === 0) continue;
-				rows.push({ kind: "header", text: `${TYPE_TITLES[type] ?? type.toUpperCase()} · ${ofType.length}` });
+				rows.push({ kind: "header", key: type, text: `${TYPE_TITLES[type] ?? type.toUpperCase()} · ${ofType.length}` });
 				for (const record of ofType) rows.push({ kind: "item", key: record.id, text: `${record.pinned ? "📌 " : record.status !== "active" ? "~ " : ""}${record.text}${record.id.startsWith("g:") ? " · globale" : ""}` });
 			}
 			return rows;
@@ -310,109 +324,19 @@ export class MemoryDashboard implements Component, Focusable {
 
 	// ---------------------------------------------------------------- render
 
-	render(width: number): string[] {
-		const t = this.theme;
-		const height = Math.max(14, this.rows());
-		const inner = Math.max(30, width - 2);
-		const leftWidth = Math.max(20, Math.floor(inner * 0.42));
-		const rightWidth = inner - leftWidth - 1;
-		const body = height - 7;
-		const border = (text: string) => t.fg("borderAccent", text);
-		const full = (text: string) => `${border("│")}${fit(` ${text}`, inner)}${border("│")}`;
-
-		const active = this.data.records.filter((record) => record.status === "active");
-		const pinned = active.filter((record) => record.pinned).length;
-		const superseded = this.data.records.length - active.length;
-		const global = active.filter((record) => record.id.startsWith("g:")).length;
-		const stats = recallStats(this.data.events, this.data.records, this.today);
-		const summary = this.data.records.length === 0
-			? t.fg("muted", "nessun ricordo · fai /dream per consolidare le sessioni passate")
-			: [
-					t.fg("text", `${active.length} attivi`),
-					t.fg("accent", `${pinned} 📌`),
-					t.fg("muted", plural(superseded, "superato", "superati")),
-					t.fg("muted", `progetto ${active.length - global} · globale ${global}`),
-					t.fg("muted", this.data.lastDream ? `ultimo /dream ${shortDay(this.data.lastDream)}` : "mai fatto /dream"),
-					t.fg("muted", `richiami oggi ${stats.today}`),
-				].join(t.fg("dim", " · "));
-		const tabs = VIEWS.map((entry, index) => (entry.id === this.view ? t.bold(t.fg("accent", `⟦${index + 1} ${entry.label}⟧`)) : t.fg("muted", ` ${index + 1} ${entry.label} `))).join(" ");
-		const title = ` ${t.bold(t.fg("accent", "MEMORIA"))} ${t.fg("muted", this.data.where)} `;
-		const close = t.fg("muted", " esc chiudi ");
-		const top = border("╭─") + title + border("─".repeat(Math.max(0, inner - 1 - visibleWidth(title) - visibleWidth(close)))) + close + border("╮");
-
-		const left = this.renderLeft(leftWidth, body);
-		const right = this.renderRight(rightWidth, body, stats);
-		const lines = [
-			truncateToWidth(top, width),
-			full(summary),
-			full(`${tabs}   ${t.fg("dim", "tab cambia vista")}`),
-			border(`├${"─".repeat(leftWidth)}┬${"─".repeat(rightWidth)}┤`),
-		];
-		for (let index = 0; index < body; index++) lines.push(`${border("│")}${fit(left[index] ?? "", leftWidth)}${border("│")}${fit(right[index] ?? "", rightWidth)}${border("│")}`);
-		lines.push(border(`├${"─".repeat(leftWidth)}┴${"─".repeat(rightWidth)}┤`));
-		lines.push(full(this.notice ? t.fg("warning", this.notice) : t.fg("dim", this.keys())));
-		lines.push(border(`╰${"─".repeat(inner)}╯`));
-		return lines;
+	private keycap(key: string, label: string): string {
+		return `${this.theme.bg("customMessageBg", this.theme.bold(this.theme.fg("text", ` ${key} `)))} ${this.theme.fg("muted", label)}`;
 	}
 
-	private keys(): string {
-		switch (this.view) {
-			case "ricordi":
-				return this.searching ? "scrivi per filtrare · invio conferma · esc smette" : "↑↓ scorri · / cerca · t tipo · s superati · g progetto/globale · p 📌 · e modifica · x superato · d elimina";
-			case "cronologia":
-				return "↑↓ scegli il giorno: a destra cosa è entrato in memoria e i /dream di quel giorno";
-			case "richiami":
-				return "↑↓ scegli una richiesta: a destra i ricordi aggiunti al contesto, con il punteggio";
-			case "chiedi":
-				return this.hitsFor && this.hitsFor === this.question.trim() ? "invio: risposta del modello basata su questi ricordi (pochi token) · esc interrompe" : "scrivi una domanda · invio: cerca nei ricordi (nessun token)";
-		}
+	private chip(text: string, role: ThemeRole): string {
+		return this.theme.bg("selectedBg", this.theme.bold(this.theme.fg(role, ` ${text} `)));
 	}
 
-	/** Left pane: the view's list, scrolled to keep the cursor visible. */
-	private renderLeft(width: number, height: number): string[] {
-		const t = this.theme;
-		const lines: string[] = [];
-		if (this.view === "ricordi") {
-			const filters = [
-				this.searching || this.filter ? `${t.fg("accent", "/")}${t.fg("text", this.filter)}${this.searching ? CURSOR_MARKER + t.fg("accent", "▏") : ""}` : "",
-				this.typeFilter ? t.fg("accent", `tipo: ${TYPES[this.typeFilter - 1]}`) : "",
-				this.scope !== "tutti" ? t.fg("accent", this.scope) : "",
-				this.showSuperseded ? t.fg("muted", "+ superati") : "",
-			].filter(Boolean);
-			lines.push(` ${filters.length ? filters.join(t.fg("dim", " · ")) : t.fg("dim", "tutti i ricordi attivi")}`);
-		} else if (this.view === "chiedi") {
-			const spin = this.busy ? `${t.fg("accent", SPINNER[this.frame % SPINNER.length])} ` : "";
-			lines.push(` ${spin}${t.fg("accent", "❯")} ${t.fg("text", this.question)}${this.focused ? CURSOR_MARKER : ""}${t.fg("accent", "▏")}`);
-			lines.push(t.fg("dim", this.hitsFor ? ` ${plural(this.hits.length, "ricordo pertinente", "ricordi pertinenti")}` : " es. che regole ho sui test? cosa sai di pnpm?"));
-		} else if (this.view === "cronologia") {
-			lines.push(t.fg("dim", " giorno   ricordi nuovi"));
-		} else {
-			lines.push(t.fg("dim", ` ${plural(this.data.events.length, "richiesta", "richieste")} con ricordi richiamati`));
-		}
-		const rows = this.rowsOf(this.view);
-		const room = height - lines.length;
-		const itemRows = rows.map((row, index) => (row.kind === "item" ? index : -1)).filter((index) => index >= 0);
-		const cursorRow = itemRows[Math.min(this.cursors[this.view], itemRows.length - 1)] ?? 0;
-		let scroll = this.scrolls[this.view];
-		if (cursorRow < scroll) scroll = cursorRow;
-		if (cursorRow >= scroll + room) scroll = cursorRow - room + 1;
-		this.scrolls[this.view] = Math.max(0, scroll);
-		if (rows.length === 0) lines.push(t.fg("muted", this.view === "chiedi" ? "" : " niente da mostrare"));
-		for (const [index, row] of rows.slice(this.scrolls[this.view], this.scrolls[this.view] + room).entries()) {
-			const absolute = index + this.scrolls[this.view];
-			if (row.kind === "header") {
-				lines.push(` ${t.bold(t.fg("muted", row.text))}`);
-				continue;
-			}
-			const selected = absolute === cursorRow;
-			let text = row.text;
-			if (this.view === "chiedi") {
-				const hit = this.hits[Number(row.key)];
-				text = `${this.scoreBar(hit.score, 5)} ${hit.record.status !== "active" ? "~ " : ""}${hit.record.text}`;
-			}
-			lines.push(selected ? `${t.fg("accent", "›")} ${t.bold(t.fg("text", text))}` : `  ${t.fg("text", text)}`);
-		}
-		return lines;
+	/** Section title with a rule to the end of the pane: "DETTAGLI ────────". */
+	private rule(title: string, width: number, right = ""): string {
+		const head = ` ${this.theme.bold(this.theme.fg("muted", title))} `;
+		const tail = right ? ` ${right} ` : "";
+		return head + this.theme.fg("border", "─".repeat(Math.max(1, width - visibleWidth(head) - visibleWidth(tail) - 1))) + tail;
 	}
 
 	private scoreBar(score: number, cells = 8): string {
@@ -420,84 +344,261 @@ export class MemoryDashboard implements Component, Focusable {
 		return this.theme.fg("accent", "▰".repeat(filled)) + this.theme.fg("dim", "▱".repeat(cells - filled));
 	}
 
-	private wrap(text: string, width: number, role: ThemeRole = "text"): string[] {
-		return wrapTextWithAnsi(text, Math.max(10, width - 2)).map((line) => ` ${this.theme.fg(role, line)}`);
+	private wrap(text: string, width: number, role: ThemeRole = "text", prefix = " "): string[] {
+		return wrapTextWithAnsi(text, Math.max(10, width - visibleWidth(prefix) - 1)).map((line) => `${prefix}${this.theme.fg(role, line)}`);
 	}
 
-	/** Right pane: details of what is selected on the left. */
-	private renderRight(width: number, height: number, stats: ReturnType<typeof recallStats>): string[] {
+	render(width: number): string[] {
 		const t = this.theme;
-		const field = (name: string, value: string) => ` ${t.fg("muted", `${name}:`)} ${t.fg("text", value)}`;
-		const key = this.selectedKey();
+		const height = Math.max(18, this.rows());
+		const inner = Math.max(40, width - 2);
+		const leftWidth = Math.max(24, Math.floor(inner * 0.42));
+		const rightWidth = inner - leftWidth - 1;
+		const border = (text: string) => t.fg("borderAccent", text);
+		const row = (text: string) => `${border("│")}${fit(text, inner)}${border("│")}`;
+		const split = (left: string, right: string) => {
+			const gap = inner - visibleWidth(left) - visibleWidth(right);
+			return row(gap > 0 ? left + " ".repeat(gap) + right : left);
+		};
+
+		const active = this.data.records.filter((record) => record.status === "active");
+		const pinned = active.filter((record) => record.pinned).length;
+		const global = active.filter((record) => record.id.startsWith("g:")).length;
+		const stats = recallStats(this.data.events, this.data.records, this.today);
+
+		const lines = [border(`╭${"─".repeat(inner)}╮`)];
+		lines.push(split(` ${t.bg("selectedBg", t.bold(t.fg("accent", " ◆ MEMORIA ")))} ${t.fg("muted", this.data.where)}`, `${this.keycap("esc", "chiudi")} `));
+
+		// Key figures as cards: label above, value below.
+		const cards: [string, string, ThemeRole][] = [
+			["ATTIVI", String(active.length), "text"],
+			["FISSATI", `${pinned} 📌`, "accent"],
+			["SUPERATI", String(this.data.records.length - active.length), "muted"],
+			["PROGETTO/GLOBALE", `${active.length - global} · ${global}`, "text"],
+			["ULTIMO /DREAM", this.data.lastDream ? shortDay(this.data.lastDream) : "mai", this.data.lastDream ? "text" : "warning"],
+			["RICHIAMI OGGI", String(stats.today), "success"],
+		];
+		const shown = cards.slice(0, inner >= 110 ? 6 : inner >= 80 ? 5 : 4);
+		const cardWidth = Math.floor((inner - 1) / shown.length);
+		// Two columns of gap between cards, whatever the label length.
+		lines.push(row(` ${shown.map(([name]) => fit(t.fg("dim", name), cardWidth - 2) + "  ").join("")}`));
+		lines.push(row(` ${shown.map(([, value, role]) => fit(t.bold(t.fg(role, value)), cardWidth - 2) + "  ").join("")}`));
+
+		// Tab bar with counts; the active tab is highlighted and underlined.
+		const counts = [this.records().length, this.days().length, this.data.events.length, this.hitsFor ? this.hits.length : undefined];
+		let tabs = " ";
+		let underline = " ";
+		VIEWS.forEach((entry, index) => {
+			const label = ` ${index + 1} ${entry.label}${counts[index] !== undefined ? ` ${counts[index]}` : ""} `;
+			const isActive = entry.id === this.view;
+			tabs += `${isActive ? t.bg("selectedBg", t.bold(t.fg("accent", label))) : t.fg("muted", label)} `;
+			underline += `${isActive ? t.fg("accent", "━".repeat(visibleWidth(label))) : t.fg("border", "─".repeat(visibleWidth(label)))}${t.fg("border", "─")}`;
+		});
+		lines.push(split(tabs, `${t.fg("dim", "tab / 1-4 cambia vista")} `));
+		lines.push(row(underline + t.fg("border", "─".repeat(Math.max(0, inner - visibleWidth(underline))))));
+
+		const body = height - lines.length - 3;
+		const left = this.renderLeft(leftWidth, body);
+		const right = this.renderRight(rightWidth, body, stats);
+		for (let index = 0; index < body; index++) lines.push(`${border("│")}${left[index] ?? " ".repeat(leftWidth)}${border("│")}${fit(right[index] ?? "", rightWidth)}${border("│")}`);
+		lines.push(border(`├${"─".repeat(leftWidth)}┴${"─".repeat(rightWidth)}┤`));
+		lines.push(row(` ${this.notice ? `${t.fg("warning", "●")} ${t.fg("warning", this.notice)}` : this.keys()}`));
+		lines.push(border(`╰${"─".repeat(inner)}╯`));
+		return lines;
+	}
+
+	private keys(): string {
+		const k = (key: string, label: string) => this.keycap(key, label);
+		switch (this.view) {
+			case "ricordi":
+				return this.searching
+					? [k("scrivi", "filtra"), k("invio", "conferma"), k("esc", "smetti")].join("  ")
+					: [k("↑↓", "scorri"), k("/", "cerca"), k("t", "tipo"), k("s", "superati"), k("g", "ambito"), k("p", "fissa"), k("e", "modifica"), k("x", "superato"), k("d", "elimina")].join("  ");
+			case "cronologia":
+				return [k("↑↓", "giorno"), this.theme.fg("dim", "a destra: cosa è entrato in memoria e i /dream di quel giorno")].join("  ");
+			case "richiami":
+				return [k("↑↓", "richiesta"), this.theme.fg("dim", "a destra: i ricordi aggiunti al contesto, con il punteggio")].join("  ");
+			case "chiedi":
+				return this.hitsFor && this.hitsFor === this.question.trim()
+					? [k("invio", "risposta del modello (pochi token)"), k("↑↓", "ricordi trovati"), k("esc", this.busy ? "interrompi" : "chiudi")].join("  ")
+					: [k("scrivi", "una domanda"), k("invio", "cerca nei ricordi (nessun token)")].join("  ");
+		}
+	}
+
+	/** Left pane: the view's list, each line exactly `width` wide, with the selection highlighted and a scrollbar. */
+	private renderLeft(width: number, height: number): string[] {
+		const t = this.theme;
+		const top: string[] = [];
+		const listWidth = width - 1;
+		if (this.view === "ricordi") {
+			const filters = [
+				this.searching || this.filter ? `${t.fg("accent", "⌕")} ${t.fg("text", this.filter)}${this.searching ? `${CURSOR_MARKER}${t.fg("accent", "▏")}` : ""}` : "",
+				this.typeFilter ? this.chip(TYPES[this.typeFilter - 1], typeStyle(TYPES[this.typeFilter - 1]).role) : "",
+				this.scope !== "tutti" ? this.chip(this.scope, "accent") : "",
+				this.showSuperseded ? this.chip("+ superati", "muted") : "",
+			].filter(Boolean);
+			top.push(` ${filters.length ? filters.join(" ") : t.fg("dim", "tutti i ricordi attivi · / per cercare")}`, "");
+		} else if (this.view === "chiedi") {
+			const spin = this.busy ? t.fg("accent", SPINNER[this.frame % SPINNER.length]) : t.fg("accent", "❯");
+			top.push(` ${t.fg("border", `╭${"─".repeat(listWidth - 3)}╮`)}`);
+			top.push(` ${t.fg("border", "│")}${fit(` ${spin} ${t.fg("text", this.question)}${this.focused ? CURSOR_MARKER : ""}${t.fg("accent", "▏")}`, listWidth - 3)}${t.fg("border", "│")}`);
+			top.push(` ${t.fg("border", `╰${"─".repeat(listWidth - 3)}╯`)}`);
+			top.push(t.fg("dim", this.hitsFor ? ` ${plural(this.hits.length, "ricordo pertinente", "ricordi pertinenti")}` : this.busy ? " cerco…" : " es. che regole ho sui test? cosa sai di pnpm?"));
+		} else if (this.view === "cronologia") {
+			top.push(t.fg("dim", "  GIORNO   NUOVI RICORDI      /DREAM"), "");
+		} else {
+			top.push(t.fg("dim", "  ORA    RICORDI   RICHIESTA"), "");
+		}
+
+		const rows = this.rowsOf(this.view);
+		const room = Math.max(1, height - top.length);
+		const itemRows = rows.map((entry, index) => (entry.kind === "item" ? index : -1)).filter((index) => index >= 0);
+		const cursorRow = itemRows[Math.min(this.cursors[this.view], itemRows.length - 1)] ?? 0;
+		let scroll = this.scrolls[this.view];
+		if (cursorRow < scroll) scroll = cursorRow;
+		if (cursorRow >= scroll + room) scroll = cursorRow - room + 1;
+		scroll = Math.max(0, Math.min(scroll, Math.max(0, rows.length - room)));
+		this.scrolls[this.view] = scroll;
+
+		const visible = rows.slice(scroll, scroll + room).map((entry, index) => {
+			if (entry.kind === "header") {
+				const style = typeStyle(entry.key ?? "");
+				const head = ` ${t.fg(style.role, style.icon)} ${t.bold(t.fg("muted", entry.text))} `;
+				return fit(head + t.fg("border", "─".repeat(Math.max(1, listWidth - visibleWidth(head) - 1))), listWidth);
+			}
+			const selected = scroll + index === cursorRow;
+			const text = this.itemText(entry.key, entry.text);
+			return selected ? t.bg("selectedBg", fit(`${t.fg("accent", "▎")}${t.bold(text)}`, listWidth)) : fit(` ${text}`, listWidth);
+		});
+		if (rows.length === 0) visible.push(fit(t.fg("muted", this.view === "chiedi" ? "" : "  niente da mostrare"), listWidth));
+
+		// Scrollbar in the last column when the list does not fit.
+		const thumbSize = rows.length > room ? Math.max(1, Math.round((room / rows.length) * room)) : 0;
+		const thumbStart = rows.length > room ? Math.round((scroll / Math.max(1, rows.length - room)) * (room - thumbSize)) : 0;
+		const lines = top.map((line) => fit(line, width));
+		for (let index = 0; index < room; index++) {
+			const bar = thumbSize && index >= thumbStart && index < thumbStart + thumbSize ? t.fg("accent", "▐") : " ";
+			lines.push(`${visible[index] ?? " ".repeat(listWidth)}${bar}`);
+		}
+		return lines;
+	}
+
+	/** One list row per view: type icon for memories, aligned columns for days, recalls and answers. */
+	private itemText(key: string, text: string): string {
+		const t = this.theme;
 		if (this.view === "ricordi") {
 			const record = this.recordById(key);
-			return record ? this.recordDetail(record, width, field) : [t.fg("muted", " nessun ricordo con questi filtri")];
+			if (!record) return text;
+			const style = typeStyle(record.type);
+			const body = record.status !== "active" ? t.fg("dim", `~ ${record.text}`) : t.fg("text", record.text);
+			return ` ${t.fg(style.role, style.icon)} ${record.pinned ? "📌 " : ""}${body}${record.id.startsWith("g:") ? t.fg("dim", " · globale") : ""}`;
 		}
 		if (this.view === "cronologia") {
 			const entry = this.days().find((candidate) => candidate.date === key);
-			if (!entry) return [t.fg("muted", " la cronologia si riempie con /dream")];
-			const lines = [` ${t.bold(t.fg("accent", entry.date))} ${t.fg("muted", `· ${plural(entry.created.length, "ricordo nuovo", "ricordi nuovi")}`)}`];
+			if (!entry) return text;
+			const max = Math.max(1, ...this.days().map((candidate) => candidate.created.length));
+			const filled = entry.created.length ? Math.max(1, Math.round((entry.created.length / max) * 12)) : 0;
+			return ` ${t.fg("text", shortDay(entry.date))}   ${t.fg("accent", "█".repeat(filled))}${t.fg("dim", "░".repeat(12 - filled))} ${t.bold(t.fg("text", String(entry.created.length).padStart(2)))}   ${entry.runs.length ? t.fg("accent", `◆ ${entry.runs.length}`) : t.fg("dim", "·")}`;
+		}
+		if (this.view === "richiami") {
+			const event = this.data.events[Number(key)];
+			if (!event) return text;
+			return ` ${t.fg("muted", event.at.slice(11, 16))}   ${t.fg("accent", `◇ ${event.hits.length}`)}      ${t.fg("text", event.query.replace(/\s+/g, " "))}`;
+		}
+		const hit = this.hits[Number(key)];
+		if (!hit) return text;
+		return ` ${t.bold(t.fg("accent", `${String(Math.round(hit.score * 100)).padStart(3)}%`))} ${this.scoreBar(hit.score, 5)} ${hit.record.status !== "active" ? t.fg("dim", `~ ${hit.record.text}`) : t.fg("text", hit.record.text)}`;
+	}
+
+	/** Right pane: details of what is selected on the left, in titled sections. */
+	private renderRight(width: number, height: number, stats: ReturnType<typeof recallStats>): string[] {
+		const t = this.theme;
+		const key = this.selectedKey();
+		if (this.view === "ricordi") {
+			const record = this.recordById(key);
+			return record ? this.recordDetail(record, width) : ["", t.fg("muted", "  nessun ricordo con questi filtri")];
+		}
+		if (this.view === "cronologia") {
+			const entry = this.days().find((candidate) => candidate.date === key);
+			if (!entry) return ["", t.fg("muted", "  la cronologia si riempie con /dream")];
+			const lines = ["", ` ${t.bold(t.fg("accent", longDay(entry.date)))}  ${t.fg("muted", plural(entry.created.length, "ricordo nuovo", "ricordi nuovi"))}`];
 			for (const run of entry.runs) {
 				const counts = run.counts;
-				lines.push("", ` ${t.bold(t.fg("text", `/dream ${run.scope}`))} ${t.fg("muted", `${run.at.slice(11, 16)}${run.tokens ? ` · ${run.tokens} token` : ""}`)}`);
-				lines.push(` ${t.fg("success", `+${counts.added} nuovi`)} ${t.fg("accent", `↑${counts.reinforced} rinforzati`)} ${t.fg("text", `⇄${counts.merged} uniti`)} ${t.fg("warning", `✎${counts.updated} aggiornati`)} ${t.fg("error", `−${counts.forgotten} dimenticati`)}`);
+				lines.push("", this.rule(`/DREAM ${run.scope.toUpperCase()}`, width, t.fg("muted", `${run.at.slice(11, 16)}${run.tokens ? ` · ${run.tokens} token` : ""}`)));
+				lines.push(` ${[this.chip(`+${counts.added} nuovi`, "success"), this.chip(`↑${counts.reinforced}`, "accent"), this.chip(`⇄${counts.merged}`, "text"), this.chip(`✎${counts.updated}`, "warning"), this.chip(`−${counts.forgotten}`, "error")].join(" ")}`, "");
 				for (const line of run.lines) {
-					const role: ThemeRole = line.startsWith("+") ? "success" : line.startsWith("−") ? "error" : line.startsWith("✎") ? "warning" : "text";
-					lines.push(...this.wrap(line, width, role));
+					const role: ThemeRole = line.startsWith("+") ? "success" : line.startsWith("−") ? "error" : line.startsWith("✎") ? "warning" : line.startsWith("↑") ? "accent" : "text";
+					lines.push(...this.wrap(line, width, role, "   "));
 				}
 			}
 			const unexplained = entry.created.filter((record) => !entry.runs.some((run) => run.lines.some((line) => line.includes(record.text))));
 			if (unexplained.length) {
-				lines.push("", ` ${t.bold(t.fg("text", "nati quel giorno"))}`);
-				for (const record of unexplained) lines.push(...this.wrap(`• [${record.type}] ${record.text}`, width));
+				lines.push("", this.rule("NATI QUEL GIORNO", width));
+				for (const record of unexplained) {
+					const style = typeStyle(record.type);
+					lines.push(...this.wrap(`${t.fg(style.role, style.icon)} ${record.text}`, width, "text", "   "));
+				}
 			}
 			return lines.slice(0, height);
 		}
 		if (this.view === "richiami") {
-			const event: RecallEvent | undefined = this.data.events[Number(key)];
-			const lines = [field("oggi", `${stats.today} richiami · ${stats.total} in tutto`)];
+			const lines = ["", this.rule("PIÙ RICHIAMATI", width, t.fg("muted", `${stats.today} oggi · ${stats.total} in tutto`))];
 			if (stats.top.length) {
-				lines.push(` ${t.fg("muted", "più richiamati:")}`);
 				const max = Math.max(...stats.top.map((entry) => entry.count));
-				for (const entry of stats.top) lines.push(` ${t.fg("accent", "█".repeat(Math.max(1, Math.round((entry.count / max) * 8))))} ${t.fg("text", `${entry.count}× ${entry.record.text}`)}`);
-			}
+				for (const entry of stats.top) lines.push(fit(`   ${t.fg("accent", "█".repeat(Math.max(1, Math.round((entry.count / max) * 10))).padEnd(10))} ${t.bold(t.fg("text", `${entry.count}×`))} ${t.fg("text", entry.record.text)}`, width));
+			} else lines.push(t.fg("muted", "   ancora nessun richiamo"));
+			const event: RecallEvent | undefined = this.data.events[Number(key)];
 			if (!event) return lines;
-			lines.push("", field("richiesta", event.at.replace("T", " ").slice(0, 16)), ...this.wrap(event.query, width, "muted"), "");
+			lines.push("", this.rule("RICHIESTA", width, t.fg("muted", event.at.replace("T", " ").slice(0, 16))), ...this.wrap(event.query, width, "muted", "   ▌ "), "");
+			lines.push(this.rule("RICORDI AGGIUNTI AL CONTESTO", width));
 			for (const hit of event.hits) {
 				const record = this.recordById(hit.id);
-				lines.push(...this.wrap(`${this.scoreBar(hit.score)} ${record ? record.text : `${hit.id} (non più in memoria)`}`, width));
+				lines.push(...this.wrap(`${t.bold(t.fg("accent", `${Math.round(hit.score * 100)}%`))} ${this.scoreBar(hit.score, 5)} ${record ? record.text : `${hit.id} (non più in memoria)`}`, width, "text", "   "));
 			}
 			return lines.slice(0, height);
 		}
 		// chiedi
 		if (this.busy === "rispondo" || this.answer) {
-			const head = this.busy === "rispondo" ? `${t.fg("accent", SPINNER[this.frame % SPINNER.length])} ${t.fg("muted", "il modello risponde dai ricordi…")}` : t.fg("muted", "risposta dai ricordi");
+			const head = this.busy === "rispondo" ? `${t.fg("accent", SPINNER[this.frame % SPINNER.length])} ${t.fg("muted", "il modello risponde dai ricordi…")}` : t.fg("muted", `${plural(this.hits.length, "ricordo usato", "ricordi usati")}`);
 			// The model answers in markdown: bold and code shown as styles, not as raw ** and backticks.
 			const styled = (this.answer || "…").replace(/\*\*(.+?)\*\*/g, (_match, text: string) => t.bold(text)).replace(/`([^`\n]+)`/g, (_match, text: string) => t.fg("accent", text));
-			return [` ${head}`, "", ...this.wrap(styled, width)].slice(-height);
+			return ["", this.rule("RISPOSTA DAI RICORDI", width, head), "", ...this.wrap(styled, width, "text", "   ")].slice(-height);
 		}
 		const hit = this.hits[Number(key)];
-		if (hit) return this.recordDetail(hit.record, width, field);
-		return [t.fg("muted", " invio cerca nei ricordi, invio di nuovo chiede la risposta al modello")];
+		if (hit) return this.recordDetail(hit.record, width);
+		return ["", t.fg("muted", "  invio cerca nei ricordi, senza token;"), t.fg("muted", "  invio di nuovo chiede al modello una risposta che usa solo quei ricordi")];
 	}
 
-	private recordDetail(record: MemoryRecord, width: number, field: (name: string, value: string) => string): string[] {
+	private recordDetail(record: MemoryRecord, width: number): string[] {
 		const t = this.theme;
+		const style = typeStyle(record.type);
 		const recalled = this.data.events.filter((event) => event.hits.some((hit) => hit.id === record.id));
 		const fromDream = this.data.runs.find((run) => run.lines.some((line) => line.includes(record.text)));
 		const power = strength(record, this.today);
+		const field = (name: string, value: string) => `   ${t.fg("muted", pad(name, 13))}${value}`;
+		const chips = [
+			this.chip(`${style.icon} ${record.type.toUpperCase()}`, style.role),
+			record.pinned ? this.chip("📌 FISSATO", "accent") : "",
+			record.status === "active" ? this.chip("ATTIVO", "success") : this.chip("SUPERATO", "muted"),
+			this.chip(record.id.startsWith("g:") ? "GLOBALE" : "PROGETTO", "text"),
+		].filter(Boolean);
 		return [
-			...this.wrap(record.text, width),
 			"",
-			field("tipo", `${record.type}${record.pinned ? " · 📌 fissato (sempre nel contesto)" : ""}`),
-			field("stato", record.status === "active" ? "attivo" : `superato${record.reason ? ` · ${record.reason}` : ""}`),
-			field("ambito", `${record.id.startsWith("g:") ? "globale" : "progetto"} · ${record.scope === "sempre" ? "vale sempre" : "quando pertinente"}`),
-			` ${t.fg("muted", "forza:")} ${this.scoreBar(power)} ${t.fg("text", `${Math.round(power * 100)}% · confermato ${plural(record.confirmations, "volta", "volte")}`)}`,
-			field("date", `creato ${record.created} · ultima conferma ${record.last}`),
-			field("origine", fromDream ? `/dream del ${fromDream.date} (${fromDream.scope})` : record.source === "migrated" ? "memoria precedente (migrata)" : "/dream"),
-			field("richiamato", recalled.length ? `${plural(recalled.length, "volta", "volte")} · ultima ${recalled[0].at.replace("T", " ").slice(0, 16)}` : "mai finora"),
-			...(record.entities.length ? [field("entità", record.entities.join(", "))] : []),
-			field("id", record.id),
+			` ${chips.join(" ")}`,
+			"",
+			...this.wrap(record.text, width, record.status === "active" ? "text" : "dim", `   ${t.fg(style.role, "▌")} `),
+			"",
+			this.rule("DETTAGLI", width),
+			field("Forza", `${this.scoreBar(power)} ${t.fg("text", `${Math.round(power * 100)}%`)}`),
+			field("Conferme", t.fg("text", plural(record.confirmations, "volta", "volte"))),
+			field("Vale", t.fg("text", record.scope === "sempre" ? "sempre, in ogni modifica" : "quando è pertinente")),
+			field("Creato", t.fg("text", record.created)),
+			field("Confermato", t.fg("text", record.last)),
+			field("Origine", t.fg("text", fromDream ? `/dream del ${shortDay(fromDream.date)} · ${fromDream.scope}` : record.source === "migrated" ? "memoria precedente (migrata)" : "/dream")),
+			field("Richiamato", t.fg("text", recalled.length ? `${plural(recalled.length, "volta", "volte")} · ultima ${recalled[0].at.replace("T", " ").slice(0, 16)}` : "mai finora")),
+			...(record.status !== "active" && record.reason ? [field("Superato", t.fg("dim", record.reason))] : []),
+			...(record.entities.length ? [field("Entità", record.entities.map((entity) => this.chip(entity, "accent")).join(" "))] : []),
+			field("Id", t.fg("dim", record.id)),
 		];
 	}
 }
