@@ -58,5 +58,5 @@ test("the /dream result as a lasting chat entry", () => {
 	assert.match(entry.title, /Memoria aggiornata · \+3 nuovi · 2 rinforzati · 1 unito/);
 	assert.match(entry.title, /12 ricordi \(2 📌\)/);
 	assert.deepEqual(entry.lines, ["+ [preferenza] Usa pnpm."]);
-	assert.match(entry.footer ?? "", /restano 4 sessioni: rilancia \/dream · \/memoria per vederli/);
+	assert.match(entry.footer ?? "", /restano 4 sessioni: rilancia \/dream · \/memory per vederli/);
 });

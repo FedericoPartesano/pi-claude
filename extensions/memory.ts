@@ -1,6 +1,6 @@
 /**
  * Memory ("human-like"): /dream consolidates past sessions into .pi/memory.md (project) or ~/.pi/agent/memory.md
- * (global), loaded into the prompt within a cap; /ricorda searches the archive; /memoria shows and edits the memories.
+ * (global), loaded into the prompt within a cap; /ricorda searches the archive; /memory shows and edits the memories.
  * The /dream result stays in the chat and setStatus("memory") tells what memory is doing. Zero cost without memory files.
  *
  *   PI_DREAM_SESSIONS_DIR   sessions root to read (default: this project's Pi session folder)
@@ -438,8 +438,8 @@ export default function (pi: ExtensionAPI) {
 		ctx.ui.notify(`Memoria aggiornata: +${added} nuovi, ${reinforced} rinforzati, ${merged} uniti, ${updated} aggiornati, ${forgotten} dimenticati${capped.moved ? `, ${capped.moved} archiviati per spazio` : ""} · ${result.memory.length} ricordi (~${summary.contextTokens} token in contesto)${batch.pending ? ` · restano ${batch.pending} sessioni: rilancia /dream` : ""}`, "info");
 	};
 
-	/** /memoria: summary on top, every memory with its preview; Enter → pin, edit, mark superseded or delete. */
-	pi.registerCommand("memoria", {
+	/** /memory: summary on top, every memory with its preview; Enter → pin, edit, mark superseded or delete. */
+	pi.registerCommand("memory", {
 		description: "Dashboard della memoria: ricordi, cronologia dei /dream, richiami, e domande alla memoria",
 		handler: async (_args, ctx) => {
 			if (!deepMode()) return ctx.ui.notify("La dashboard serve la memoria profonda (il default; ora PI_MEMORY_MODE=capped): i ricordi sono in .pi/memory.md.", "info");

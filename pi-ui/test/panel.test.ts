@@ -73,7 +73,7 @@ test("richer panel: turn, latest activity with times, git, memory and suggestion
 	assert.match(text, /feat\(pi-ui\): charts/);
 	assert.match(text, /MEMORIA ─+/);
 	assert.match(text, /3 ricordi richiamati/);
-	assert.match(text, /\/memoria/);
+	assert.match(text, /\/memory/);
 	assert.match(text, /SUGGERIMENTI/);
 	assert.match(text, /⟦1⟧ apri il grafico/);
 	// Most useful first: session and turn before files, usage last.

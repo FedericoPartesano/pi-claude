@@ -1,5 +1,5 @@
 /**
- * What the user sees of the memory: the summary and rows of /memoria, the actions on one memory, the status line for
+ * What the user sees of the memory: the summary and rows of /memory, the actions on one memory, the status line for
  * the footer and panel, and the lasting chat entry written after /dream. Pure functions: the extension only wires them.
  */
 import type { MemoryRecord } from "./store.ts";
@@ -25,7 +25,7 @@ const count = (n: number, word: string) => `${n} ${n === 1 ? word : (PLURALS[wor
 
 const isGlobal = (record: Pick<MemoryRecord, "id">) => record.id.startsWith("g:");
 
-/** One line for the top of /memoria: how many, of which kind, when /dream last ran and where they live. */
+/** One line for the top of /memory: how many, of which kind, when /dream last ran and where they live. */
 export function summarize(records: MemoryRecord[], info: { lastDream?: string; where?: string }): string {
 	const active = records.filter((record) => record.status === "active");
 	if (records.length === 0) return ["nessun ricordo · fai /dream per ricavarli dalle sessioni", info.where].filter(Boolean).join(" · ");
@@ -44,7 +44,7 @@ export function summarize(records: MemoryRecord[], info: { lastDream?: string; w
 		.join(" · ");
 }
 
-/** Row of the /memoria list: 📌 pinned, ~ superseded, "· globale" for the personal store. */
+/** Row of the /memory list: 📌 pinned, ~ superseded, "· globale" for the personal store. */
 export function recordLabel(record: MemoryRecord): string {
 	const mark = record.status === "superseded" ? "~ " : record.pinned ? "📌 " : "";
 	return `${mark}[${record.type}] ${record.text}${isGlobal(record) ? " · globale" : ""}`;
@@ -111,6 +111,6 @@ export function dreamEntry(
 	return {
 		title: `Memoria aggiornata · ${parts.join(" · ")}`,
 		lines,
-		footer: `${totals.pending ? `restano ${count(totals.pending, "sessione")}: rilancia /dream · ` : ""}/memoria per vederli`,
+		footer: `${totals.pending ? `restano ${count(totals.pending, "sessione")}: rilancia /dream · ` : ""}/memory per vederli`,
 	};
 }

@@ -1,5 +1,5 @@
 /**
- * /memoria: full-screen memory dashboard drawn as a modal over the chat. Four views:
+ * /memory: full-screen memory dashboard drawn as a modal over the chat. Four views:
  * - Ricordi: every memory by type, with search and filters, details, and actions (pin, edit, supersede, delete).
  * - Cronologia: days when something entered the memory, with a bar per day, the /dream runs and what they saved.
  * - Richiami: which memories were added to which requests, with scores, and the most recalled ones.

@@ -104,5 +104,5 @@ Pacchetto Pi (come `pi-picker`): `pi install` da `install.sh`, attivo in `pi` e 
 5. Pannello `Alt+S` e bus di sessione per goal/loop/team.
 
 ## Fuori scope
-TUI `/memoria` (progetto separato, userà gli stessi colori), chat interamente custom fullscreen, frasi generate dal
+TUI `/memory` (progetto separato, userà gli stessi colori), chat interamente custom fullscreen, frasi generate dal
 modello per ogni passo (eventuale miglioramento dopo la PR 2).

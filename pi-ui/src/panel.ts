@@ -124,7 +124,7 @@ export function renderPanel(info: PanelInfo, width: number, key = PANEL_KEY): st
 		for (const failure of info.failures.slice(0, 4)) lines.push(`${fg(C.err, "✗")} ${fg(C.text, failure)}`);
 	}
 	if (info.memory) {
-		lines.push("", section("MEMORIA"), fg(C.text, info.memory), fit("", `${fg(C.mag, "/memoria")} ${fg(C.dim, "apri")}`, inner));
+		lines.push("", section("MEMORIA"), fg(C.text, info.memory), fit("", `${fg(C.mag, "/memory")} ${fg(C.dim, "apri")}`, inner));
 	}
 	if (info.suggestions?.length) {
 		lines.push("", section("SUGGERIMENTI"));

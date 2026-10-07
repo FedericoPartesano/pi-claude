@@ -43,7 +43,7 @@ Per riprendere: apri Claude Code **in `~/documents/projects/pi-claude`** (non in
   none 67% · capped 88% · deep 83% con 44–100 token iniettati per richiesta (capped 271–910). Pacchetto `pi-memory/`
   (embedding locale, 888 MB di node_modules). Prossimi passi: soglia un po' più alta (domanda estranea: 1 ricordo
   iniettato), regole di stile trasversali sempre richiamate nei compiti che scrivono codice, poi **TUI per vedere e
-  gestire la memoria** (`/memoria`: elenco con filtri, anteprima con entità e origine, azioni 📌/modifica/unisci/
+  gestire la memoria** (`/memory`: elenco con filtri, anteprima con entità e origine, azioni 📌/modifica/unisci/
   superato/archivia/elimina, "perché è stato richiamato" dal recall-log), costruita sul picker, costo zero.
 
 ## Problemi aperti noti
@@ -86,6 +86,6 @@ test empirici come giudice + revisore, budget adattivo, sotto-progetto 1 = orche
 - Sotto-progetti: memoria/lezioni apprese, team di ricerca, flusso TaskSphere.
 
 ## Regole di lavoro emerse
-- Progetto NON legato a smartlookup-mono: niente vault/log/memoria di quel repo.
+- Progetto NON legato a smartlookup-mono: niente vault/log/memory di quel repo.
 - Niente commit senza richiesta. Niente `--dangerously-skip-permissions` lanciato da Claude (bloccato dal classificatore).
 - Mai `--bare` (forza API key = extra usage). Verificare sempre `isUsingOverage:false` dopo cambi al bridge.
