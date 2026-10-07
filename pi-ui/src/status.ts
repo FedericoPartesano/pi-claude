@@ -18,6 +18,10 @@ export interface TurnStatus {
 	warning?: string;
 	/** Numbered suggestions available after the turn (keys 1-N). */
 	suggestions?: number;
+	/** Reasoning or running a tool: the bar animates them differently. */
+	phase?: "thinking" | "tool";
+	/** Latest sentence of the model's thinking while it reasons. */
+	thought?: string;
 }
 
 export type StatusEvent =
@@ -28,6 +32,7 @@ export type StatusEvent =
 	| { type: "waiting"; question: string; answers: string }
 	| { type: "resumed" }
 	| { type: "suggestions"; count: number }
+	| { type: "thinking"; text: string }
 	| { type: "settled"; at: number; outcome: "completed" | "aborted" | "error" };
 
 export const initialStatus = (): TurnStatus => ({ mode: "ready", activity: "", step: 0, startedAt: 0, endedAt: 0, tokensIn: 0, tokensOut: 0, lastFailed: false });
@@ -35,9 +40,11 @@ export const initialStatus = (): TurnStatus => ({ mode: "ready", activity: "", s
 export function nextStatus(status: TurnStatus, event: StatusEvent): TurnStatus {
 	switch (event.type) {
 		case "agent_start":
-			return { ...initialStatus(), mode: "working", activity: "penso…", startedAt: event.at };
+			return { ...initialStatus(), mode: "working", activity: "penso…", startedAt: event.at, phase: "thinking" };
 		case "tool_start":
-			return { ...status, activity: event.activity, step: status.step + 1, lastFailed: false };
+			return { ...status, activity: event.activity, step: status.step + 1, lastFailed: false, phase: "tool", thought: undefined };
+		case "thinking":
+			return { ...status, phase: "thinking", thought: event.text };
 		case "tool_end":
 			return { ...status, lastFailed: event.failed };
 		case "usage":

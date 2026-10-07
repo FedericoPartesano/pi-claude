@@ -21,14 +21,14 @@ test("a running turn shows one row per step, the active one highlighted, all at 
 	const wide = renderTurn([read, edit, active], 120, { expanded: false, finished: false, frame: 0 }).map(strip);
 	assert.match(wide[0], /✓ Leggo cart.js\s+read\s+src\/cart.js\s+3 righe/);
 	assert.match(wide[1], /✓ Modifico cart.js\s+edit\s+src\/cart.js\s+\+1 -1/);
-	assert.match(wide[2], /Eseguo i test\s+bash\s+npm test\s+…/);
+	assert.match(wide[2], /Eseguo i test\s+bash\s+npm test\s+in corso/);
 	assert.doesNotMatch(renderTurn([read], 80, { expanded: false, finished: false, frame: 0 }).map(strip)[0], /\bread\b/);
 });
 
 test("a finished turn folds into one summary line; ctrl+o reopens it with details", () => {
 	const folded = renderTurn([read, edit, tests], 120, { expanded: false, finished: true, frame: 0 }).map(strip);
 	assert.deepEqual(folded.length, 1);
-	assert.match(folded[0], /✓ 3 passi · 1 file · 13 test ok\s+▸ ctrl\+o dettagli/);
+	assert.match(folded[0], /✓ 3 passi completati · 1 file · 13 test ok\s+▸ ctrl\+o dettagli/);
 	const open = renderTurn([read, edit, tests], 120, { expanded: true, finished: true, frame: 0 }).map(strip);
 	assert.ok(open.length > 3);
 	assert.ok(open.some((row) => /\+\s+b/.test(row)), "edit diff shown");
@@ -63,4 +63,14 @@ test("a one-step turn (also every step of a resumed session) shows its row, not 
 	const rows = renderTurn([read], 120, { expanded: false, finished: true, frame: 0 }).map(strip);
 	assert.equal(rows.length, 1);
 	assert.match(rows[0], /✓ Leggo cart.js\s+read\s+src\/cart.js\s+3 righe/);
+});
+
+const timed = (step: Step, startedAt: number, endedAt?: number): Step => ({ ...step, startedAt, endedAt });
+
+test("a running step shows 'in corso' with its seconds; a finished one its duration (design 04)", () => {
+	const running: Step = { id: "r", tool: "bash", args: { command: "npm test" }, startedAt: 1000 };
+	const now = 4200;
+	assert.match(strip(renderTurn([running], 120, { expanded: false, finished: false, frame: 0, now }).join("\n")), /Eseguo i test\s+bash\s+npm test\s+in corso · 3s/);
+	assert.match(strip(renderTurn([timed(tests, 1000, 3100)], 120, { expanded: false, finished: false, frame: 0, now }).join("\n")), /13 pass · 2,1s/);
+	assert.doesNotMatch(strip(renderTurn([timed(read, 1000, 1100)], 120, { expanded: false, finished: false, frame: 0, now }).join("\n")), /0,1s/, "quick steps need no duration");
 });

@@ -5,7 +5,7 @@ import { initialStatus, nextStatus, type TurnStatus } from "../src/status.ts";
 import { formatTokens, renderStatusBar } from "../src/status-bar.ts";
 
 const strip = (text: string) => text.replace(/\x1b\[[0-9;]*m/g, "");
-const working: TurnStatus = { ...nextStatus(initialStatus(), { type: "agent_start", at: 1000 }), activity: "eseguo i test", step: 4 };
+const working: TurnStatus = { ...nextStatus(initialStatus(), { type: "agent_start", at: 1000 }), activity: "eseguo i test", step: 4, phase: "tool" };
 const states: Record<string, TurnStatus> = {
 	PRONTO: initialStatus(),
 	"AL LAVORO": working,
@@ -63,4 +63,12 @@ test("a long warning never pushes the suggestion keys out of the bar", () => {
 	const line = renderStatusBar(status, 80, 0, 0);
 	assert.equal(visibleWidth(line), 80);
 	assert.match(strip(line), /1-3 suggerimenti$/);
+});
+
+test("while thinking the bar shows a moving wave and the latest thought", () => {
+	const thinking = nextStatus(working, { type: "thinking", text: "Controllo i casi limite di paginate." });
+	for (const width of [40, 80, 120]) assert.equal(visibleWidth(renderStatusBar(thinking, width, 9000, 3)), width);
+	const line = strip(renderStatusBar(thinking, 120, 9000, 3));
+	assert.match(line, /AL LAVORO\s+[▰▱]{6} penso · Controllo i casi limite di paginate\./);
+	assert.notEqual(renderStatusBar(thinking, 120, 9000, 3), renderStatusBar(thinking, 120, 9000, 4), "animated");
 });

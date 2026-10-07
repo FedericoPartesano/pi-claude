@@ -33,6 +33,7 @@ import { renderFooter } from "./src/footer.ts";
 import { renderStatusBar } from "./src/status-bar.ts";
 import { elapsedSeconds, initialStatus, nextStatus, type StatusEvent } from "./src/status.ts";
 import { restoreSession } from "./src/restore.ts";
+import { HIDDEN_THINKING_LABEL, renderThinkingBox, thinkingMarkdown } from "./src/thinking.ts";
 import { readUsage } from "./src/usage.ts";
 
 /** Text of a tool result (text blocks only). */
@@ -105,6 +106,8 @@ export default function (pi: ExtensionAPI) {
 	let statuses: ReadonlyMap<string, string> = new Map();
 	let lastFailures: string[] = [];
 	let closePanel: (() => void) | undefined;
+	/** Thinking being streamed: shown in a dark box above the status bar, gone when the thinking ends. */
+	let liveThinking = "";
 
 	// Images of the session: shown once each, thumbnails cached per width.
 	const images: string[] = [];
@@ -145,6 +148,7 @@ export default function (pi: ExtensionAPI) {
 		tui?.requestRender();
 	};
 	const line = (render: (width: number) => string): Component => ({ render: (width) => [render(width)], invalidate() {} });
+	const line_ = (render: (width: number) => string[]): Component => ({ render, invalidate() {} });
 
 	class PromptEditor extends CustomEditor {
 		render(width: number): string[] {
@@ -188,11 +192,13 @@ export default function (pi: ExtensionAPI) {
 			});
 		}
 		ctx.ui.setWorkingVisible(false);
+		ctx.ui.setHiddenThinkingLabel(HIDDEN_THINKING_LABEL);
 		ctx.ui.setHeader(() =>
 			line((width) =>
 				fit(`${label(C.mag, " PI//CLAUDE ")}${fg(C.mag, "╲")} ${bold(fg(C.text, basename(ctx.cwd)))}`, `${fg(C.text, panelKey)} ${fg(C.dim, "pannello ▸")}`, width),
 			),
 		);
+		ctx.ui.setWidget("pi-ui-thinking", () => line_((width) => (status.mode === "working" ? renderThinkingBox(liveThinking, width) : [])), { placement: "aboveEditor" });
 		ctx.ui.setWidget("pi-ui-status", (widgetTui) => {
 			tui = widgetTui;
 			return line((width) => renderStatusBar(status, width, Date.now(), frame));
@@ -227,6 +233,7 @@ export default function (pi: ExtensionAPI) {
 		outcome = "completed";
 		update({ type: "agent_start", at: Date.now() });
 		liveTurn = [];
+		liveThinking = "";
 		suggestions = [];
 		lastAnswer = "";
 		clearInterval(spinner);
@@ -238,6 +245,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("tool_execution_start", (event) => {
 		if (!active || event.parentToolCallId) return;
 		argsOf.set(event.toolCallId, event.args);
+		liveThinking = "";
 		update({ type: "tool_start", activity: lower(phrase(event.toolName, event.args).text) });
 	});
 	pi.on("tool_execution_end", (event) => {
@@ -250,6 +258,20 @@ export default function (pi: ExtensionAPI) {
 		if (!event.isError && IMAGE_FILE.test(path)) noteImages([path]);
 		argsOf.delete(event.toolCallId);
 	});
+	// Thinking streamed by the model: the last lines in a dark box while it reasons; the box goes when it ends.
+	pi.on("message_update", (event) => {
+		const streamed = event.assistantMessageEvent as { type: string; contentIndex?: number; partial?: { content?: { type: string; thinking?: string }[] } };
+		if (!active || status.mode !== "working") return;
+		if (streamed.type === "thinking_delta") {
+			liveThinking = streamed.partial?.content?.[streamed.contentIndex ?? -1]?.thinking ?? "";
+			if (status.phase !== "thinking") update({ type: "thinking", text: "" });
+			else tui?.requestRender();
+		} else if (streamed.type === "thinking_end" || streamed.type === "text_start" || streamed.type === "toolcall_start") {
+			liveThinking = "";
+			tui?.requestRender();
+		}
+	});
+
 	pi.on("message_end", (event) => {
 		const message = event.message as { role?: string; usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number } };
 		if (!active || message.role !== "assistant" || !message.usage) return;
@@ -268,6 +290,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("agent_settled", (_event, ctx) => {
 		if (!active) return;
 		clearInterval(spinner);
+		liveThinking = "";
 		update({ type: "settled", at: Date.now(), outcome });
 		const failed = (liveTurn ?? []).filter((step) => step.error);
 		// The panel's TEST section lists failing tests only (other errors stay visible in the step list).
@@ -294,7 +317,8 @@ export default function (pi: ExtensionAPI) {
 				let turn = turnOf.get(context.toolCallId);
 				if (!turn) {
 					turn = liveTurn ?? [];
-					turn.push({ id: context.toolCallId, tool: toolName, args: (args ?? {}) as Record<string, unknown> });
+					// History replayed on resume has no timing: only live steps get a start time.
+					turn.push({ id: context.toolCallId, tool: toolName, args: (args ?? {}) as Record<string, unknown>, startedAt: liveTurn ? Date.now() : undefined });
 					turnOf.set(context.toolCallId, turn);
 				}
 				const owner = turn;
@@ -303,7 +327,7 @@ export default function (pi: ExtensionAPI) {
 				return {
 					render: (width: number) =>
 						owner[0]?.id === context.toolCallId
-							? renderTurn(owner, Math.max(30, width - (width >= 100 ? reservedRight : 0)), { expanded: context.expanded, finished: owner !== liveTurn, frame })
+							? renderTurn(owner, Math.max(30, width - (width >= 100 ? reservedRight : 0)), { expanded: context.expanded, finished: owner !== liveTurn, frame, now: Date.now() })
 							: [],
 					invalidate() {},
 				};
@@ -311,8 +335,10 @@ export default function (pi: ExtensionAPI) {
 			renderResult: (result, options, _theme, context) => {
 				const turn = turnOf.get(context.toolCallId);
 				const index = turn?.findIndex((candidate) => candidate.id === context.toolCallId) ?? -1;
-				if (turn && index >= 0 && !options.isPartial) {
-					turn[index] = completeStep(turn[index], { output: resultText(result), isError: context.isError, details: (result as { details?: { patch?: string } }).details });
+				// Completed once: later re-renders (ctrl+o, resize) must not move its end time.
+				if (turn && index >= 0 && !options.isPartial && !turn[index].done) {
+					const completed = completeStep(turn[index], { output: resultText(result), isError: context.isError, details: (result as { details?: { patch?: string } }).details });
+					turn[index] = { ...completed, endedAt: completed.startedAt ? Date.now() : undefined };
 				}
 				return { render: () => [], invalidate() {} };
 			},
@@ -409,7 +435,7 @@ export default function (pi: ExtensionAPI) {
 	// Answers: ⬢ in front, file:riga as VS Code links where the terminal shows links (never printed as raw URLs).
 	pi.registerMarkdownTransformer((markdown, context) => {
 		if (!active || !markdown.trim()) return markdown;
-		if (context.messageType === "assistant-thinking") return /^\s*◇/.test(markdown) ? markdown : `◇ ${markdown.trimStart()}`;
+		if (context.messageType === "assistant-thinking") return thinkingMarkdown(markdown);
 		if (context.messageType !== "assistant") return markdown;
 		// The suggestions block is shown under the turn, not in the answer (while streaming, cut a half-written mark too).
 		let out = extractSuggestions(markdown).text;

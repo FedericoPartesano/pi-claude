@@ -1,5 +1,6 @@
 /** The status bar above the editor: one line, one color per state (Neon Night principle 1). */
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { shimmer, wave } from "./animations.ts";
 import { C, bold, fg, fit, label } from "./palette.ts";
 import { elapsedSeconds, type TurnStatus } from "./status.ts";
 
@@ -18,9 +19,15 @@ export function renderStatusBar(status: TurnStatus, width: number, now: number, 
 	const seconds = elapsedSeconds(status, now);
 	switch (status.mode) {
 		case "working": {
-			const step = status.step > 0 ? ` · passo ${status.step}` : "";
-			const left = `${label(C.cyan, ` ${SPINNER[frame % SPINNER.length]} AL LAVORO `)}  ${bold(fg(C.text, status.activity))}${fg(C.dim, `${step} · ${seconds}s`)}`;
-			return fit(left, hint("esc", "interrompi"), width);
+			const tag = `${label(C.cyan, ` ${SPINNER[frame % SPINNER.length]} AL LAVORO `)}  `;
+			const tail = fg(C.dim, `${status.step > 0 ? ` · passo ${status.step}` : ""} · ${seconds}s`);
+			const keys = hint("esc", "interrompi");
+			// Thinking: a moving wave and the latest thought; a tool: a light running over the action.
+			const body = status.phase === "thinking"
+				? `${wave(frame)} ${fg(C.dim, "penso")}${status.thought ? `${fg(C.dim, " · ")}${fg(C.text, status.thought)}` : ""}`
+				: shimmer(status.activity, frame);
+			const room = Math.max(4, width - visibleWidth(tag) - visibleWidth(tail) - visibleWidth(keys) - 2);
+			return fit(`${tag}${truncateToWidth(body, room)}${tail}`, keys, width);
 		}
 		case "waiting": {
 			// The answer keys must always stay visible: the question gives way.

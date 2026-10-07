@@ -51,3 +51,11 @@ test("waiting for the user and resuming", () => {
 	assert.equal(resumed.mode, "working");
 	assert.equal(resumed.question, undefined);
 });
+
+test("thinking shows the latest thought while the model reasons; a tool call replaces it", () => {
+	const thinking = run({ type: "agent_start", at: 1 }, { type: "thinking", text: "Controllo i casi limite." });
+	assert.equal(thinking.phase, "thinking");
+	assert.equal(thinking.thought, "Controllo i casi limite.");
+	const tool = nextStatus(thinking, { type: "tool_start", activity: "eseguo i test" });
+	assert.equal(tool.phase, "tool");
+});

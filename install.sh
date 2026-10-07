@@ -113,6 +113,8 @@ s.defaultThinkingLevel ??= "medium";
 // pi-ui: Neon Night theme and no resource listing at startup, unless the user chose otherwise.
 s.theme ??= "neon-night";
 s.quietStartup ??= true;
+// Thinking folded to one line ("◇ penso ▸"): Ctrl+T opens it, the status bar shows it live.
+s.hideThinkingBlock ??= true;
 if (process.env.EXTRAS === "1") {
   s.packages = (s.packages ?? []).map((p) => {
     const source = typeof p === "string" ? p : p.source;
