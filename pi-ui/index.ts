@@ -6,6 +6,8 @@
  * - Steps of a turn as one compact list, folded at the end of the turn unless the last step failed (ctrl+o opens it).
  * - Images named in answers or read/written by tools appear as half-block thumbnails; /img lists and opens them.
  * - `file:riga` in answers link to VS Code where the terminal supports links; answers start with ⬢.
+ * - Up to 4 suggestions after a turn, picked with keys 1-4; dangerous commands asked in the status bar (s/n/a);
+ *   a Windows notification after long turns. The dangerous-command check stays on even with PI_UI=off.
  * Interactive TUI only; PI_UI=off turns it off (the theme stays selectable with /theme).
  */
 import { existsSync } from "node:fs";
@@ -16,13 +18,16 @@ import { getCapabilities, type Component, type TUI } from "@earendil-works/pi-tu
 import { linkFileRefs, vscodeUrl, wslDistro } from "./src/answer.ts";
 import { renderImageEntry, thumbnailColumns } from "./src/image-entry.ts";
 import { findImageRefs, thumbnailFor, type Thumbnail } from "./src/images.ts";
+import { shouldNotify, toastScript } from "./src/notify.ts";
+import { answerFor, dangerReason } from "./src/permission.ts";
+import { extractSuggestions, renderSuggestions, SUGGESTION_MARK, SUGGESTION_PROMPT } from "./src/suggestions.ts";
 import { frameEditor } from "./src/editor.ts";
 import { phrase } from "./src/phrases.ts";
 import { completeStep, renderTurn, type Step } from "./src/steps.ts";
 import { checkOutcome } from "./src/test-output.ts";
 import { renderFooter } from "./src/footer.ts";
 import { renderStatusBar } from "./src/status-bar.ts";
-import { initialStatus, nextStatus, type StatusEvent } from "./src/status.ts";
+import { elapsedSeconds, initialStatus, nextStatus, type StatusEvent } from "./src/status.ts";
 import { readUsage } from "./src/usage.ts";
 
 /** Text of a tool result (text blocks only). */
@@ -44,7 +49,34 @@ async function openExternally(pi: ExtensionAPI, path: string): Promise<boolean> 
 	return result?.code === 0;
 }
 
+const POWERSHELL = "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe";
+
+/**
+ * Asks before dangerous bash commands. `askInBar` (pi-ui's status bar) is used when it returns an answer; otherwise a
+ * dialog; without any UI the command is blocked.
+ */
+function registerPermissionGate(pi: ExtensionAPI, askInBar: (question: string) => Promise<"yes" | "no" | "always"> | undefined) {
+	const allowed = new Set<string>();
+	pi.on("tool_call", async (event, ctx) => {
+		if (event.toolName !== "bash" || process.env.PI_UI_PERMISSION === "0") return undefined;
+		const command = String((event.input as { command?: unknown }).command ?? "");
+		const reason = dangerReason(command);
+		if (!reason || allowed.has(command)) return undefined;
+		if (!ctx.hasUI) return { block: true, reason: `Comando pericoloso bloccato (${reason}): nessuna interfaccia per confermarlo.` };
+		const short = command.length > 60 ? `${command.slice(0, 57)}…` : command;
+		const inBar = askInBar(`posso eseguire ${short}? ${reason}`);
+		const answer = inBar
+			? await inBar
+			: ({ Sì: "yes", No: "no", "Sì, sempre per questo comando": "always" } as const)[(await ctx.ui.select(`⚠️ Comando pericoloso (${reason}):\n\n  ${command}\n\nLo eseguo?`, ["Sì", "No", "Sì, sempre per questo comando"])) as "Sì"] ?? "no";
+		if (answer === "always") allowed.add(command);
+		return answer === "no" ? { block: true, reason: "L'utente ha rifiutato il comando." } : undefined;
+	});
+}
+
 export default function (pi: ExtensionAPI) {
+	// Asked in the bar while pi-ui is active, else with a dialog: set below once the TUI is up.
+	let askInBar: (question: string) => Promise<"yes" | "no" | "always"> | undefined = () => undefined;
+	registerPermissionGate(pi, (question) => askInBar(question));
 	if (process.env.PI_UI === "off") return;
 
 	let status = initialStatus();
@@ -61,6 +93,9 @@ export default function (pi: ExtensionAPI) {
 	/** Columns kept free on the right while the session panel is open (part 5). */
 	let reservedRight = 0;
 	let cwd = process.cwd();
+	let suggestions: string[] = [];
+	let lastAnswer = "";
+	let pendingAnswer: ((answer: "yes" | "no" | "always") => void) | undefined;
 
 	// Images of the session: shown once each, thumbnails cached per width.
 	const images: string[] = [];
@@ -102,12 +137,39 @@ export default function (pi: ExtensionAPI) {
 		render(width: number): string[] {
 			return frameEditor(super.render(width), width, status.mode === "working");
 		}
+
+		handleInput(data: string): void {
+			// The status bar is asking (TOCCA A TE): s / n / a answer it, other keys go to the editor.
+			if (pendingAnswer) {
+				const answer = answerFor(data);
+				if (answer) {
+					const resolveAnswer = pendingAnswer;
+					pendingAnswer = undefined;
+					update({ type: "resumed" });
+					resolveAnswer(answer);
+					return;
+				}
+			}
+			// 1-4 on an empty prompt after a turn: put that suggestion in the editor (Enter sends it).
+			const pick = /^[1-4]$/.test(data) ? suggestions[Number(data) - 1] : undefined;
+			if (pick && status.mode !== "working" && this.getText() === "") {
+				this.setText(pick);
+				return;
+			}
+			super.handleInput(data);
+		}
 	}
 
 	pi.on("session_start", async (_event, ctx: ExtensionContext) => {
 		if (ctx.mode !== "tui") return;
 		active = true;
 		cwd = ctx.cwd;
+		if (process.env.PI_UI_PERMISSION !== "0") {
+			askInBar = (question) => new Promise((resolveAnswer) => {
+				pendingAnswer = resolveAnswer;
+				update({ type: "waiting", question, answers: "s sì · n no · a sempre per questo comando" });
+			});
+		}
 		ctx.ui.setWorkingVisible(false);
 		ctx.ui.setWidget("pi-ui-status", (widgetTui) => {
 			tui = widgetTui;
@@ -142,6 +204,8 @@ export default function (pi: ExtensionAPI) {
 		outcome = "completed";
 		update({ type: "agent_start", at: Date.now() });
 		liveTurn = [];
+		suggestions = [];
+		lastAnswer = "";
 		clearInterval(spinner);
 		spinner = setInterval(() => {
 			frame++;
@@ -169,7 +233,9 @@ export default function (pi: ExtensionAPI) {
 		const usage = message.usage;
 		update({ type: "usage", input: (usage.input ?? 0) + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0), output: usage.output ?? 0 });
 		const content = (event.message as { content?: { type: string; text?: string }[] }).content ?? [];
-		noteImages(findImageRefs(content.filter((block) => block.type === "text").map((block) => block.text ?? "").join("\n")));
+		const text = content.filter((block) => block.type === "text").map((block) => block.text ?? "").join("\n");
+		if (text.trim()) lastAnswer = text;
+		noteImages(findImageRefs(extractSuggestions(text).text));
 	});
 	// The outcome (completed / aborted / error) is only known at the last boundary before settling.
 	pi.on("agent_before_settle", (event) => {
@@ -181,6 +247,16 @@ export default function (pi: ExtensionAPI) {
 		clearInterval(spinner);
 		update({ type: "settled", at: Date.now(), outcome });
 		liveTurn = undefined;
+		const answer = extractSuggestions(lastAnswer);
+		suggestions = outcome === "completed" ? answer.suggestions : [];
+		if (suggestions.length) pi.appendEntry("pi-ui-suggestions", { items: suggestions });
+		update({ type: "suggestions", count: suggestions.length });
+		if (process.env.PI_UI_NOTIFY !== "0" && shouldNotify(elapsedSeconds(status, Date.now()), status.mode)) {
+			process.stdout.write("\x07");
+			const title = status.mode === "done" ? "Pi ha finito" : "Pi si è fermato";
+			const body = (answer.text.replace(/[#*`_>\[\]]/g, "").trim().split("\n")[0] || status.activity).slice(0, 120);
+			if (existsSync(POWERSHELL)) void pi.exec(POWERSHELL, ["-NoProfile", "-NonInteractive", "-Command", toastScript(title, body)]).catch(() => undefined);
+		}
 		void refreshChanges(ctx.cwd);
 	});
 	pi.registerToolRenderer((toolName, next) => {
@@ -225,6 +301,17 @@ export default function (pi: ExtensionAPI) {
 		invalidate() {},
 	}));
 
+	pi.registerEntryRenderer<{ items: string[] }>("pi-ui-suggestions", (entry) => ({
+		render: (width: number) => (entry.data?.items?.length ? ["", renderSuggestions(entry.data.items, width)] : []),
+		invalidate() {},
+	}));
+
+	// The suggestions instruction (about 70 tokens, cached with the system prompt).
+	pi.on("before_agent_start", (event) => {
+		if (active && process.env.PI_UI_SUGGEST !== "0") event.systemPromptOptions.sections.suggerimenti = SUGGESTION_PROMPT;
+		return undefined;
+	});
+
 	pi.registerCommand("img", {
 		description: "Immagini della sessione: anteprima e apertura a piena qualità (Invio)",
 		handler: async (_args, ctx) => {
@@ -251,7 +338,11 @@ export default function (pi: ExtensionAPI) {
 	// Answers: ⬢ in front, file:riga as VS Code links where the terminal shows links (never printed as raw URLs).
 	pi.registerMarkdownTransformer((markdown, context) => {
 		if (!active || context.messageType !== "assistant" || !markdown.trim()) return markdown;
-		let out = markdown;
+		// The suggestions block is shown under the turn, not in the answer (while streaming, cut a half-written mark too).
+		let out = extractSuggestions(markdown).text;
+		const partial = out.lastIndexOf("<!--");
+		if (context.isStreaming && partial >= 0 && SUGGESTION_MARK.startsWith(out.slice(partial).trim())) out = out.slice(0, partial).trimEnd();
+		if (!out.trim()) return out;
 		if (!context.isStreaming && getCapabilities().hyperlinks) out = linkFileRefs(out, cwd, (path, line) => vscodeUrl(path, line, wslDistro()));
 		return /^\s*(#|[-*+] |\d+\.|```|>|\|)/.test(out) ? out : `⬢ ${out.trimStart()}`;
 	});
@@ -259,5 +350,8 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_shutdown", () => {
 		clearInterval(spinner);
 		active = false;
+		askInBar = () => undefined;
+		pendingAnswer?.("no");
+		pendingAnswer = undefined;
 	});
 }

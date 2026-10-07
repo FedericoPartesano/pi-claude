@@ -4,7 +4,7 @@
 #
 # Uso: ./install.sh [--no-extras] [--no-hooks]
 #   --no-extras  niente pi-full (web, todo, domande, subagent, team)
-#   --no-hooks   niente hook di sicurezza (permission-gate, protected-paths)
+#   --no-hooks   niente hook protected-paths (la conferma dei comandi pericolosi è in pi-ui: PI_UI_PERMISSION=0 la spegne)
 set -euo pipefail
 export NPM_CONFIG_UPDATE_NOTIFIER=false
 
@@ -126,9 +126,14 @@ if (JSON.stringify(s) !== before) {
 console.log(`    provider ${s.defaultProvider}/${s.defaultModel}, thinking ${s.defaultThinkingLevel}, tema ${s.theme}`);
 JS
 
+# La conferma dei comandi pericolosi ora è in pi-ui (nella barra di stato): il vecchio permission-gate chiederebbe due volte.
+if [ -L "$AGENT/extensions/permission-gate.ts" ] && [ "$(readlink "$AGENT/extensions/permission-gate.ts")" = "$PI_PKG/examples/extensions/permission-gate.ts" ]; then
+  rm "$AGENT/extensions/permission-gate.ts"
+  ok "permission-gate sostituito dalla conferma di pi-ui"
+fi
+
 if [ "$HOOKS" = 1 ]; then
   step "Hook di sicurezza"
-  link "$PI_PKG/examples/extensions/permission-gate.ts" "$AGENT/extensions/permission-gate.ts"
   link "$REPO/extensions/protected-paths.ts" "$AGENT/extensions/protected-paths.ts"
 fi
 

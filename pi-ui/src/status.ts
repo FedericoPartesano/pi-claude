@@ -16,6 +16,8 @@ export interface TurnStatus {
 	answers?: string;
 	/** Done, but the last check failed (the model answered anyway, e.g. a test that was already broken). */
 	warning?: string;
+	/** Numbered suggestions available after the turn (keys 1-N). */
+	suggestions?: number;
 }
 
 export type StatusEvent =
@@ -25,6 +27,7 @@ export type StatusEvent =
 	| { type: "usage"; input: number; output: number }
 	| { type: "waiting"; question: string; answers: string }
 	| { type: "resumed" }
+	| { type: "suggestions"; count: number }
 	| { type: "settled"; at: number; outcome: "completed" | "aborted" | "error" };
 
 export const initialStatus = (): TurnStatus => ({ mode: "ready", activity: "", step: 0, startedAt: 0, endedAt: 0, tokensIn: 0, tokensOut: 0, lastFailed: false });
@@ -41,6 +44,8 @@ export function nextStatus(status: TurnStatus, event: StatusEvent): TurnStatus {
 			return { ...status, tokensIn: status.tokensIn + event.input, tokensOut: status.tokensOut + event.output };
 		case "waiting":
 			return { ...status, mode: "waiting", question: event.question, answers: event.answers };
+		case "suggestions":
+			return { ...status, suggestions: event.count || undefined };
 		case "resumed":
 			return { ...status, mode: "working", question: undefined, answers: undefined };
 		case "settled": {

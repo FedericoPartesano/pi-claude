@@ -38,6 +38,11 @@ test("waiting shows the question and the answers; done shows time and tokens", (
 	assert.match(strip(renderStatusBar({ ...states.FATTO, warning: "ultimo passo non riuscito: eseguo i test" }, 120, 0, 0)), /FATTO.*⚠ ultimo passo non riuscito: eseguo i test/);
 });
 
+test("done with suggestions tells which keys pick them", () => {
+	assert.match(strip(renderStatusBar(nextStatus(states.FATTO, { type: "suggestions", count: 3 }), 120, 0, 0)), /1-3 suggerimenti$/);
+	assert.doesNotMatch(strip(renderStatusBar(nextStatus(states.FATTO, { type: "suggestions", count: 0 }), 120, 0, 0)), /suggerimenti/);
+});
+
 test("formatTokens", () => {
 	assert.equal(formatTokens(950), "950");
 	assert.equal(formatTokens(12_400), "12,4k");

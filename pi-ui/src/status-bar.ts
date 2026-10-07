@@ -28,7 +28,7 @@ export function renderStatusBar(status: TurnStatus, width: number, now: number, 
 		case "done":
 			return fit(
 				`${label(C.ok, " ✓ FATTO ")}  ${fg(C.text, `${seconds}s · ↑${formatTokens(status.tokensIn)} ↓${formatTokens(status.tokensOut)} tok`)}${status.warning ? `  ${fg(C.warn, `⚠ ${status.warning}`)}` : ""}`,
-				"",
+				status.suggestions ? `${fg(C.ok, `1-${status.suggestions}`)} ${fg(C.dim, "suggerimenti")}` : "",
 				width,
 			);
 		default:
