@@ -6,6 +6,7 @@
 import type { TeamPlan, TeamTask } from "./plan.ts";
 import type { Role } from "./roles.ts";
 import type { AgentRun, RunAgent } from "./runner.ts";
+import { changedPaths, filesOverlap, inScope } from "./scope.ts";
 import type { VerifyResult } from "./verify.ts";
 
 export interface OrchestratorDependencies {
@@ -13,8 +14,10 @@ export interface OrchestratorDependencies {
 	runAgent: RunAgent;
 	runVerify: (commands: string[], cwd: string, signal?: AbortSignal) => Promise<VerifyResult[]>;
 	cwd: string;
-	/** Maximum agents at the same time (writers are always one at a time). */
+	/** Maximum agents at the same time. Writers run together only when their declared files are disjoint. */
 	concurrency: number;
+	/** Hashes of changed files in the working tree (see scope.ts); undefined or missing = writers one at a time. */
+	snapshotFiles?: (cwd: string) => Promise<Map<string, string> | undefined>;
 	signal?: AbortSignal;
 	onProgress?: (line: string) => void;
 	maxTaskAttempts?: number;
@@ -46,6 +49,8 @@ export interface TeamReport {
 	fixRounds: number;
 	/** Final checks that were already failing before the team started. */
 	preexistingFailures: string[];
+	/** Files changed by a parallel wave outside every file its tasks declared. */
+	scopeWarnings: string[];
 	/**
 	 * Tests decide: verified only if the final checks pass. When a final check was already failing
 	 * before the team started and every task's own checks passed, the outcome says so explicitly
@@ -97,53 +102,104 @@ export async function runTeamPlan(plan: TeamPlan, dependencies: OrchestratorDepe
 			.map((outcome) => `### ${outcome.id} (${outcome.role}): ${outcome.title}\n${outcome.summary}`)
 			.join("\n\n");
 
-	const executeTask = async (task: TeamTask): Promise<TaskOutcome> => {
-		const role = roles.get(task.role)!;
-		const outcome: TaskOutcome = { id: task.id, role: task.role, title: task.title, status: "failed", attempts: 0, summary: "", lastVerify: [], runs: [] };
-		let feedback = "";
-		const context = dependencyContext(task);
-		for (let attempt = 1; attempt <= maxTaskAttempts; attempt++) {
-			if (signal?.aborted) {
-				outcome.reason = "interrotto";
-				break;
-			}
-			outcome.attempts = attempt;
-			progress(`▶ ${task.id} ${task.role} (${role.model}) · tentativo ${attempt}: ${task.title}`);
-			const prompt = [
-				`Obiettivo del team: ${plan.goal}`,
-				`Il tuo compito (${task.id}): ${task.title}\n\n${task.instructions}`,
-				context ? `Risultati dei compiti da cui dipendi:\n\n${context}` : "",
-				task.verify?.length ? `Al termine verranno eseguiti questi controlli, che devono passare:\n${task.verify.map((command) => `- \`${command}\``).join("\n")}` : "",
-				feedback ? `ATTENZIONE, tentativo precedente non riuscito:\n${feedback}\nCorreggi e completa il compito.` : "",
-			].filter(Boolean).join("\n\n");
-			const agentRun = await run(role, prompt);
-			outcome.runs.push(agentRun);
-			if (!agentRun.ok) {
-				feedback = `L'agente non ha completato il lavoro: ${agentRun.error ?? "nessuna risposta"}`;
-				progress(`✗ ${task.id} errore agente: ${agentRun.error ?? "nessuna risposta"}`);
-				continue;
-			}
-			outcome.summary = extractSummary(agentRun.text);
-			if (!task.verify?.length) {
-				outcome.status = "done";
-				break;
-			}
-			outcome.lastVerify = await dependencies.runVerify(task.verify, cwd, signal);
-			if (outcome.lastVerify.every((result) => result.ok)) {
-				outcome.status = "done";
-				progress(`✓ ${task.id} verificato`);
-				break;
-			}
-			feedback = formatVerifyFailure(outcome.lastVerify);
-			const failedCommand = outcome.lastVerify.find((result) => !result.ok)?.command;
-			if (failedCommand && baseline.get(failedCommand) === false) {
-				feedback += `\nNota: questo controllo falliva già prima dell'inizio del lavoro del team; se il fallimento non riguarda il tuo compito, dillo esplicitamente nei risultati invece di modificare cose fuori perimetro.`;
-			}
-			progress(`✗ ${task.id} verifica fallita: ${outcome.lastVerify.find((result) => !result.ok)?.command}`);
+	interface TaskState {
+		task: TeamTask;
+		role: Role;
+		outcome: TaskOutcome;
+		feedback: string;
+		context: string;
+	}
+
+	const newState = (task: TeamTask): TaskState => ({
+		task,
+		role: roles.get(task.role)!,
+		outcome: { id: task.id, role: task.role, title: task.title, status: "failed", attempts: 0, summary: "", lastVerify: [], runs: [] },
+		feedback: "",
+		context: dependencyContext(task),
+	});
+
+	/** One agent run for the task; false when the agent did not complete (the feedback says why). */
+	const attemptAgent = async (state: TaskState, parallel: boolean): Promise<boolean> => {
+		const { task, role, outcome, context, feedback } = state;
+		outcome.attempts++;
+		progress(`▶ ${task.id} ${task.role} (${role.model}) · tentativo ${outcome.attempts}${parallel ? " · in parallelo" : ""}: ${task.title}`);
+		const prompt = [
+			`Obiettivo del team: ${plan.goal}`,
+			`Il tuo compito (${task.id}): ${task.title}\n\n${task.instructions}`,
+			parallel ? `Altri agenti lavorano in parallelo nella stessa cartella: modifica SOLO questi file: ${task.files!.map((file) => `\`${file}\``).join(", ")}. Se ti servisse cambiarne altri, non farlo: scrivilo nei Risultati.` : "",
+			context ? `Risultati dei compiti da cui dipendi:\n\n${context}` : "",
+			task.verify?.length ? `Al termine verranno eseguiti questi controlli, che devono passare:\n${task.verify.map((command) => `- \`${command}\``).join("\n")}` : "",
+			feedback ? `ATTENZIONE, tentativo precedente non riuscito:\n${feedback}\nCorreggi e completa il compito.` : "",
+		].filter(Boolean).join("\n\n");
+		const agentRun = await run(role, prompt);
+		outcome.runs.push(agentRun);
+		if (!agentRun.ok) {
+			state.feedback = `L'agente non ha completato il lavoro: ${agentRun.error ?? "nessuna risposta"}`;
+			progress(`✗ ${task.id} errore agente: ${agentRun.error ?? "nessuna risposta"}`);
+			return false;
 		}
-		if (outcome.status !== "done" && !outcome.reason) outcome.reason = `non completato dopo ${outcome.attempts} tentativi`;
-		return outcome;
+		outcome.summary = extractSummary(agentRun.text);
+		return true;
 	};
+
+	/** Runs the task's checks after its agent completed; marks it done when they pass. */
+	const checkTask = async (state: TaskState): Promise<boolean> => {
+		const { task, outcome } = state;
+		if (!task.verify?.length) {
+			outcome.status = "done";
+			return true;
+		}
+		outcome.lastVerify = await dependencies.runVerify(task.verify, cwd, signal);
+		if (outcome.lastVerify.every((result) => result.ok)) {
+			outcome.status = "done";
+			progress(`✓ ${task.id} verificato`);
+			return true;
+		}
+		state.feedback = formatVerifyFailure(outcome.lastVerify);
+		const failedCommand = outcome.lastVerify.find((result) => !result.ok)?.command;
+		if (failedCommand && baseline.get(failedCommand) === false) {
+			state.feedback += `\nNota: questo controllo falliva già prima dell'inizio del lavoro del team; se il fallimento non riguarda il tuo compito, dillo esplicitamente nei risultati invece di modificare cose fuori perimetro.`;
+		}
+		progress(`✗ ${task.id} verifica fallita: ${failedCommand}`);
+		return false;
+	};
+
+	const finish = (state: TaskState): TaskOutcome => {
+		if (state.outcome.status !== "done" && !state.outcome.reason) {
+			state.outcome.reason = signal?.aborted ? "interrotto" : `non completato dopo ${state.outcome.attempts} tentativi`;
+		}
+		return state.outcome;
+	};
+
+	/**
+	 * Runs writer tasks with disjoint declared files as waves: agents of a wave work at the same time,
+	 * then each task's checks run one by one (no check sees another agent's half-done work), and failed
+	 * tasks retry together in the next wave. A single task is just a wave of one.
+	 */
+	const scopeWarnings = new Set<string>();
+	const executeWave = async (tasks: TeamTask[]): Promise<TaskOutcome[]> => {
+		const states = tasks.map(newState);
+		let active = states;
+		while (active.length > 0 && !signal?.aborted) {
+			const parallel = active.length > 1;
+			const before = parallel ? await dependencies.snapshotFiles?.(cwd) : undefined;
+			const completed = await Promise.all(active.map((state) => attemptAgent(state, parallel)));
+			const after = before ? await dependencies.snapshotFiles?.(cwd) : undefined;
+			if (before && after) {
+				// Git sees which files changed, not which agent changed them: report what no task declared.
+				for (const path of changedPaths(before, after)) if (!active.some((state) => inScope(path, state.task.files))) scopeWarnings.add(path);
+			}
+			const retry: TaskState[] = [];
+			for (const [index, state] of active.entries()) {
+				const passed = completed[index] && (await checkTask(state));
+				if (!passed && state.outcome.attempts < maxTaskAttempts) retry.push(state);
+			}
+			active = retry;
+		}
+		return states.map(finish);
+	};
+
+	const executeTask = async (task: TeamTask): Promise<TaskOutcome> => (await executeWave([task]))[0];
 
 	// --- Baseline: which final checks already fail before any change (known broken tests).
 	const baselineCommands = plan.finalVerify?.length ? plan.finalVerify : [...new Set(plan.tasks.flatMap((task) => task.verify ?? []))];
@@ -155,7 +211,8 @@ export async function runTeamPlan(plan: TeamPlan, dependencies: OrchestratorDepe
 	const preexistingFailures = [...baseline].filter(([, passed]) => !passed).map(([command]) => command);
 	if (preexistingFailures.length) progress(`ℹ controlli già falliti prima del lavoro: ${preexistingFailures.join(", ")}`);
 
-	// --- Scheduler: dependency order, bounded concurrency, writers one at a time.
+	// --- Scheduler: dependency order, bounded concurrency; writers in waves of disjoint declared files.
+	const canParallelize = (await dependencies.snapshotFiles?.(cwd)) !== undefined;
 	const pending = new Map(plan.tasks.map((task) => [task.id, task]));
 	const running = new Map<string, Promise<void>>();
 	let writerRunning = false;
@@ -169,18 +226,36 @@ export async function runTeamPlan(plan: TeamPlan, dependencies: OrchestratorDepe
 			}
 		}
 		const ready = [...pending.values()].filter((task) => (task.dependsOn ?? []).every((dependency) => outcomes.get(dependency)?.status === "done"));
-		for (const task of ready) {
-			if (running.size >= Math.max(1, dependencies.concurrency)) break;
-			const writes = roles.get(task.role)?.writes ?? true;
-			if (writes && writerRunning) continue;
+		const slots = () => Math.max(1, dependencies.concurrency) - running.size;
+		for (const task of ready.filter((candidate) => !(roles.get(candidate.role)?.writes ?? true))) {
+			if (slots() <= 0) break;
 			pending.delete(task.id);
-			if (writes) writerRunning = true;
 			running.set(
 				task.id,
 				executeTask(task).then((outcome) => {
 					outcomes.set(task.id, outcome);
 					running.delete(task.id);
-					if (writes) writerRunning = false;
+				}),
+			);
+		}
+		const readyWriters = ready.filter((candidate) => roles.get(candidate.role)?.writes ?? true);
+		if (!writerRunning && readyWriters.length > 0 && (slots() > 0 || running.size === 0)) {
+			const wave = [readyWriters[0]];
+			if (canParallelize) {
+				for (const candidate of readyWriters.slice(1)) {
+					if (wave.length >= Math.max(1, slots())) break;
+					if (wave.every((member) => !filesOverlap(member.files, candidate.files))) wave.push(candidate);
+				}
+			}
+			for (const task of wave) pending.delete(task.id);
+			writerRunning = true;
+			const key = `wave:${wave.map((task) => task.id).join(",")}`;
+			running.set(
+				key,
+				executeWave(wave).then((waveOutcomes) => {
+					for (const outcome of waveOutcomes) outcomes.set(outcome.id, outcome);
+					running.delete(key);
+					writerRunning = false;
 				}),
 			);
 		}
@@ -258,6 +333,7 @@ export async function runTeamPlan(plan: TeamPlan, dependencies: OrchestratorDepe
 		review,
 		fixRounds,
 		preexistingFailures,
+		scopeWarnings: [...scopeWarnings].sort(),
 		outcome: finalOk
 			? review.verdict === "approved" || review.verdict === "skipped" ? "verified" : "verified_with_review_notes"
 			: onlyPreexistingFailures ? "verified_with_preexisting_failures" : "failed",
@@ -292,6 +368,7 @@ export function renderReport(report: TeamReport): string {
 	if (stillFailing.length) lines.push(`Già falliti prima del lavoro del team: ${quote(stillFailing)}`);
 	if (report.finalVerify.length === 0) lines.push(report.finalOk ? "(nessun comando)" : "non eseguita: compiti non completati");
 	for (const result of report.finalVerify) lines.push(`- ${result.ok ? "✓" : "✗"} \`${result.command}\`${result.ok ? "" : `\n\`\`\`\n${result.outputTail.slice(-1500)}\n\`\`\``}`);
+	if (report.scopeWarnings.length) lines.push("", `⚠️ File cambiati in parallelo fuori dai file dichiarati: ${quote(report.scopeWarnings)}`);
 	lines.push("", `## Revisione: ${report.review.verdict}${report.review.notes ? `\n${report.review.notes}` : ""}`);
 	lines.push("", `Giri correttivi: ${report.fixRounds} · agenti eseguiti: ${report.totals.agentRuns} · token input ${report.totals.inputTokens}, output ${report.totals.outputTokens} · tempo agenti ${Math.round(report.totals.seconds)}s`);
 	return lines.join("\n");
