@@ -187,3 +187,18 @@ test("a check that failed before and passes after is reported as fixed by the te
 	assert.match(rendered, /Fallivano prima del team, ora passano: `npm test`/);
 	assert.doesNotMatch(rendered, /Già falliti prima del lavoro del team/);
 });
+
+test("the reviewer is told which checks were already failing: out of scope, not a change to ask for", async () => {
+	const plan: TeamPlan = {
+		goal: "g",
+		tasks: [
+			{ id: "t1", role: "implementer", title: "a", instructions: "y", verify: ["node --test test/new.test.js"] },
+			{ id: "t2", role: "tester", title: "b", instructions: "y", dependsOn: ["t1"], verify: ["node --test test/new.test.js"] },
+		],
+		finalVerify: ["npm test"],
+	};
+	const { dependencies, agentCalls } = harness({ baseline: false, verify: () => true, agent: reviewerApproves });
+	await runTeamPlan(plan, dependencies);
+	const reviewPrompt = agentCalls.find((call) => call.role.name === "reviewer")?.prompt ?? "";
+	assert.match(reviewPrompt, /già prima[\s\S]*`npm test`[\s\S]*fuori perimetro/);
+});

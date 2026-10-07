@@ -228,7 +228,11 @@ export async function runTeamPlan(plan: TeamPlan, dependencies: OrchestratorDepe
 	const reviewer = roles.get("reviewer");
 	if (finalOk && plan.review !== false && reviewer && !signal?.aborted) {
 		progress("🔍 revisione");
-		const reviewPrompt = `Obiettivo del team: ${plan.goal}\n\nCompiti svolti:\n${tasks.map((outcome) => `### ${outcome.id} (${outcome.role}): ${outcome.title}\n${outcome.summary}`).join("\n\n")}\n\nRivedi le modifiche (usa git diff) rispetto all'obiettivo. I controlli ${finalCommands.map((command) => `\`${command}\``).join(", ") || "(nessuno)"} passano.`;
+		const reviewPrompt = `Obiettivo del team: ${plan.goal}\n\nCompiti svolti:\n${tasks.map((outcome) => `### ${outcome.id} (${outcome.role}): ${outcome.title}\n${outcome.summary}`).join("\n\n")}\n\nRivedi le modifiche (usa git diff) rispetto all'obiettivo. I controlli ${finalCommands.map((command) => `\`${command}\``).join(", ") || "(nessuno)"} passano.${
+			preexistingFailures.length
+				? `\n\nQuesti controlli fallivano già prima del lavoro del team: ${preexistingFailures.map((command) => `\`${command}\``).join(", ")}. I problemi che li facevano fallire sono fuori perimetro: non chiederne la correzione, salvo che l'obiettivo la chieda esplicitamente.`
+				: ""
+		}`;
 		const reviewRun = await run(reviewer, reviewPrompt);
 		const parsed = reviewRun.ok ? parseReviewVerdict(reviewRun.text) : undefined;
 		review = parsed ?? { verdict: "error", notes: reviewRun.error ?? "verdetto non trovato nella risposta del revisore" };

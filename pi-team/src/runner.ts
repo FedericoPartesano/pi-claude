@@ -34,6 +34,8 @@ export const runAgent: RunAgent = ({ role, prompt, cwd, signal, timeoutMs = 20 *
 	const run: AgentRun = { ok: false, text: "", inputTokens: 0, outputTokens: 0, requests: 0, seconds: 0 };
 	const args = [
 		"--mode", "json", "-p", "--no-session",
+		// Skills only add prompt tokens to every request: roles carry their own instructions.
+		"--no-skills",
 		"--provider", "claude-code", "--model", role.model,
 		"--thinking", role.thinking,
 		"--tools", role.tools.join(","),
@@ -63,6 +65,10 @@ export const runAgent: RunAgent = ({ role, prompt, cwd, signal, timeoutMs = 20 *
 				const text = (message.content ?? []).filter((block: any) => block.type === "text").map((block: any) => block.text).join("");
 				if (text) run.text = text;
 				if (message.errorMessage) run.error = message.errorMessage;
+				if (role.maxInputTokens && run.inputTokens > role.maxInputTokens && !run.error) {
+					run.error = `budget di token del ruolo superato (${run.inputTokens} > ${role.maxInputTokens}): compito troppo ampio, va diviso`;
+					child.kill("SIGTERM");
+				}
 			}
 		});
 		const timer = setTimeout(() => {

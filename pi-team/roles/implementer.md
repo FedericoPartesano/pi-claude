@@ -4,6 +4,7 @@ description: Implementa un compito circoscritto modificando il codice
 model: sonnet
 thinking: medium
 tools: read,bash,edit,write
+maxInputTokens: 400000
 writes: true
 ---
 Sei l'implementatore del team. Ricevi un compito circoscritto e lo porti a termine nel codice.

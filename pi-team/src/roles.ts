@@ -17,6 +17,8 @@ export interface Role {
 	tools: string[];
 	/** True when the role changes files: such tasks never run in parallel with each other. */
 	writes: boolean;
+	/** Cumulative input tokens (cache included) after which the agent is stopped; undefined = no cap. */
+	maxInputTokens?: number;
 	instructions: string;
 }
 
@@ -37,6 +39,7 @@ export function parseRole(text: string, fallbackName: string): Role {
 		thinking: fields.get("thinking") || "medium",
 		tools: (fields.get("tools") || "read,bash,edit,write").split(",").map((tool) => tool.trim()).filter(Boolean),
 		writes: fields.get("writes") === "true",
+		maxInputTokens: Number(fields.get("maxInputTokens")) || undefined,
 		instructions: (match?.[2] ?? text).trim(),
 	};
 }
