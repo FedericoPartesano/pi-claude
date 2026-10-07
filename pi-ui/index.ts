@@ -22,7 +22,7 @@ import { CHART_PROMPT, extractCharts, renderChart, type ChartSpec } from "./src/
 import { renderImageEntry, thumbnailColumns } from "./src/image-entry.ts";
 import { findImageRefs, thumbnailFor, type Thumbnail } from "./src/images.ts";
 import { C, bold, fg, fit, label, usePalette } from "./src/palette.ts";
-import { PANEL_KEY, PANEL_WIDTH, parseNumstat, parsePorcelain, renderPanel, type ChangedFile } from "./src/panel.ts";
+import { PANEL_KEY, PANEL_WIDTH, parseAheadBehind, parseNumstat, parsePorcelain, renderPanel, type ChangedFile, type PanelInfo } from "./src/panel.ts";
 import { shouldNotify, toastScript } from "./src/notify.ts";
 import { answerFor, dangerReason } from "./src/permission.ts";
 import { extractSuggestions, renderSuggestions, SUGGESTION_MARK, SUGGESTION_PROMPT } from "./src/suggestions.ts";
@@ -90,6 +90,9 @@ export default function (pi: ExtensionAPI) {
 	let status = initialStatus();
 	let frame = 0;
 	let files: ChangedFile[] = [];
+	let git: PanelInfo["git"];
+	/** Latest finished steps for the panel's ATTIVITÀ section. */
+	const activity: NonNullable<PanelInfo["activity"]> = [];
 	let outcome: "completed" | "aborted" | "error" = "completed";
 	let tui: TUI | undefined;
 	let spinner: ReturnType<typeof setInterval> | undefined;
@@ -146,6 +149,12 @@ export default function (pi: ExtensionAPI) {
 		]);
 		const counts = numstat?.code === 0 ? parseNumstat(numstat.stdout) : new Map();
 		files = status?.code === 0 ? parsePorcelain(status.stdout).map((file) => ({ ...file, ...counts.get(file.path) })) : [];
+		const [branch, aheadBehind, last] = await Promise.all([
+			pi.exec("git", ["branch", "--show-current"], { cwd }).catch(() => undefined),
+			pi.exec("git", ["rev-list", "--left-right", "--count", "@{upstream}...HEAD"], { cwd }).catch(() => undefined),
+			pi.exec("git", ["log", "-1", "--format=%s"], { cwd }).catch(() => undefined),
+		]);
+		git = branch?.code === 0 ? { branch: branch.stdout.trim() || undefined, ...parseAheadBehind(aheadBehind?.code === 0 ? aheadBehind.stdout : ""), lastCommit: last?.code === 0 ? last.stdout.trim() : undefined } : undefined;
 		tui?.requestRender();
 	};
 	const line = (render: (width: number) => string): Component => ({ render: (width) => [render(width)], invalidate() {} });
@@ -259,6 +268,9 @@ export default function (pi: ExtensionAPI) {
 		const isTestRun = event.toolName === "bash" && /test/.test(phrase("bash", argsOf.get(event.toolCallId)).text);
 		const failed = event.toolName === "bash" ? checkOutcome(resultText(event.result), event.isError, isTestRun).failed : event.isError;
 		update({ type: "tool_end", failed });
+		const time = new Date().toTimeString().slice(0, 8);
+		activity.push({ time, icon: failed ? "✗" : "✓", ok: !failed, text: phrase(event.toolName, argsOf.get(event.toolCallId)).text });
+		if (activity.length > 20) activity.shift();
 		// Images a tool read or wrote (not every path in its output: an ls of a folder would flood the chat).
 		const path = String(argsOf.get(event.toolCallId)?.path ?? "");
 		if (!event.isError && IMAGE_FILE.test(path)) noteImages([path]);
@@ -405,6 +417,11 @@ export default function (pi: ExtensionAPI) {
 							files,
 							failures: lastFailures,
 							image: last && thumb && "lines" in thumb ? { ref: last, lines: thumb.lines.slice(0, 8) } : undefined,
+							turn: { mode: status.mode, steps: status.step, seconds: elapsedSeconds(status, Date.now()), tokensIn: status.tokensIn, tokensOut: status.tokensOut },
+							activity,
+							git,
+							memory: statuses.get("memory"),
+							suggestions,
 							usage: {
 								fiveHour: usage?.fiveHour,
 								sevenDay: usage?.sevenDay,
@@ -419,7 +436,7 @@ export default function (pi: ExtensionAPI) {
 					invalidate() {},
 				};
 			},
-			{ overlay: true, overlayOptions: { anchor: "top-right", width: PANEL_WIDTH, margin: { top: 1, right: 0 }, nonCapturing: true, visible: (width) => width >= 60 } },
+			{ overlay: true, overlayOptions: { anchor: "top-right", width: PANEL_WIDTH, maxHeight: "95%", margin: { top: 1, right: 0 }, nonCapturing: true, visible: (width) => width >= 60 } },
 		);
 		closePanel = undefined;
 		reservedRight = 0;

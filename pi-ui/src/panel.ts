@@ -4,6 +4,7 @@
  */
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { formatTokens } from "./status-bar.ts";
+import { formatDuration } from "./steps.ts";
 import { C, bg, bold, fg, fit, pad, underline } from "./palette.ts";
 
 export interface ChangedFile {
@@ -20,6 +21,20 @@ export interface PanelInfo {
 	failures: string[];
 	image?: { ref: string; lines: string[] };
 	usage: { fiveHour?: number; sevenDay?: number; contextPercent?: number; contextTokens?: number; contextWindow?: number; model: string; thinking: string };
+	/** The current or last turn. */
+	turn?: { mode: "working" | "waiting" | "stopped" | "done" | "ready"; steps: number; seconds: number; tokensIn: number; tokensOut: number };
+	/** Latest steps, oldest first. */
+	activity?: { time: string; icon: string; ok: boolean; text: string }[];
+	git?: { branch?: string; ahead: number; behind: number; lastCommit?: string };
+	/** setStatus("memory") of the memory extension. */
+	memory?: string;
+	suggestions?: string[];
+}
+
+/** `git rev-list --left-right --count @{upstream}...HEAD` → commits behind / ahead of the remote. */
+export function parseAheadBehind(output: string): { behind: number; ahead: number } {
+	const [behind, ahead] = output.trim().split(/\s+/).map(Number);
+	return { behind: behind || 0, ahead: ahead || 0 };
 }
 
 export const PANEL_WIDTH = 40;
@@ -74,6 +89,17 @@ export function renderPanel(info: PanelInfo, width: number, key = PANEL_KEY): st
 	});
 	lines.push(...(rows.length ? rows : [fg(C.dim, "nessun goal, loop o team")]));
 
+	const turn = info.turn;
+	if (turn && turn.mode !== "ready") {
+		const mark = { working: fg(C.cyan, "⠋"), waiting: fg(C.yel, "◆"), stopped: fg(C.err, "✗"), done: fg(C.ok, "✓") }[turn.mode];
+		lines.push("", section("TURNO", mark));
+		lines.push(fg(C.text, `${turn.steps} passi · ${turn.seconds < 60 ? `${turn.seconds}s` : formatDuration(turn.seconds * 1000)} · ↑${formatTokens(turn.tokensIn)} ↓${formatTokens(turn.tokensOut)}`));
+	}
+	if (info.activity?.length) {
+		lines.push("", section("ATTIVITÀ"));
+		for (const step of info.activity.slice(-5)) lines.push(`${fg(C.faint, step.time)} ${fg(step.ok ? C.ok : step.icon === "✗" ? C.err : C.cyan, step.icon)} ${fg(C.text, step.text)}`);
+	}
+
 	if (info.files.length) {
 		lines.push("", section("FILE", fg(C.yel, `✚${info.files.length}`)));
 		for (const file of info.files.slice(0, 6)) {
@@ -86,6 +112,19 @@ export function renderPanel(info: PanelInfo, width: number, key = PANEL_KEY): st
 	if (info.failures.length) {
 		lines.push("", section("TEST", fg(C.err, `${info.failures.length} ✗`)));
 		for (const failure of info.failures.slice(0, 4)) lines.push(`${fg(C.err, "✗")} ${fg(C.text, failure)}`);
+	}
+	if (info.memory) {
+		lines.push("", section("MEMORIA"), fg(C.text, info.memory), fit("", `${fg(C.mag, "/memoria")} ${fg(C.dim, "apri")}`, inner));
+	}
+	if (info.suggestions?.length) {
+		lines.push("", section("SUGGERIMENTI"));
+		info.suggestions.forEach((text, index) => lines.push(`${fg(C.faint, "⟦")}${fg(C.mag, String(index + 1))}${fg(C.faint, "⟧")} ${fg(C.text, text)}`));
+	}
+	const git = info.git;
+	if (git?.branch) {
+		lines.push("", section("GIT"));
+		lines.push(`${fg(C.cyan, `⎇ ${git.branch}`)}${git.ahead ? fg(C.ok, ` ↑${git.ahead}`) : ""}${git.behind ? fg(C.warn, ` ↓${git.behind}`) : ""}`);
+		if (git.lastCommit) lines.push(fg(C.dim, git.lastCommit));
 	}
 	if (info.image) {
 		lines.push("", section("IMMAGINI"), ...info.image.lines, fit(fg(C.cyan, underline(info.image.ref)), `${fg(C.mag, "/img")}`, inner));

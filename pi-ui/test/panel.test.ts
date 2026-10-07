@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { parseNumstat, parsePorcelain, renderPanel, type PanelInfo } from "../src/panel.ts";
+import { parseAheadBehind, parseNumstat, parsePorcelain, renderPanel, type PanelInfo } from "../src/panel.ts";
 
 const strip = (text: string) => text.replace(/\x1b\[[0-9;]*m/g, "");
 const info: PanelInfo = {
@@ -47,4 +47,40 @@ test("git porcelain and numstat parsing", () => {
 		{ status: "D", path: "gone.js" },
 	]);
 	assert.deepEqual(parseNumstat("1\t1\tsrc/a.js\n-\t-\timg.png\n"), new Map([["src/a.js", { added: 1, removed: 1 }], ["img.png", { added: 0, removed: 0 }]]));
+});
+
+test("richer panel: turn, latest activity with times, git, memory and suggestions", () => {
+	const lines = renderPanel({
+		...info,
+		turn: { mode: "done", steps: 5, seconds: 48, tokensIn: 12_400, tokensOut: 2100 },
+		activity: [
+			{ time: "14:09:02", icon: "✓", ok: true, text: "Leggo cart.js" },
+			{ time: "14:09:05", icon: "✓", ok: true, text: "Modifico cart.js" },
+			{ time: "14:09:09", icon: "✗", ok: false, text: "Eseguo i test" },
+		],
+		git: { branch: "feat/pi-ui", ahead: 2, behind: 0, lastCommit: "feat(pi-ui): charts drawn in the terminal" },
+		memory: "◇ 3 ricordi richiamati · 12 (2 📌)",
+		suggestions: ["apri il grafico", "mostra il diff"],
+	}, 40, "alt+s");
+	for (const line of lines) assert.equal(visibleWidth(line), 40);
+	const text = lines.map(strip).join("\n");
+	assert.match(text, /TURNO ─+ ✓/);
+	assert.match(text, /5 passi · 48s · ↑12,4k ↓2,1k/);
+	assert.match(text, /ATTIVITÀ/);
+	assert.match(text, /14:09:09 ✗ Eseguo i test/);
+	assert.match(text, /GIT ─+/);
+	assert.match(text, /⎇ feat\/pi-ui ↑2/);
+	assert.match(text, /feat\(pi-ui\): charts/);
+	assert.match(text, /MEMORIA ─+/);
+	assert.match(text, /3 ricordi richiamati/);
+	assert.match(text, /\/memoria/);
+	assert.match(text, /SUGGERIMENTI/);
+	assert.match(text, /⟦1⟧ apri il grafico/);
+	// Most useful first: session and turn before files, usage last.
+	assert.ok(text.indexOf("TURNO") < text.indexOf("FILE") && text.indexOf("FILE") < text.indexOf("USO"));
+});
+
+test("parseAheadBehind reads git rev-list --left-right --count", () => {
+	assert.deepEqual(parseAheadBehind("0\t2\n"), { behind: 0, ahead: 2 });
+	assert.deepEqual(parseAheadBehind(""), { behind: 0, ahead: 0 });
 });
