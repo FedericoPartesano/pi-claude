@@ -20,6 +20,15 @@ Per riprendere: apri Claude Code **in `~/documents/projects/pi-claude`** (non in
   stesso turno (il bridge riparte dal transcript con i tool nuovi). Prewarm del bridge rimandato con `setTimeout(0)` per
   vedere i tool già filtrati: `reuse=yes` verificato in TUI.
 
+- **2026-10-07 — pi-ui, chat Neon Night** (branch `feat/pi-ui`, spec `docs/specs/2026-10-07-pi-ui-design.md`, piano
+  `docs/superpowers/plans/2026-10-07-pi-ui.md`, design da Claude Design in `Download\Pi TUI Redesign review.zip`):
+  barra di stato, prompt incorniciato, footer di una riga, passi compatti (la prima riga del turno disegna tutta la lista:
+  Pi toglie la riga vuota ai componenti vuoti), miniature a mezzi blocchi, `/img`, suggerimenti 1-4, comandi pericolosi
+  nella barra (sostituisce permission-gate), notifica Windows, pannello `Alt+S` / `/pannello` (Alt+I e Alt+O sono di komorebi/whkd: picker spostato su `Alt+A`). 52 test; prova reale in tmux 120/80 con
+  catture in `Download\pi-ui-prove`. Limiti noti: l'header di Pi scorre via (info nel footer), il pannello copre il
+  testo delle risposte (non restringe la chat), le frasi dei passi sono dedotte dagli argomenti (niente "Correggo X").
+  Prototipo usa-e-getta in `pi-ui/prototype/` (fuori da main).
+
 - **2026-10-06 — intent, goal, loop, picker** (branch `feat/intent-goal-loop-picker`, spec
   `docs/specs/2026-10-06-intent-auto-and-picker-design.md`): `/intent` (intervista a domande concrete, ≤3 per messaggio),
   consigliere locale con "chiedi prima" sulle richieste vaghe, `/goal` (check decide la fine), `/loop` (`--when` a costo zero),
@@ -34,7 +43,7 @@ Per riprendere: apri Claude Code **in `~/documents/projects/pi-claude`** (non in
   none 67% · capped 88% · deep 83% con 44–100 token iniettati per richiesta (capped 271–910). Pacchetto `pi-memory/`
   (embedding locale, 888 MB di node_modules). Prossimi passi: soglia un po' più alta (domanda estranea: 1 ricordo
   iniettato), regole di stile trasversali sempre richiamate nei compiti che scrivono codice, poi **TUI per vedere e
-  gestire la memoria** (`/memoria`: elenco con filtri, anteprima con entità e origine, azioni 📌/modifica/unisci/
+  gestire la memoria** (`/memory`: elenco con filtri, anteprima con entità e origine, azioni 📌/modifica/unisci/
   superato/archivia/elimina, "perché è stato richiamato" dal recall-log), costruita sul picker, costo zero.
 
 ## Problemi aperti noti
@@ -77,6 +86,6 @@ test empirici come giudice + revisore, budget adattivo, sotto-progetto 1 = orche
 - Sotto-progetti: memoria/lezioni apprese, team di ricerca, flusso TaskSphere.
 
 ## Regole di lavoro emerse
-- Progetto NON legato a smartlookup-mono: niente vault/log/memoria di quel repo.
+- Progetto NON legato a smartlookup-mono: niente vault/log/memory di quel repo.
 - Niente commit senza richiesta. Niente `--dangerously-skip-permissions` lanciato da Claude (bloccato dal classificatore).
 - Mai `--bare` (forza API key = extra usage). Verificare sempre `isUsingOverage:false` dopo cambi al bridge.

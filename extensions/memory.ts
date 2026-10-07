@@ -1,6 +1,7 @@
 /**
  * Memory ("human-like"): /dream consolidates past sessions into .pi/memory.md (project) or ~/.pi/agent/memory.md
- * (global), loaded into the prompt within a cap; /ricorda searches the archive. Zero cost without memory files.
+ * (global), loaded into the prompt within a cap; /ricorda searches the archive; /memory shows and edits the memories.
+ * The /dream result stays in the chat and setStatus("memory") tells what memory is doing. Zero cost without memory files.
  *
  *   PI_DREAM_SESSIONS_DIR   sessions root to read (default: this project's Pi session folder)
  *   PI_DREAM_AUTO_APPROVE=1 apply proposals without asking (evaluation)
@@ -35,7 +36,10 @@ import {
 import { BackgroundEmbedder } from "../pi-memory/src/embed.ts";
 import { Recaller, appendRecallLog, fillVectors, type StoreDirs } from "../pi-memory/src/engine.ts";
 import { entriesToRecords, recordsToEntries } from "../pi-memory/src/reconcile.ts";
-import { loadStore, migrateLegacy, pruneVectors, saveStore, storeExists } from "../pi-memory/src/store.ts";
+import { loadStore, migrateLegacy, pruneVectors, saveStore, storeExists, type MemoryRecord } from "../pi-memory/src/store.ts";
+import { applyAction, dreamEntry, memoryStatus, recordLabel, recordPreview, summarize, type DreamEntry, type MemoryAction } from "../pi-memory/src/dashboard.ts";
+import type { DashboardResult, View } from "../pi-memory/src/dashboard-tui.ts";
+import { answerPrompt, appendDreamRun, appendRecallEvent, readDreamRuns, readRecallEvents, type MemoryDashboardSource, type SearchHit } from "../pi-memory/src/dashboard-data.ts";
 
 /** ~1.000 tokens of memory in context at most. */
 export const CONTEXT_BUDGET_CHARS = 3600;
@@ -81,6 +85,35 @@ const readState = (path: string): { lastConsolidated?: string } => {
 };
 const today = () => new Date().toISOString().slice(0, 10);
 
+/** Plain text cut to `width` terminal columns (emoji count 2), before any color is applied. */
+export function clip(text: string, width: number): string {
+	let used = 0;
+	let out = "";
+	for (const char of text) {
+		const cells = /\p{Extended_Pictographic}/u.test(char) ? 2 : 1;
+		if (used + cells > width) return `${out.slice(0, -1)}…`;
+		used += cells;
+		out += char;
+	}
+	return out;
+}
+
+/** Minimal shape of pi-picker's pick(), imported at run time (pi-memory does not depend on pi-picker). */
+type Pick = (ctx: ExtensionContext, options: { title: string; source: { start: string; list: () => { value: string; label: string }[]; describe?: () => string }; preview?: (item: { value: string }) => string | undefined; wrapPreview?: boolean }) => Promise<string[] | undefined>;
+const PICKER = "../pi-picker/src/pick.ts";
+
+/** Project and global records together, global ids prefixed "g:" (as the recaller does). */
+function allRecords(dirs: StoreDirs): MemoryRecord[] {
+	return [
+		...(storeExists(dirs.project) ? loadStore(dirs.project).records : []),
+		...(dirs.global && storeExists(dirs.global) ? loadStore(dirs.global, "g:").records : []),
+	];
+}
+const totals = (records: MemoryRecord[]) => {
+	const active = records.filter((record) => record.status === "active");
+	return { active: active.length, pinned: active.filter((record) => record.pinned).length };
+};
+
 function sessionFiles(ctx: ExtensionContext): string[] {
 	const root = process.env.PI_DREAM_SESSIONS_DIR;
 	if (root) return findProjectSessions(root, ctx.cwd);
@@ -119,10 +152,79 @@ function describe(memory: MemoryEntry[], proposal: Proposal): string[] {
 	];
 }
 
+/** Embedder and recaller of the running extension, shared with the dashboard source. */
+let shared: { embedder: BackgroundEmbedder; recaller: Recaller } | undefined;
+
+/**
+ * Data for the memory dashboard (pi-memory/src/dashboard-tui.ts): project + global records ("g:" ids), /dream and recall
+ * history, local search (no tokens), the model's answer from memories only, and the actions on a memory.
+ */
+export function dashboardSource(ctx: ExtensionContext): MemoryDashboardSource {
+	const dirs = deepDirs(ctx.cwd);
+	return {
+		load: () => ({
+			records: allRecords(dirs),
+			runs: [...readDreamRuns(dirs.project), ...(dirs.global ? readDreamRuns(dirs.global) : [])].sort((a, b) => b.at.localeCompare(a.at)),
+			events: readRecallEvents(dirs.project),
+			lastDream: readState(projectFiles(ctx.cwd).state).lastConsolidated?.slice(0, 10),
+			where: `.pi/memory${dirs.global && storeExists(dirs.global) ? " + globale" : ""}`,
+		}),
+		search: async (question) => {
+			if (!hasStore(dirs)) return [];
+			const recaller = shared?.recaller ?? new Recaller();
+			const embedder = shared?.embedder.ready ? shared.embedder : undefined;
+			// A question about the memory is an inquiry: no raised threshold here, and more results than a request gets.
+			const run = await recaller.run(question, dirs, today(), embedder, { includeSuperseded: true, threshold: 0.2, inquiryThreshold: 0, limit: 20 });
+			return run.hits.map((hit): SearchHit => ({ record: hit.record, score: hit.score }));
+		},
+		answer: async (question, hits, onText, signal) => {
+			const model = ctx.modelRegistry.find("claude-code", process.env.PI_DREAM_MODEL ?? "haiku") ?? ctx.model;
+			if (!model) throw new Error("nessun modello disponibile");
+			const stream = ctx.modelRegistry.streamSimple(model, {
+				systemPrompt: "Rispondi solo con le informazioni dei ricordi forniti, citandoli con il loro id. Se non bastano, dillo.",
+				messages: [{ role: "user", content: [{ type: "text", text: answerPrompt(question, hits) }], timestamp: Date.now() }],
+			} as never, { signal } as never);
+			let text = "";
+			for await (const event of stream as AsyncIterable<{ type: string; delta?: string }>) {
+				if (signal?.aborted) break;
+				if (event.type === "text_delta" && event.delta) {
+					text += event.delta;
+					onText(text);
+				}
+			}
+			const message = await stream.result();
+			const final = message.content.filter((part) => part.type === "text").map((part) => (part as { text: string }).text).join("") || text;
+			if (final !== text) onText(final);
+			return final;
+		},
+		act: async (id, action) => {
+			const global = id.startsWith("g:");
+			const dir = global ? dirs.global : dirs.project;
+			if (!dir || !storeExists(dir)) return;
+			const store = loadStore(dir);
+			const next = applyAction(store.records, global ? id.slice(2) : id, action, today());
+			saveStore(dir, { records: next, vectors: pruneVectors(store.records, next, store.vectors), model: store.model });
+			// An edited text needs its embedding again to be recalled semantically.
+			if (shared?.embedder.ready) await fillVectors(dir, shared.embedder).catch(() => 0);
+		},
+	};
+}
+
 export default function (pi: ExtensionAPI) {
 	const embedder = new BackgroundEmbedder();
 	const recaller = new Recaller();
+	shared = { embedder, recaller };
 	const logRecall = process.env.PI_MEMORY_RECALL_LOG === "1";
+	/** Footer/panel line about memory (pi-ui shows it): loading, consolidating, or how many memories and recalled. */
+	const showStatus = (ctx: ExtensionContext, extra: { loading?: boolean; dreaming?: boolean; recalled?: number } = {}) => {
+		if (!ctx.hasUI) return;
+		try {
+			const counts = deepMode() ? totals(allRecords(deepDirs(ctx.cwd))) : { active: parseMemory(read(projectFiles(ctx.cwd).memory)).length, pinned: 0 };
+			ctx.ui.setStatus("memory", memoryStatus({ ...counts, ...extra }));
+		} catch {
+			// A store being written by /dream in another session: try again at the next event.
+		}
+	};
 
 	// Deep memory: the pinned core goes in the system prompt (small, stable → cached); everything else is recalled
 	// per request and appended after it as a message, only when relevant. No store → nothing, at no cost.
@@ -140,6 +242,14 @@ export default function (pi: ExtensionAPI) {
 		if (!ctx.hasUI && !embedder.ready && recaller.hasVectors(dirs)) await Promise.race([embedder.start(), new Promise((resolve) => setTimeout(resolve, 8000).unref())]);
 		const run = await recaller.run(event.prompt, dirs, date, embedder.ready ? embedder : undefined);
 		log(run.ids, run.chars, run.embedderReady);
+		// Always kept (last 500): the dashboard shows what was recalled, when and with which score.
+		try {
+			const injected = new Set(run.ids);
+			appendRecallEvent(dirs.project, { at: new Date().toISOString(), query: event.prompt.slice(0, 300), hits: run.hits.filter((hit) => injected.has(hit.record.id)).map((hit) => ({ id: hit.record.id, score: Math.round(hit.score * 1000) / 1000 })), ms: run.ms });
+		} catch {
+			// A read-only project folder must not break the request.
+		}
+		showStatus(ctx, { recalled: run.ids.length });
 		if (!run.text) return;
 		return { message: { customType: "memory-recall", content: run.text, display: false } };
 	});
@@ -162,8 +272,10 @@ export default function (pi: ExtensionAPI) {
 			const dirs = deepDirs(ctx.cwd);
 			migrate(ctx.cwd, today());
 			if (hasStore(dirs)) {
+				showStatus(ctx, { loading: true });
 				setTimeout(() => {
 					void embedder.start().then(async (ready) => {
+						showStatus(ctx);
 						if (!ready) return;
 						for (const dir of [dirs.project, dirs.global]) if (dir && storeExists(dir)) await fillVectors(dir, embedder).catch(() => 0);
 					});
@@ -179,114 +291,178 @@ export default function (pi: ExtensionAPI) {
 		}
 	});
 
+	pi.registerEntryRenderer<DreamEntry>("memory-dream", (entry, _options, theme) => ({
+		render: (width: number) => {
+			const data = entry.data;
+			if (!data) return [];
+			const color = (line: string) => (line.startsWith("+") ? "success" : line.startsWith("−") ? "error" : line.startsWith("↑") ? "accent" : "text");
+			return [
+				"",
+				` ${theme.fg("accent", "◆")} ${theme.bold(theme.fg("text", clip(data.title, width - 3)))}`,
+				...data.lines.slice(0, 12).map((line) => `   ${theme.fg(color(line), clip(line, width - 3))}`),
+				...(data.lines.length > 12 ? [`   ${theme.fg("muted", `… altre ${data.lines.length - 12}`)}`] : []),
+				...(data.footer ? [`   ${theme.fg("dim", clip(data.footer, width - 3))}`] : []),
+			];
+		},
+		invalidate() {},
+	}));
+
 	pi.registerCommand("dream", {
 		description: "Consolida le sessioni passate nella memoria (come il sonno): /dream · /dream --global per le preferenze personali",
 		handler: async (args, ctx) => {
-			const global = /--global\b/.test(args);
-			const globalTarget = globalFiles();
-			if (global && !globalTarget) return ctx.ui.notify("Memoria globale disattivata (PI_MEMORY_GLOBAL_PATH vuota).", "warning");
-			const target = global ? globalTarget! : projectFiles(ctx.cwd);
-			const stateFile = projectFiles(ctx.cwd).state;
-			const state = readState(stateFile);
-			const since = (global ? (readState(target.state).lastConsolidated) : state.lastConsolidated) ?? "";
-			let exclude: string | undefined;
+			showStatus(ctx, { dreaming: true });
 			try {
-				exclude = ctx.sessionManager.getSessionFile();
-			} catch {}
-			// Oldest first, in batches: only what was actually read is marked consolidated.
-			const batch = lookbackBatch(sessionFiles(ctx), { since, maxChars: LOOKBACK_CHARS, exclude });
-			const sessions = batch.text;
-			if (!sessions) return ctx.ui.notify("Niente di nuovo da consolidare.", "info");
+				await dream(args, ctx);
+			} finally {
+				showStatus(ctx);
+			}
+		},
+	});
 
-			const date = today();
-			const deep = deepMode();
-			const dirs = deepDirs(ctx.cwd);
-			const storeDir = global ? dirs.global! : dirs.project;
-			if (deep) migrate(ctx.cwd, date);
-			const previous = deep ? loadStore(storeDir) : undefined;
-			const split = previous ? recordsToEntries(previous.records) : undefined;
-			const memory = split ? split.memory : parseMemory(read(target.memory));
-			const archive = split ? split.archive : parseMemory(read(target.archive));
-			ctx.ui.notify(`Consolido la memoria${global ? " globale" : ""}…`, "info");
-			const answer = await consolidate(ctx, buildDreamPrompt(memory, sessions, date, deep ? { global, deep: true } : { global, capChars: CONTEXT_BUDGET_CHARS }));
-			const parsed = answer.error ? { ok: false as const, error: answer.error } : parseProposal(answer.text, memory.length);
-			if (!parsed.ok) {
-				write(target.proposal, `# Proposta non valida\n\n${parsed.error}\n\n${answer.text}\n`);
-				return ctx.ui.notify(`/dream: ${parsed.error} (risposta in ${target.proposal})`, "error");
-			}
-			const proposal = parsed.proposal;
-			// Fading is decided by code, not by the model.
-			// Deep mode never fades by deletion: weak memories are just harder to recall.
-			if (!deep) for (const id of staleIds(memory, date, FADE_DAYS)) if (!proposal.forget.some((item) => item.id === id)) proposal.forget.push({ id, reason: `sbiadito (nessuna conferma da ${FADE_DAYS} giorni)` });
+	const dream = async (args: string, ctx: ExtensionContext) => {
+		const global = /--global\b/.test(args);
+		const globalTarget = globalFiles();
+		if (global && !globalTarget) return ctx.ui.notify("Memoria globale disattivata (PI_MEMORY_GLOBAL_PATH vuota).", "warning");
+		const target = global ? globalTarget! : projectFiles(ctx.cwd);
+		const stateFile = projectFiles(ctx.cwd).state;
+		const state = readState(stateFile);
+		const since = (global ? (readState(target.state).lastConsolidated) : state.lastConsolidated) ?? "";
+		let exclude: string | undefined;
+		try {
+			exclude = ctx.sessionManager.getSessionFile();
+		} catch {}
+		// Oldest first, in batches: only what was actually read is marked consolidated.
+		const batch = lookbackBatch(sessionFiles(ctx), { since, maxChars: LOOKBACK_CHARS, exclude });
+		const sessions = batch.text;
+		if (!sessions) return ctx.ui.notify("Niente di nuovo da consolidare.", "info");
 
-			const lines = describe(memory, proposal);
-			if (lines.length === 0) {
-				// Measured: under load the model sometimes answers with an empty proposal for sessions full of rules. Never
-				// mark sessions consolidated on a reply without content: keep them for the next /dream and keep the reply.
-				const reply = (answer.text ?? "").replace(/```(?:json)?/g, "").trim();
-				const looksEmpty = !reply || /^\{\s*\}$/.test(reply) || !/"(add|reinforce|merge|update|forget)"/.test(reply);
-				write(target.last, JSON.stringify({ added: 0, empty: true, pending: batch.pending, usage: answer.usage }, null, 2));
-				const allSkipped = parsed.ok && parsed.skipped.length > 0;
-				if ((looksEmpty && sessions.length > 2000) || allSkipped) {
-					write(target.proposal, `# Proposta senza voci valide (${date})\n\nScartate: ${parsed.ok ? parsed.skipped.join("; ") : ""}\n\n${answer.text ?? ""}\n`);
-					return ctx.ui.notify(`/dream: il modello ha risposto senza contenuto; sessioni non segnate come consolidate, rilancia /dream (risposta in ${target.proposal}).`, "warning");
-				}
-				write(target.state, JSON.stringify({ lastConsolidated: batch.until }));
-				return ctx.ui.notify(`Niente da ricordare in queste sessioni.${batch.pending ? ` Restano ${batch.pending} sessioni: rilancia /dream.` : ""}`, "info");
-			}
-			let approved: Proposal | undefined = proposal;
-			if (process.env.PI_DREAM_AUTO_APPROVE !== "1") {
-				if (!ctx.hasUI) {
-					write(target.proposal, `# Proposta di /dream (${date})\n\n${lines.join("\n")}\n\n\`\`\`json\n${JSON.stringify(proposal, null, 2)}\n\`\`\`\n`);
-					return ctx.ui.notify(`Proposta in ${target.proposal}: rilancia /dream in modalità interattiva per approvarla.`, "info");
-				}
-				const choice = await ctx.ui.select(`/dream propone:\n${lines.join("\n")}`, ["Applica tutto", "Scegli voce per voce", "Annulla"]);
-				if (!choice || choice === "Annulla") approved = undefined;
-				else if (choice === "Scegli voce per voce") {
-					const keep = async (label: string) => ctx.ui.confirm("Tenere?", label);
-					const pick = async <T>(items: T[], label: (item: T) => string) => {
-						const kept: T[] = [];
-						for (const item of items) if (await keep(label(item))) kept.push(item);
-						return kept;
-					};
-					const name = (id: string) => memory[Number(id.slice(1)) - 1]?.text ?? id;
-					approved = {
-						add: await pick(proposal.add, (item) => `+ [${item.type}] ${item.text}`),
-						reinforce: await pick(proposal.reinforce, (id) => `↑ ${name(id)}`),
-						merge: await pick(proposal.merge, (item) => `⇄ ${item.text}`),
-						update: await pick(proposal.update, (item) => `✎ ${name(item.id)} → ${item.text}`),
-						forget: await pick(proposal.forget, (item) => `− ${name(item.id)}`),
-					};
-				}
-			}
-			if (!approved) return ctx.ui.notify("Memoria invariata.", "info");
+		const date = today();
+		const deep = deepMode();
+		const dirs = deepDirs(ctx.cwd);
+		const storeDir = global ? dirs.global! : dirs.project;
+		if (deep) migrate(ctx.cwd, date);
+		const previous = deep ? loadStore(storeDir) : undefined;
+		const split = previous ? recordsToEntries(previous.records) : undefined;
+		const memory = split ? split.memory : parseMemory(read(target.memory));
+		const archive = split ? split.archive : parseMemory(read(target.archive));
+		ctx.ui.notify(`Consolido la memoria${global ? " globale" : ""}…`, "info");
+		const answer = await consolidate(ctx, buildDreamPrompt(memory, sessions, date, deep ? { global, deep: true } : { global, capChars: CONTEXT_BUDGET_CHARS }));
+		const parsed = answer.error ? { ok: false as const, error: answer.error } : parseProposal(answer.text, memory.length);
+		if (!parsed.ok) {
+			write(target.proposal, `# Proposta non valida\n\n${parsed.error}\n\n${answer.text}\n`);
+			return ctx.ui.notify(`/dream: ${parsed.error} (risposta in ${target.proposal})`, "error");
+		}
+		const proposal = parsed.proposal;
+		// Fading is decided by code, not by the model.
+		// Deep mode never fades by deletion: weak memories are just harder to recall.
+		if (!deep) for (const id of staleIds(memory, date, FADE_DAYS)) if (!proposal.forget.some((item) => item.id === id)) proposal.forget.push({ id, reason: `sbiadito (nessuna conferma da ${FADE_DAYS} giorni)` });
 
-			const applied = applyProposal(memory, archive, approved, date);
-			// Capped: the cap holds for the file too (what Pi sees is what memory.md contains). Deep: no cap at all.
-			const capped = deep ? { memory: applied.memory, archive: applied.archive, moved: 0 } : enforceCap(applied.memory, applied.archive, CONTEXT_BUDGET_CHARS, date);
-			const result = { ...applied, memory: capped.memory, archive: capped.archive };
-			let deepRecords: ReturnType<typeof entriesToRecords> | undefined;
-			if (deep && previous) {
-				deepRecords = entriesToRecords(result.memory, result.archive, previous.records, date);
-				saveStore(storeDir, { records: deepRecords, vectors: pruneVectors(previous.records, deepRecords, previous.vectors), model: previous.model });
-			} else {
-				write(target.memory, renderMemory(result.memory));
-				write(target.archive, renderMemory(result.archive, "archive"));
+		const lines = describe(memory, proposal);
+		if (lines.length === 0) {
+			// Measured: under load the model sometimes answers with an empty proposal for sessions full of rules. Never
+			// mark sessions consolidated on a reply without content: keep them for the next /dream and keep the reply.
+			const reply = (answer.text ?? "").replace(/```(?:json)?/g, "").trim();
+			const looksEmpty = !reply || /^\{\s*\}$/.test(reply) || !/"(add|reinforce|merge|update|forget)"/.test(reply);
+			write(target.last, JSON.stringify({ added: 0, empty: true, pending: batch.pending, usage: answer.usage }, null, 2));
+			const allSkipped = parsed.ok && parsed.skipped.length > 0;
+			if ((looksEmpty && sessions.length > 2000) || allSkipped) {
+				write(target.proposal, `# Proposta senza voci valide (${date})\n\nScartate: ${parsed.ok ? parsed.skipped.join("; ") : ""}\n\n${answer.text ?? ""}\n`);
+				return ctx.ui.notify(`/dream: il modello ha risposto senza contenuto; sessioni non segnate come consolidate, rilancia /dream (risposta in ${target.proposal}).`, "warning");
 			}
-			const now = batch.until;
-			write(target.state, JSON.stringify({ lastConsolidated: now }));
-			if (global) write(stateFile, JSON.stringify({ ...state, lastConsolidated: state.lastConsolidated ?? "" }));
-			const contextChars = deep ? 0 : fitBudget(result.memory, CONTEXT_BUDGET_CHARS).map(contextLine).join("\n").length;
-			const summary = { ...result.counts, overCap: capped.moved, pending: batch.pending, entries: result.memory.length, contextTokens: Math.round(contextChars / 3.6), usage: answer.usage };
-			write(target.last, JSON.stringify(summary, null, 2));
-			const { added, reinforced, merged, updated, forgotten } = result.counts;
-			if (deep) {
-				// New or edited memories get their embedding now, so the next request can recall them semantically.
-				ctx.ui.notify("Calcolo gli embedding dei ricordi nuovi…", "info");
-				if (await embedder.start()) await fillVectors(storeDir, embedder).catch(() => 0);
-				return ctx.ui.notify(`Memoria aggiornata: +${added} nuovi, ${reinforced} rinforzati, ${merged} uniti, ${updated} aggiornati (superati), ${forgotten} dimenticati · ${deepRecords?.filter((record) => record.status === "active").length ?? 0} ricordi attivi, nessun tetto${batch.pending ? ` · restano ${batch.pending} sessioni: rilancia /dream` : ""}`, "info");
+			write(target.state, JSON.stringify({ lastConsolidated: batch.until }));
+			return ctx.ui.notify(`Niente da ricordare in queste sessioni.${batch.pending ? ` Restano ${batch.pending} sessioni: rilancia /dream.` : ""}`, "info");
+		}
+		let approved: Proposal | undefined = proposal;
+		if (process.env.PI_DREAM_AUTO_APPROVE !== "1") {
+			if (!ctx.hasUI) {
+				write(target.proposal, `# Proposta di /dream (${date})\n\n${lines.join("\n")}\n\n\`\`\`json\n${JSON.stringify(proposal, null, 2)}\n\`\`\`\n`);
+				return ctx.ui.notify(`Proposta in ${target.proposal}: rilancia /dream in modalità interattiva per approvarla.`, "info");
 			}
-			ctx.ui.notify(`Memoria aggiornata: +${added} nuovi, ${reinforced} rinforzati, ${merged} uniti, ${updated} aggiornati, ${forgotten} dimenticati${capped.moved ? `, ${capped.moved} archiviati per spazio` : ""} · ${result.memory.length} ricordi (~${summary.contextTokens} token in contesto)${batch.pending ? ` · restano ${batch.pending} sessioni: rilancia /dream` : ""}`, "info");
+			const choice = await ctx.ui.select(`/dream propone:\n${lines.join("\n")}`, ["Applica tutto", "Scegli voce per voce", "Annulla"]);
+			if (!choice || choice === "Annulla") approved = undefined;
+			else if (choice === "Scegli voce per voce") {
+				const keep = async (label: string) => ctx.ui.confirm("Tenere?", label);
+				const pick = async <T>(items: T[], label: (item: T) => string) => {
+					const kept: T[] = [];
+					for (const item of items) if (await keep(label(item))) kept.push(item);
+					return kept;
+				};
+				const name = (id: string) => memory[Number(id.slice(1)) - 1]?.text ?? id;
+				approved = {
+					add: await pick(proposal.add, (item) => `+ [${item.type}] ${item.text}`),
+					reinforce: await pick(proposal.reinforce, (id) => `↑ ${name(id)}`),
+					merge: await pick(proposal.merge, (item) => `⇄ ${item.text}`),
+					update: await pick(proposal.update, (item) => `✎ ${name(item.id)} → ${item.text}`),
+					forget: await pick(proposal.forget, (item) => `− ${name(item.id)}`),
+				};
+			}
+		}
+		if (!approved) return ctx.ui.notify("Memoria invariata.", "info");
+
+		const applied = applyProposal(memory, archive, approved, date);
+		// Capped: the cap holds for the file too (what Pi sees is what memory.md contains). Deep: no cap at all.
+		const capped = deep ? { memory: applied.memory, archive: applied.archive, moved: 0 } : enforceCap(applied.memory, applied.archive, CONTEXT_BUDGET_CHARS, date);
+		const result = { ...applied, memory: capped.memory, archive: capped.archive };
+		let deepRecords: ReturnType<typeof entriesToRecords> | undefined;
+		if (deep && previous) {
+			deepRecords = entriesToRecords(result.memory, result.archive, previous.records, date);
+			saveStore(storeDir, { records: deepRecords, vectors: pruneVectors(previous.records, deepRecords, previous.vectors), model: previous.model });
+		} else {
+			write(target.memory, renderMemory(result.memory));
+			write(target.archive, renderMemory(result.archive, "archive"));
+		}
+		const now = batch.until;
+		write(target.state, JSON.stringify({ lastConsolidated: now }));
+		if (global) write(stateFile, JSON.stringify({ ...state, lastConsolidated: state.lastConsolidated ?? "" }));
+		const contextChars = deep ? 0 : fitBudget(result.memory, CONTEXT_BUDGET_CHARS).map(contextLine).join("\n").length;
+		const summary = { ...result.counts, overCap: capped.moved, pending: batch.pending, entries: result.memory.length, contextTokens: Math.round(contextChars / 3.6), usage: answer.usage };
+		write(target.last, JSON.stringify(summary, null, 2));
+		// History of /dream runs for the dashboard (what each run saved, when, at what cost).
+		try {
+			const usage = answer.usage as { input?: number; output?: number } | undefined;
+			appendDreamRun(storeDir, { at: new Date().toISOString(), date, scope: global ? "globale" : "progetto", counts: result.counts, lines: describe(memory, approved), tokens: usage ? (usage.input ?? 0) + (usage.output ?? 0) : undefined });
+		} catch {
+			// Logging must never undo a consolidation.
+		}
+		const { added, reinforced, merged, updated, forgotten } = result.counts;
+		if (deep) {
+			// New or edited memories get their embedding now, so the next request can recall them semantically.
+			ctx.ui.notify("Calcolo gli embedding dei ricordi nuovi…", "info");
+			if (await embedder.start()) await fillVectors(storeDir, embedder).catch(() => 0);
+			// The result stays in the chat (a notification disappears and leaves the user unsure it was saved).
+			const active = deepRecords?.filter((record) => record.status === "active") ?? [];
+			pi.appendEntry("memory-dream", dreamEntry(result.counts, describe(memory, approved), { active: active.length, pinned: active.filter((record) => record.pinned).length, pending: batch.pending }));
+			return ctx.ui.notify(`Memoria aggiornata: +${added} nuovi, ${reinforced} rinforzati, ${merged} uniti, ${updated} aggiornati (superati), ${forgotten} dimenticati · ${deepRecords?.filter((record) => record.status === "active").length ?? 0} ricordi attivi, nessun tetto${batch.pending ? ` · restano ${batch.pending} sessioni: rilancia /dream` : ""}`, "info");
+		}
+		pi.appendEntry("memory-dream", dreamEntry(result.counts, describe(memory, approved), { active: result.memory.length, pinned: result.memory.filter((entry) => entry.pinned).length, pending: batch.pending }));
+		ctx.ui.notify(`Memoria aggiornata: +${added} nuovi, ${reinforced} rinforzati, ${merged} uniti, ${updated} aggiornati, ${forgotten} dimenticati${capped.moved ? `, ${capped.moved} archiviati per spazio` : ""} · ${result.memory.length} ricordi (~${summary.contextTokens} token in contesto)${batch.pending ? ` · restano ${batch.pending} sessioni: rilancia /dream` : ""}`, "info");
+	};
+
+	/** /memory: summary on top, every memory with its preview; Enter → pin, edit, mark superseded or delete. */
+	pi.registerCommand("memory", {
+		description: "Dashboard della memoria: ricordi, cronologia dei /dream, richiami, e domande alla memoria",
+		handler: async (_args, ctx) => {
+			if (!deepMode()) return ctx.ui.notify("La dashboard serve la memoria profonda (il default; ora PI_MEMORY_MODE=capped): i ricordi sono in .pi/memory.md.", "info");
+			migrate(ctx.cwd, today());
+			const source = dashboardSource(ctx);
+			if (ctx.mode !== "tui") {
+				const data = source.load();
+				return ctx.ui.notify(summarize(data.records, { lastDream: data.lastDream, where: data.where }), "info");
+			}
+			// Modal over the chat; "e" closes it to open Pi's editor, then the dashboard comes back on the same view.
+			const { MemoryDashboard } = await import("../pi-memory/src/dashboard-tui.ts");
+			let view: View = "ricordi";
+			for (;;) {
+				const result = await ctx.ui.custom<DashboardResult>(
+					(tui, theme, _keybindings, done) =>
+						new MemoryDashboard(source, { fg: (role, text) => theme.fg(role, text), bg: (role, text) => theme.bg(role, text), bold: (text) => theme.bold(text) }, done, () => tui.requestRender(), () => Math.max(14, Math.floor((process.stdout.rows || 30) * 0.92)), today(), view),
+					{ overlay: true, overlayOptions: { anchor: "center", width: "96%", maxHeight: "94%" } },
+				);
+				if (!result) return;
+				view = result.view;
+				const text = await ctx.ui.editor("Modifica il ricordo", result.edit.text);
+				if (text?.trim() && text.trim() !== result.edit.text) await source.act(result.edit.id, { kind: "edit", text: text.trim() });
+			}
 		},
 	});
 

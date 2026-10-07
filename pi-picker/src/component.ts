@@ -2,7 +2,7 @@
  * The picker UI: a bordered box with location, query, item list (with a preview pane on wide terminals) and a
  * key hint footer. Works as a Pi overlay (`ctx.ui.custom`) and in a standalone pi-tui program.
  */
-import { type Component, CURSOR_MARKER, decodeKittyPrintable, type Focusable, matchesKey, type TuiMouseEvent, type TuiMouseEventResult, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { type Component, CURSOR_MARKER, decodeKittyPrintable, type Focusable, matchesKey, type TuiMouseEvent, type TuiMouseEventResult, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { PickerModel } from "./model.ts";
 import type { PickerItem, PickerSource } from "./sources.ts";
 
@@ -23,6 +23,10 @@ export interface PickerOptions {
 	preview?: (item: PickerItem) => string | undefined | Promise<string | undefined>;
 	/** List rows (default 12). */
 	maxVisible?: number;
+	/** The preview is trusted ANSI made by code (e.g. an image thumbnail): keep its colors instead of sanitizing it. */
+	rawPreview?: boolean;
+	/** Wrap long preview lines (prose, e.g. memories) instead of cutting them (code previews read better cut). */
+	wrapPreview?: boolean;
 }
 
 export const PREVIEW_MIN_WIDTH = 100;
@@ -180,7 +184,10 @@ export class PickerComponent implements Component, Focusable {
 		const listWidth = withPreview ? Math.floor((inner - 3) * 0.6) : inner;
 		const previewWidth = inner - listWidth - 3;
 		const current = model.current();
-		const previewLines = withPreview && current ? sanitize(this.previewOf(current) ?? "").split("\n") : [];
+		const rawPreview = this.options.rawPreview === true;
+		const previewText = withPreview && current ? (this.previewOf(current) ?? "") : "";
+		const previewSource = previewText ? (rawPreview ? previewText : sanitize(previewText)).split("\n") : [];
+		const previewLines = this.options.wrapPreview ? previewSource.flatMap((line) => (line ? wrapTextWithAnsi(line, previewWidth) : [""])) : previewSource;
 
 		const body: string[] = [];
 		for (let index = 0; index < this.maxVisible; index++) {
@@ -188,7 +195,8 @@ export class PickerComponent implements Component, Focusable {
 			let text = "";
 			if (item) text = this.itemText(item, item === current, listWidth);
 			else if (index === 0) text = theme.fg("muted", this.loaded ? (model.query ? "nessun risultato" : "(vuoto)") : "caricamento…");
-			body.push(row(withPreview ? `${pad(text, listWidth)} ${border("│")} ${theme.fg("muted", pad(previewLines[index] ?? "", previewWidth))}` : text));
+			const preview = truncateToWidth(previewLines[index] ?? "", previewWidth, "");
+			body.push(row(withPreview ? `${pad(text, listWidth)} ${border("│")} ${rawPreview ? pad(preview, previewWidth) : theme.fg("muted", pad(preview, previewWidth))}` : text));
 		}
 
 		const count = items.length === 0 ? "0" : `${model.cursor + 1}/${items.length}`;

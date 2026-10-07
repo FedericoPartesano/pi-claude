@@ -278,6 +278,12 @@ export default function (pi: ExtensionAPI) {
 	// One advisor for every request: Pi directly, an intent first, or the team.
 	if (advisorMode !== "off") {
 		(globalThis as Record<symbol, unknown>)[WORK_ADVISOR_FLAG] = true;
+		let askFirstPending = false;
+		pi.on("before_agent_start", () => {
+			if (!askFirstPending) return undefined;
+			askFirstPending = false;
+			return { message: { customType: "intent-ask-first", content: ASK_FIRST_HINT, display: false } };
+		});
 		pi.on("input", async (event, ctx) => {
 			if (event.source !== "interactive" || event.streamingBehavior || !ctx.hasUI) return { action: "continue" };
 			const text = event.text.trim();
@@ -290,7 +296,11 @@ export default function (pi: ExtensionAPI) {
 			});
 			if (advice.outcome === "direct") return { action: "continue" };
 			// Vague request: no dialog, Pi just asks what it does not know before writing code.
-			if (advice.outcome === "ask") return { action: "transform", text: `${event.text}\n\n${ASK_FIRST_HINT}`, images: event.images };
+			// The hint goes to the model as a hidden message of this turn: the user's own text stays as typed.
+			if (advice.outcome === "ask") {
+				askFirstPending = true;
+				return { action: "continue" };
+			}
 
 			if (advice.outcome === "intent") {
 				const accepted =

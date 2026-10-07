@@ -4,7 +4,7 @@
 #
 # Uso: ./install.sh [--no-extras] [--no-hooks]
 #   --no-extras  niente pi-full (web, todo, domande, subagent, team)
-#   --no-hooks   niente hook di sicurezza (permission-gate, protected-paths)
+#   --no-hooks   niente hook protected-paths (la conferma dei comandi pericolosi è in pi-ui: PI_UI_PERMISSION=0 la spegne)
 set -euo pipefail
 export NPM_CONFIG_UPDATE_NOTIFIER=false
 
@@ -83,13 +83,16 @@ step "Dipendenze dei pacchetti"
 deps "$REPO/pi-claude-code"
 deps "$REPO/pi-picker"
 deps "$REPO/pi-memory"
+deps "$REPO/pi-ui"
 [ "$EXTRAS" = 1 ] && deps "$REPO/pi-team"
 
 step "Pacchetti Pi"
 pi install "$REPO/pi-claude-code" >/dev/null
 ok "pi-claude-code"
 pi install "$REPO/pi-picker" >/dev/null
-ok "pi-picker (Alt+O, /pick)"
+ok "pi-picker (Alt+A, /pick)"
+pi install "$REPO/pi-ui" >/dev/null
+ok "pi-ui (chat Neon Night: barra di stato, prompt, footer)"
 if [ "$EXTRAS" = 1 ]; then
   for pkg in "${EXTRA_PACKAGES[@]}"; do
     pi install "$pkg" >/dev/null
@@ -107,6 +110,11 @@ const before = JSON.stringify(s);
 s.defaultProvider ??= "claude-code";
 s.defaultModel ??= "sonnet";
 s.defaultThinkingLevel ??= "medium";
+// pi-ui: Neon Night theme and no resource listing at startup, unless the user chose otherwise.
+s.theme ??= "neon-night";
+s.quietStartup ??= true;
+// Thinking folded to one line ("◇ penso ▸"): Ctrl+T opens it, the status bar shows it live.
+s.hideThinkingBlock ??= true;
 if (process.env.EXTRAS === "1") {
   s.packages = (s.packages ?? []).map((p) => {
     const source = typeof p === "string" ? p : p.source;
@@ -117,12 +125,17 @@ if (JSON.stringify(s) !== before) {
   if (fs.existsSync(file)) fs.copyFileSync(file, `${file}.bak-install`);
   fs.writeFileSync(file, JSON.stringify(s, null, 2) + "\n");
 }
-console.log(`    provider ${s.defaultProvider}/${s.defaultModel}, thinking ${s.defaultThinkingLevel}`);
+console.log(`    provider ${s.defaultProvider}/${s.defaultModel}, thinking ${s.defaultThinkingLevel}, tema ${s.theme}`);
 JS
+
+# La conferma dei comandi pericolosi ora è in pi-ui (nella barra di stato): il vecchio permission-gate chiederebbe due volte.
+if [ -L "$AGENT/extensions/permission-gate.ts" ] && [ "$(readlink "$AGENT/extensions/permission-gate.ts")" = "$PI_PKG/examples/extensions/permission-gate.ts" ]; then
+  rm "$AGENT/extensions/permission-gate.ts"
+  ok "permission-gate sostituito dalla conferma di pi-ui"
+fi
 
 if [ "$HOOKS" = 1 ]; then
   step "Hook di sicurezza"
-  link "$PI_PKG/examples/extensions/permission-gate.ts" "$AGENT/extensions/permission-gate.ts"
   link "$REPO/extensions/protected-paths.ts" "$AGENT/extensions/protected-paths.ts"
 fi
 
@@ -193,10 +206,20 @@ if [ "$EXTRAS" = 1 ]; then
   esac
 fi
 
+# /custom-reload di pi-ui: la funzione pi della shell riapre Pi sulla stessa conversazione dopo il riavvio.
+LOOP_LINE="source \"$REPO/pi-ui/shell/pi-custom-reload.sh\"  # pi-ui: /custom-reload"
+# Earlier versions sourced pi-riavvia.sh: replace that line instead of adding a second one.
+[ -f "$HOME/.bashrc" ] && sed -i "s#.*pi-ui/shell/pi-riavvia\.sh.*#$LOOP_LINE#" "$HOME/.bashrc"
+if [ -f "$HOME/.bashrc" ] && ! grep -qF "pi-ui/shell/pi-custom-reload.sh" "$HOME/.bashrc"; then
+  printf '\n%s\n' "$LOOP_LINE" >> "$HOME/.bashrc"
+  ok "/custom-reload: funzione pi aggiunta a ~/.bashrc (apri un nuovo terminale)"
+fi
+
 step "Fatto"
 echo "    pi          → Pi minimale su claude-code/sonnet (abbonamento Claude)"
 [ "$EXTRAS" = 1 ] && echo "    pi-full     → + web, todo, domande, subagent, team (pi-full --pick: scegli prima il progetto)"
-echo "    Alt+O       → inserisci file o cartelle del progetto nel prompt (anche /pick)"
+echo "    Alt+A       → inserisci file o cartelle del progetto nel prompt (anche /pick)"
+echo "    chat        → Neon Night: barra di stato, passi compatti, /img, suggerimenti 1-4, Alt+S o /pannello (PI_UI=off per spegnerla)"
 echo "    /intent     → intervista e scrive intents/<data>-<slug>.md"
 echo "    /goal       → lavora in autonomia fino all'obiettivo (anche @intents/...; senza argomenti: scegli un intent)"
 echo "    /dream      → consolida le sessioni passate in .pi/memory/ (memoria profonda: tutto su disco, richiamo solo dei ricordi pertinenti); /ricorda li cerca"
