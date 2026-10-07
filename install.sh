@@ -206,6 +206,13 @@ if [ "$EXTRAS" = 1 ]; then
   esac
 fi
 
+# /riavvia di pi-ui: la funzione pi della shell riapre Pi sulla stessa conversazione dopo il riavvio.
+LOOP_LINE="source \"$REPO/pi-ui/shell/pi-riavvia.sh\"  # pi-ui: /riavvia"
+if [ -f "$HOME/.bashrc" ] && ! grep -qF "pi-ui/shell/pi-riavvia.sh" "$HOME/.bashrc"; then
+  printf '\n%s\n' "$LOOP_LINE" >> "$HOME/.bashrc"
+  ok "/riavvia: funzione pi aggiunta a ~/.bashrc (apri un nuovo terminale)"
+fi
+
 step "Fatto"
 echo "    pi          → Pi minimale su claude-code/sonnet (abbonamento Claude)"
 [ "$EXTRAS" = 1 ] && echo "    pi-full     → + web, todo, domande, subagent, team (pi-full --pick: scegli prima il progetto)"

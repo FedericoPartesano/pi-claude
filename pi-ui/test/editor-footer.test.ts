@@ -42,6 +42,13 @@ test("footer: session on the left, usage on the right, exact width", () => {
 	assert.doesNotMatch(strip(renderFooter(info, 80)), /shop-api/);
 });
 
+test("footer shows the memory status (first part) on wide terminals", () => {
+	const withMemory = { ...info, statuses: new Map([...info.statuses, ["memory", "◇ 3 ricordi richiamati · 12 (2 📌)"]]) };
+	assert.match(strip(renderFooter(withMemory, 140)), /shop-api ⎇ main ✚2 {2}◇ 3 ricordi richiamati /);
+	assert.doesNotMatch(strip(renderFooter(withMemory, 140)), /12 \(2 📌\)/);
+	for (const width of [40, 80, 140]) assert.equal(visibleWidth(renderFooter(withMemory, width)), width);
+});
+
 test("footer without session or usage data, and with overage", () => {
 	const bare = strip(renderFooter({ ...info, statuses: new Map(), fiveHour: undefined, contextPercent: undefined, changes: 0 }, 120));
 	assert.match(bare, /^shop-api ⎇ main /);

@@ -33,6 +33,7 @@ import { checkOutcome, failingTests } from "./src/test-output.ts";
 import { renderFooter } from "./src/footer.ts";
 import { renderStatusBar } from "./src/status-bar.ts";
 import { elapsedSeconds, initialStatus, nextStatus, type StatusEvent } from "./src/status.ts";
+import { RESTART_FILE, writeRestartRequest } from "./src/restart.ts";
 import { restoreSession } from "./src/restore.ts";
 import { HIDDEN_THINKING_LABEL, renderThinkingBox, thinkingMarkdown } from "./src/thinking.ts";
 import { readUsage } from "./src/usage.ts";
@@ -444,6 +445,25 @@ export default function (pi: ExtensionAPI) {
 	};
 	pi.registerShortcut(panelKey as Parameters<typeof pi.registerShortcut>[0], { description: "Pannello della sessione: goal/loop/team, file, test, immagini, uso", handler: togglePanel });
 	pi.registerCommand("pannello", { description: `Apre o chiude il pannello della sessione (come ${panelKey})`, handler: async (_args, ctx) => togglePanel(ctx) });
+
+	// /riavvia: full restart on the same conversation (Pi's /reload only reloads resources inside this process).
+	pi.registerCommand("riavvia", {
+		description: "Riavvia Pi da capo (estensioni, bridge, impostazioni) e riapre questa conversazione",
+		handler: async (_args, ctx) => {
+			if (process.env.PI_UI_LOOP !== "1") {
+				return ctx.ui.notify("Pi non è stato aperto dal comando pi di pi-ui, quindi non ripartirebbe: apri un nuovo terminale dopo ./install.sh, oppure usa /reload.", "warning");
+			}
+			let session = "";
+			try {
+				session = ctx.sessionManager.getSessionFile() ?? "";
+			} catch {
+				// Ephemeral session (--no-session): restart with a new chat.
+			}
+			writeRestartRequest(RESTART_FILE, { session, cwd: ctx.cwd });
+			ctx.ui.notify(session ? "Riavvio Pi e riapro questa conversazione…" : "Sessione non salvata (--no-session): riavvio con una chat nuova…", "info");
+			ctx.shutdown();
+		},
+	});
 
 	pi.registerCommand("img", {
 		description: "Immagini della sessione: anteprima e apertura a piena qualità (Invio)",

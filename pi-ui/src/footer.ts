@@ -29,7 +29,10 @@ export function renderFooter(info: FooterInfo, width: number): string {
 		return text ? [`${bold(fg(color, tag))} ${fg(C.text, text)}`] : [];
 	}).join("  ");
 	const where = `${bold(fg(C.text, info.project))}${info.branch ? ` ${fg(C.cyan, `⎇ ${info.branch}`)}` : ""}${info.changes ? ` ${fg(C.yel, `✚${info.changes}`)}` : ""}`;
-	const left = !sessionText ? where : width >= 100 ? `${sessionText}   ${where}` : sessionText;
+	// Memory status from the memory extension: only its first part ("◇ 3 ricordi richiamati"); the panel has the rest.
+	const memory = info.statuses.get("memory")?.split(" · ")[0];
+	const place = memory && width >= 100 ? `${where}  ${fg(C.dim, memory)}` : where;
+	const left = !sessionText ? place : width >= 100 ? `${sessionText}   ${place}` : sessionText;
 	const usage = info.overage ? fg(C.err, bold("⚠ EXTRA USAGE")) : fg(C.dim, `5H ${percent(info.fiveHour, 100)}`);
 	const right = `${usage}${fg(C.dim, ` · CTX ${percent(info.contextPercent)} · ${info.model}·${info.thinking}`)}`;
 	return fit(left, right, width);
