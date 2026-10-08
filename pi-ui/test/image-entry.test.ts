@@ -44,3 +44,15 @@ test("on terminals with real images (kitty protocol: WezTerm, kitty, Ghostty) th
 		setCapabilities({ images: null, trueColor: true, hyperlinks: false });
 	}
 });
+
+test("with the side panel open a real image cannot be drawn (Pi draws images only in full-width boxes): a clear line instead of empty space", async () => {
+	const { setCapabilityOverrides } = await import("@earendil-works/pi-tui");
+	const { renderImageEntry } = await import("../src/image-entry.ts");
+	setCapabilityOverrides({ images: "kitty" });
+	const png = Buffer.from("89504e470d0a1a0a0000000d4948445200000001000000010806000000", "hex");
+	const thumb = { lines: ["▀▀"], info: "1600×1000 · PNG · 86 KB", png, width: 1600, height: 1000, path: "/tmp/a.png" };
+	const hidden = renderImageEntry("/tmp/a.png", thumb as never, 100, { sidebarOpen: true }).map((line) => line.replace(/\x1b\[[0-9;]*m/g, ""));
+	assert.equal(hidden.length, 2);
+	assert.match(hidden[1], /immagine nascosta mentre il pannello è aperto · Alt\+S per vederla · \/img per aprirla/);
+	setCapabilityOverrides({});
+});
