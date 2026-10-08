@@ -4,6 +4,7 @@
  */
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { Worker } from "node:worker_threads";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import jpeg from "jpeg-js";
@@ -91,7 +92,7 @@ async function download(url: string, cacheDir: string, maxBytes: number): Promis
 export type Thumbnail = { lines: string[]; info: string; path: string; png?: string; width: number; height: number } | { error: string };
 
 /** Thumbnail of a local path (relative to cwd) or URL. Never throws: failures come back as a reason. */
-export async function thumbnailFor(ref: string, cwd: string, cols: number, options: { maxBytes?: number; cacheDir?: string } = {}): Promise<Thumbnail> {
+export async function thumbnailFor(ref: string, cwd: string, cols: number, options: { maxBytes?: number; cacheDir?: string; worker?: boolean } = {}): Promise<Thumbnail> {
 	const maxBytes = options.maxBytes ?? MAX_BYTES;
 	let path: string;
 	if (/^https?:\/\//i.test(ref)) {
@@ -106,6 +107,18 @@ export async function thumbnailFor(ref: string, cwd: string, cols: number, optio
 	if (size > maxBytes) return { error: "troppo grande per l'anteprima" };
 	const format = (/\.(\w+)(?:\?.*)?$/.exec(path)?.[1] ?? "").toLowerCase().replace("jpg", "jpeg");
 	if (format !== "png" && format !== "jpeg") return { error: `anteprima non disponibile per ${format.toUpperCase()}` };
+	if (options.worker ?? process.env.PI_UI_THUMB_WORKER !== "0") {
+		try {
+			return await decodeInWorker(path, format, size, cols);
+		} catch {
+			// No worker (or it died): decode here.
+		}
+	}
+	return decodeThumbnail(path, format, size, cols);
+}
+
+/** Reads and decodes an image into a thumbnail (synchronous: the worker thread runs it, the main thread as a fallback). */
+export function decodeThumbnail(path: string, format: string, size: number, cols: number): Thumbnail {
 	try {
 		const buffer = readFileSync(path);
 		// Refuse huge canvases before decoding (a small PNG can expand to gigabytes).
@@ -122,4 +135,38 @@ export async function thumbnailFor(ref: string, cwd: string, cols: number, optio
 	} catch {
 		return { error: "immagine non leggibile" };
 	}
+}
+
+// One worker thread decodes thumbnails one after another: decoding a few screenshots in the main thread froze the
+// chat for ~0.5 s when a session with images was resumed. It does not keep Pi alive (unref).
+let worker: Worker | undefined;
+let nextId = 0;
+const pending = new Map<number, { resolve: (thumbnail: Thumbnail) => void; reject: (error: unknown) => void }>();
+
+function decodeInWorker(path: string, format: string, size: number, cols: number): Promise<Thumbnail> {
+	if (!worker) {
+		worker = new Worker(new URL("./thumb-worker.ts", import.meta.url));
+		worker.unref();
+		worker.on("message", ({ id, result }: { id: number; result: Thumbnail }) => {
+			pending.get(id)?.resolve(result);
+			pending.delete(id);
+		});
+		const fail = (error: unknown) => {
+			for (const entry of pending.values()) entry.reject(error);
+			pending.clear();
+			worker = undefined;
+		};
+		worker.on("error", fail);
+		worker.on("exit", fail);
+	}
+	const id = nextId++;
+	return new Promise((resolve, reject) => {
+		pending.set(id, { resolve, reject });
+		worker!.postMessage({ id, path, format, size, cols });
+	});
+}
+
+export function closeThumbnailWorker(): void {
+	void worker?.terminate();
+	worker = undefined;
 }
