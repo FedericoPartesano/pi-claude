@@ -37,3 +37,4 @@ jobs:
         with:
           node-version: 24
       - run: node --test extensions/*.test.ts
+      - run: node --test 'eval/round2/test/*.test.mjs'
