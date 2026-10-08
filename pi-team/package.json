@@ -1,7 +1,7 @@
 {
   "name": "pi-team",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "Team of specialized sub-agents run by a manager: plan checkpoint, empirical verification, retries, budget",
   "pi": {
