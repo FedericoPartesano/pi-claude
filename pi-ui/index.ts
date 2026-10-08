@@ -15,7 +15,7 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
-import { CustomEditor, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { AgentSession, CustomEditor, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getCapabilities, setCapabilityOverrides, visibleWidth, type Component, type TUI } from "@earendil-works/pi-tui";
 import { linkFileRefs, vscodeUrl, wslDistro } from "./src/answer.ts";
 import { subagentRows, teamRows, type AgentRow } from "./src/agents.ts";
@@ -30,6 +30,7 @@ import { PANEL_KEY, PANEL_WIDTH, parseAheadBehind, parseNumstat, parsePorcelain,
 import { shouldNotify, toastScript } from "./src/notify.ts";
 import { answerFor, dangerReason } from "./src/permission.ts";
 import { extractSuggestions, renderSuggestions, SUGGESTION_MARK, SUGGESTION_PROMPT } from "./src/suggestions.ts";
+import { patchPromptRace, runtimeAgentSession } from "./src/prompt-race.ts";
 import { frameEditor } from "./src/editor.ts";
 import { phrase } from "./src/phrases.ts";
 import { completeStep, renderTurn, type Step } from "./src/steps.ts";
@@ -281,6 +282,8 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx: ExtensionContext) => {
 		if (ctx.mode !== "tui") return;
+		const session = (await runtimeAgentSession(process.argv[1], AgentSession)) as { prototype: Parameters<typeof patchPromptRace>[0] };
+		patchPromptRace(session.prototype);
 		active = true;
 		cwd = ctx.cwd;
 		// Resumed session: images for /img and the panel, suggestions for keys 1-4.
