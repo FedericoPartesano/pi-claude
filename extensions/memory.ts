@@ -35,6 +35,7 @@ import {
 } from "./memory-core.ts";
 import { WorkerEmbedder } from "../pi-memory/src/embed.ts";
 import { Recaller, appendRecallLog, fillVectors, type StoreDirs } from "../pi-memory/src/engine.ts";
+import { isSmallTalk, recallMessage } from "../pi-memory/src/recall.ts";
 import { entriesToRecords, recordsToEntries } from "../pi-memory/src/reconcile.ts";
 import { loadStore, migrateLegacy, pruneVectors, saveStore, storeExists, type MemoryRecord } from "../pi-memory/src/store.ts";
 import { applyAction, dreamEntry, memoryStatus, recordLabel, recordPreview, summarize, type DreamEntry, type MemoryAction } from "../pi-memory/src/dashboard.ts";
@@ -269,6 +270,8 @@ export default function (pi: ExtensionAPI) {
 		if (!hasStore(dirs)) return void log([], 0, false);
 		const core = recaller.core(dirs);
 		if (core) event.systemPromptOptions.sections.memory = core;
+		// "procedi", "ok": nothing to recall (the pinned core above still holds).
+		if (isSmallTalk(event.prompt)) return void log([], 0, embedder.ready);
 		// Without a UI (pi -p) nobody waits for a background load: give the model a few seconds so recall is semantic.
 		if (!ctx.hasUI && !embedder.ready && recaller.hasVectors(dirs)) await Promise.race([embedder.start(), new Promise((resolve) => setTimeout(resolve, 8000).unref())]);
 		const run = await recaller.run(event.prompt, dirs, date, embedder.ready ? embedder : undefined);
@@ -282,7 +285,7 @@ export default function (pi: ExtensionAPI) {
 		}
 		showStatus(ctx, { recalled: run.ids.length });
 		if (!run.text) return;
-		return { message: { customType: "memory-recall", content: run.text, display: false } };
+		return { message: { customType: "memory-recall", content: recallMessage(run.text, event.prompt), display: false } };
 	});
 
 	// Capped mode (previous behavior): memory.md in the prompt within a cap.
