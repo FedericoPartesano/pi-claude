@@ -11,7 +11,7 @@ export interface StoreDirs {
 }
 
 const isReady = (embedder: Embedder | undefined) => Boolean(embedder) && (embedder as { ready?: boolean }).ready !== false;
-const stamp = (dir: string) => ["memories.jsonl", "vectors.json"].map((name) => (existsSync(join(dir, name)) ? statSync(join(dir, name)).mtimeMs : 0)).join(":");
+const stamp = (dir: string) => ["memories.jsonl", "vectors.json", "vectors.idx.json", "gist.md"].map((name) => (existsSync(join(dir, name)) ? statSync(join(dir, name)).mtimeMs : 0)).join(":");
 
 /** Embeds the active records that have no vector yet (or all of them when the model changed). Returns how many. */
 export async function fillVectors(dir: string, embedder: Embedder): Promise<number> {

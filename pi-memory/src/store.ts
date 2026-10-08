@@ -1,5 +1,8 @@
-/** On-disk store: memories.jsonl (one record per line, no cap) + vectors.json (base64 float32 per id). */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+/**
+ * On-disk store: memories.jsonl (one record per line, no cap) + vectors.bin (contiguous float32) with vectors.idx.json
+ * (model, dimension, ids in order). The old vectors.json (base64 per id) is still read and replaced on the next save.
+ */
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseMemory } from "../../extensions/memory-core.ts";
 import { extractEntities } from "./entities.ts";
@@ -20,6 +23,17 @@ export interface MemoryRecord {
 	source?: string;
 	/** sempre = holds for any code change in the project; contesto (default) = only when relevant. */
 	scope?: MemoryScope;
+	/** One short line (<= 90 chars) shown as a cue; the full text is one `ricorda` away. */
+	gist?: string;
+	/** Ids of related memories (explains, depends on, contradicts): the memory graph. */
+	links?: string[];
+	/** Dormant: out of the cues, still found by `ricorda`; forgotten later if never used. */
+	state?: "dormant";
+	/** personale = holds in every project (lives in the global store). */
+	level?: "progetto" | "personale";
+	/** Times the model actually used it (opened with `ricorda`), and when last. */
+	uses?: number;
+	lastUsed?: string;
 }
 
 export interface Store {
@@ -28,7 +42,7 @@ export interface Store {
 	model?: string;
 }
 
-const paths = (dir: string) => ({ jsonl: join(dir, "memories.jsonl"), vectors: join(dir, "vectors.json") });
+const paths = (dir: string) => ({ jsonl: join(dir, "memories.jsonl"), vectors: join(dir, "vectors.json"), bin: join(dir, "vectors.bin"), idx: join(dir, "vectors.idx.json") });
 
 export const storeExists = (dir: string) => existsSync(paths(dir).jsonl);
 
@@ -48,7 +62,22 @@ export function loadStore(dir: string, idPrefix = ""): Store {
 	}
 	const vectors = new Map<string, Float32Array>();
 	let model: string | undefined;
-	if (existsSync(vectorsFile)) {
+	const { bin, idx } = paths(dir);
+	// A vectors.json still present was never migrated (every save removes it): it wins over the binary file.
+	if (!existsSync(vectorsFile) && existsSync(bin) && existsSync(idx)) {
+		try {
+			const index = JSON.parse(readFileSync(idx, "utf8")) as { model?: string; dim: number; ids: string[] };
+			const bytes = readFileSync(bin);
+			// One copy into an aligned buffer, then views: no per-vector allocation of the data.
+			const all = new Float32Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+			model = index.model;
+			index.ids.forEach((id, position) => {
+				if ((position + 1) * index.dim <= all.length) vectors.set(idPrefix + id, all.subarray(position * index.dim, (position + 1) * index.dim));
+			});
+		} catch {
+			// Vectors are recomputable.
+		}
+	} else if (existsSync(vectorsFile)) {
 		try {
 			const raw = JSON.parse(readFileSync(vectorsFile, "utf8")) as { model?: string; vectors: Record<string, string> };
 			model = raw.model;
@@ -70,12 +99,18 @@ const writeAtomic = (path: string, text: string) => {
 
 export function saveStore(dir: string, store: Store) {
 	mkdirSync(dir, { recursive: true });
-	const { jsonl, vectors } = paths(dir);
+	const { jsonl, vectors, bin, idx } = paths(dir);
 	writeAtomic(jsonl, store.records.map((record) => `${JSON.stringify(record)}\n`).join(""));
 	const known = new Set(store.records.map((record) => record.id));
-	const encoded: Record<string, string> = {};
-	for (const [id, vector] of store.vectors) if (known.has(id)) encoded[id] = Buffer.from(vector.buffer, vector.byteOffset, vector.byteLength).toString("base64");
-	writeAtomic(vectors, JSON.stringify({ model: store.model, vectors: encoded }));
+	const kept = [...store.vectors].filter(([id]) => known.has(id));
+	const dim = kept[0]?.[1].length ?? 0;
+	const same = kept.filter(([, vector]) => vector.length === dim);
+	const data = new Float32Array(same.length * dim);
+	same.forEach(([, vector], position) => data.set(vector, position * dim));
+	writeFileSync(`${bin}.tmp`, Buffer.from(data.buffer, data.byteOffset, data.byteLength));
+	renameSync(`${bin}.tmp`, bin);
+	writeAtomic(idx, JSON.stringify({ model: store.model, dim, ids: same.map(([id]) => id) }));
+	if (existsSync(vectors)) rmSync(vectors, { force: true });
 }
 
 /** Text that gets embedded: the memory plus its keywords (they widen the semantic net for paraphrased requests). */
