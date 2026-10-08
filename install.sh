@@ -154,6 +154,19 @@ if (!s.extensions.includes(extension)) {
 }
 JS
 ok "intent ($REPO/extensions/intent.ts)"
+# lean-tools.ts importa ./lean/*.ts e ../pi-memory: percorso reale in settings.json. Solo i pezzi a costo fisso zero
+# sono accesi (riletture, output di bash, grep raggruppato); PI_LEAN=0 lo spegne (eval/LEAN-REPORT.md).
+node - "$AGENT/settings.json" "$REPO/extensions/lean-tools.ts" <<'JS'
+const fs = require("fs");
+const [file, extension] = process.argv.slice(2);
+const s = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
+s.extensions ??= [];
+if (!s.extensions.includes(extension)) {
+  s.extensions.push(extension);
+  fs.writeFileSync(file, JSON.stringify(s, null, 2) + "\n");
+}
+JS
+ok "lean-tools ($REPO/extensions/lean-tools.ts)"
 # loop.ts importa ./intent.ts e ../pi-team: stesso motivo, percorso reale in settings.json.
 node - "$AGENT/settings.json" "$REPO/extensions/loop.ts" <<'JS'
 const fs = require("fs");

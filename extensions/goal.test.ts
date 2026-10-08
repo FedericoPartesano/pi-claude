@@ -113,3 +113,15 @@ test("runCheck reports success, failure and keeps the output tail", async () => 
 	const long = await runCheck("head -c 10000 /dev/zero | tr '\\0' x; exit 1", process.cwd());
 	assert.equal(long.output.length, 4000);
 });
+
+test("the chat shows only the goal; the working instructions go to the model hidden", async () => {
+	const { startMessages } = await import("./goal.ts");
+	const { visible, instructions } = startMessages(state({ text: "analizza i requisiti" }), { createIntentAt: "intents/2026-10-08-analizza.md" });
+	assert.equal(visible, "Goal: analizza i requisiti");
+	assert.match(instructions, /Prima di iniziare scrivi l'intent intents\/2026-10-08-analizza\.md/);
+	assert.match(instructions, /goal_done/);
+	assert.doesNotMatch(visible, /goal_done|intent/);
+	const withIntent = startMessages(state({ text: "e anche i test", intentFile: "intents/a.md" }), { intent: INTENT });
+	assert.match(withIntent.visible, /^Goal: .+\nIndicazioni aggiuntive: e anche i test$/);
+	assert.match(withIntent.instructions, /intents\/a\.md/);
+});

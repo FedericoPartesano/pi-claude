@@ -126,6 +126,7 @@ Attiva in `pi` e `pi-full`. Temi: `neon-night` (neon su nero), `lilla` (i pastel
   `s` sì · `n` no · `a` sempre per quel comando. Resta attiva anche con `PI_UI=off` (dialogo); senza interfaccia blocca.
 - **Pannello** `Alt+S` (o `/pannello`; `PI_UI_PANEL_KEY` cambia il tasto, Alt+I è di komorebi): goal/loop/team, file modificati con `+/-`, test falliti, ultima immagine, uso 5h/7g/contesto.
 - **Notifica** di Windows e campanella a fine turni lunghi (≥ 30 s; `PI_UI_NOTIFY=0`).
+- **Lean tools** (`extensions/lean-tools.ts`, sempre attivo in `pi`): output di bash lunghi compattati (test: fallimenti e riepilogo; altro: inizio e fine, il resto in un file), output di `grep`/`rg` raggruppati per file senza perdere righe, riletture di file invariati sostituite da una nota. Costo fisso zero, affidabilità invariata nelle prove (`eval/LEAN-REPORT.md`). `PI_LEAN=0` lo spegne; `PI_LEAN_SEARCH=1`/`PI_LEAN_OUTLINE=1` aggiungono i tool `search` e `outline`.
 - **Intro** col logo animato all'avvio di `pi-full` (un tasto la salta; `PI_UI_INTRO=0` la spegne).
 - Link `file:riga` → VS Code nelle risposte, solo dove il terminale mostra i link. In tmux:
   `set -as terminal-features ',*:hyperlinks'` nel `~/.tmux.conf`.

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Runs the evaluation cases on Claude Code (native) and Pi (claude-code bridge).
-// Usage: node run.mjs [--only id1,id2] [--harness claude-code|pi] [--concurrency 3] [--run name]
+// Usage: node run.mjs [--only id1,id2] [--harness claude-code|pi|pi-lean|pi-team] [--concurrency 3] [--run name]
 // Output: results/<run>.jsonl (one line per case × harness) and logs/<run>/<case>-pi.log.
 import { execSync } from "node:child_process";
 import { appendFileSync, mkdirSync, rmSync } from "node:fs";
@@ -43,6 +43,10 @@ async function runJob({ testCase, harnessName }) {
 			})
 		: harnessName === "pi"
 		? new PiHarness(directory, model, join(logDirectory, `${testCase.id}-pi.log`))
+		: harnessName === "pi-lean"
+		? new PiHarness(directory, model, join(logDirectory, `${testCase.id}-pi-lean.log`), { extraArgs: ["-e", join(evalDirectory, "../extensions/lean-tools.ts")] })
+		: harnessName === "pi-lean0"
+		? new PiHarness(directory, model, join(logDirectory, `${testCase.id}-pi-lean0.log`), { extraArgs: ["-e", join(evalDirectory, "../extensions/lean-tools.ts")], environment: { PI_LEAN_SEARCH: "0", PI_LEAN_OUTLINE: "0" } })
 		: new ClaudeCodeHarness(directory, model);
 	const started = Date.now();
 	const turns = [];
