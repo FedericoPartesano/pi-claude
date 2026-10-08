@@ -125,3 +125,32 @@ test("the chat shows only the goal; the working instructions go to the model hid
 	assert.match(withIntent.visible, /^Goal: .+\nIndicazioni aggiuntive: e anche i test$/);
 	assert.match(withIntent.instructions, /intents\/a\.md/);
 });
+
+test("goal_done closes only with every expected outcome done and proven; otherwise it says what is missing", async () => {
+	const { completionVerdict } = await import("./goal.ts");
+	const outcomes = ["codice LIBRI10 applica il 10%", "test verdi", "verifica a mano in Chrome"];
+	const ok = completionVerdict(outcomes, [
+		{ n: 1, done: true, evidence: "test cart.test.js 'LIBRI10' passa" },
+		{ n: 2, done: true, evidence: "npm test: 761 pass, 0 fail" },
+		{ n: 3, done: true, evidence: "Chrome DevTools: totale 89,91 € visto in pagina" },
+	]);
+	assert.deepEqual(ok, { ok: true });
+	const partial = completionVerdict(outcomes, [
+		{ n: 1, done: true, evidence: "test cart.test.js 'LIBRI10' passa" },
+		{ n: 2, done: true, evidence: "npm test: 761 pass, 0 fail" },
+		{ n: 3, done: false, evidence: "non fatto" },
+	]);
+	assert.equal(partial.ok, false);
+	assert.match(partial.reason ?? "", /3\. verifica a mano in Chrome/);
+	const missing = completionVerdict(outcomes, [{ n: 1, done: true, evidence: "test cart.test.js 'LIBRI10' passa" }]);
+	assert.match(missing.reason ?? "", /2\. test verdi/);
+	const unproven = completionVerdict(outcomes, outcomes.map((_, i) => ({ n: i + 1, done: true, evidence: "ok" })));
+	assert.equal(unproven.ok, false);
+	assert.match(unproven.reason ?? "", /prova/);
+});
+
+test("without an intent the goal still needs at least one proven point", async () => {
+	const { completionVerdict } = await import("./goal.ts");
+	assert.equal(completionVerdict([], []).ok, false);
+	assert.equal(completionVerdict([], [{ n: 1, done: true, evidence: "file ciao.txt scritto, cat mostra 'ciao'" }]).ok, true);
+});
