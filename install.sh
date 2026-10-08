@@ -113,6 +113,10 @@ s.defaultThinkingLevel ??= "medium";
 // pi-ui: Neon Night theme and no resource listing at startup, unless the user chose otherwise.
 s.theme ??= "neon-night";
 s.quietStartup ??= true;
+// Compact at ~60% of a 200k window instead of near the limit: every turn carries the whole conversation, so long
+// sessions answered slowly (one was at 63%). Kept if already set.
+s.compaction ??= {};
+s.compaction.reserveTokens ??= 80000;
 // Thinking folded to one line ("◇ penso ▸"): Ctrl+T opens it, the status bar shows it live.
 s.hideThinkingBlock ??= true;
 if (process.env.EXTRAS === "1") {
