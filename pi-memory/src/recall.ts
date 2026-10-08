@@ -185,6 +185,22 @@ export function renderRecall(hits: Scored[], budget = RECALL_BUDGET_CHARS, limit
 	return lines.length === 0 ? "" : [RECALL_HEADER, ...lines].join("\n");
 }
 
+const SMALL_TALK = new Set("ciao ok okay grazie si no va bene perfetto buongiorno buonasera hey ehi salve top fatto vai continua procedi prosegui avanti dai certo esatto giusto".split(" "));
+/** A short conversational reply ("procedi", "ok grazie"): it needs no memories, and recalling some made the model answer them. */
+export function isSmallTalk(prompt: string): boolean {
+	const words = normalize(prompt).split(" ").filter(Boolean);
+	return words.length === 0 || (words.length <= 3 && words.every((word) => SMALL_TALK.has(word) || word.length <= 3));
+}
+
+/**
+ * The recall message goes after the user's prompt, so it is the last thing the model reads: it ends by repeating the
+ * request (clipped), otherwise a short prompt gets lost and the model answers the memories.
+ */
+export function recallMessage(text: string, prompt: string): string {
+	const request = prompt.trim().replace(/\s+/g, " ");
+	return `${text}\nIl messaggio dell'utente a cui rispondere è: «${request.length > 400 ? `${request.slice(0, 399)}…` : request}»`;
+}
+
 const CORE_HEADER = "Regole fisse dell'utente (rispettale):";
 
 /** Pinned active memories that fit the core budget, strongest first (stable order: confirmations, then id). */
