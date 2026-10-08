@@ -23,7 +23,7 @@ test("R4 new test file with the suffix, R5 changelog line", () => {
 	assert.equal(rule("R5").check(null, { files: [] }), "na");
 });
 
-test("changes: added lines and new files, never Pi's own .pi/ folder", async () => {
+test("changes: added lines and new files, never the agents' memory files (.pi/, CLAUDE.md, AGENTS.md) or the eval marker", async () => {
 	const { execSync } = await import("node:child_process");
 	const { mkdirSync, mkdtempSync, writeFileSync } = await import("node:fs");
 	const { tmpdir } = await import("node:os");
@@ -35,8 +35,28 @@ test("changes: added lines and new files, never Pi's own .pi/ folder", async () 
 	writeFileSync(join(dir, "CHANGES-local.md"), "- [2026-10-08] b\n");
 	mkdirSync(join(dir, ".pi"));
 	writeFileSync(join(dir, ".pi/memory.md"), "regole\n");
+	writeFileSync(join(dir, "CLAUDE.md"), "regole\n");
+	writeFileSync(join(dir, ".pi-eval-taught"), "1\n");
 	const result = changes(dir);
 	assert.deepEqual(result.files.map((file) => file.path).sort(), ["CHANGES-local.md", "src/a.ts"]);
 	assert.deepEqual(result.files.find((file) => file.path === "src/a.ts").added, ["export function b() {}"]);
 	assert.deepEqual(result.newFiles, ["CHANGES-local.md"]);
+});
+
+test("changes are measured against the pinned base, so an agent's commit does not hide them", async () => {
+	const { execSync } = await import("node:child_process");
+	const { mkdtempSync, writeFileSync } = await import("node:fs");
+	const { tmpdir } = await import("node:os");
+	const { join } = await import("node:path");
+	const { changes } = await import("../memory-rules.mjs");
+	const dir = mkdtempSync(join(tmpdir(), "committed-"));
+	const sh = (command) => execSync(command, { cwd: dir, encoding: "utf8" }).trim();
+	sh("git init -q && git config user.email t@t && git config user.name t && mkdir src && echo '{}' > package.json && echo a > src/a.ts && git add . && git commit -qm base");
+	const base = sh("git rev-parse HEAD");
+	writeFileSync(join(dir, "src/a.ts"), "a\nconsole.log(1)\n");
+	writeFileSync(join(dir, "package.json"), '{"dependencies":{"lodash":"1"}}');
+	sh("git commit -qam 'agent commit'");
+	const changed = changes(dir, base);
+	assert.deepEqual(changed.files.find((file) => file.path === "src/a.ts")?.added, ["console.log(1)"]);
+	assert.equal(RULES.find((rule) => rule.id === "R3").check(dir, changed), "violated");
 });

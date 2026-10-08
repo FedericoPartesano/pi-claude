@@ -26,3 +26,10 @@ test("an issue that already contains the fix is rejected", () => {
 	assert.equal(leaksFix("Fix: `if (token.type === 'anchor') return resolveAnchor(token, context);` and `const offset = start + token.source.length;`", diff), true);
 	assert.equal(leaksFix("Patch:\n```diff\n@@ -1 +1 @@\n-a\n+b\n```", diff), true);
 });
+
+test("expected = tests passing in both runs after the fix; targets = expected minus what passed before", async () => {
+	const { targetsFrom } = await import("../mine.mjs");
+	const result = targetsFrom({ passed: ["a", "b"] }, { passed: ["a", "b", "new1", "flaky", "new2"] }, { passed: ["a", "b", "new1", "new2"] });
+	assert.deepEqual(result.expected, ["a", "b", "new1", "new2"]);
+	assert.deepEqual(result.targetTests, ["new1", "new2"]);
+});

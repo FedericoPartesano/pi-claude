@@ -29,6 +29,12 @@ export function leaksFix(issueText, fixDiff) {
 	return added.filter((line) => issueText.includes(line)).length >= 2;
 }
 
+/** Tests passing steadily with the fix (two runs), and among them the ones that did not pass before it. */
+export function targetsFrom(before, after1, after2) {
+	const expected = stablePassing(after1.passed, after2.passed);
+	return { expected, targetTests: expected.filter((id) => !before.passed.includes(id)) };
+}
+
 const isMain = process.argv[1] && new URL(import.meta.url).pathname === process.argv[1];
 if (isMain) {
 	const argument = (name, fallback) => (process.argv.includes(`--${name}`) ? process.argv[process.argv.indexOf(`--${name}`) + 1] : fallback);
@@ -73,6 +79,28 @@ if (isMain) {
 		}
 		return undefined;
 	};
+	const prepare = (base) => {
+		rmSync(work, { recursive: true, force: true });
+		execSync(`git clone --quiet --shared ${JSON.stringify(clone)} ${JSON.stringify(work)}`);
+		git(`checkout --quiet ${base}`, work);
+		execSync(repo.install, { cwd: work, stdio: "ignore", timeout: 600_000 });
+	};
+	if (process.argv.includes("--revalidate")) {
+		// Recompute target and expected tests of the existing tasks with two runs after the fix (flaky tests out).
+		for (const task of tasks.filter((entry) => entry.repo === repoName && !entry.dropped)) {
+			prepare(task.base);
+			const source = splitFiles(git(`diff --name-only ${task.base} ${task.fix}`).trim().split("\n").filter(Boolean)).source.filter((file) => git(`ls-tree --name-only ${task.fix} -- ${JSON.stringify(file)}`).trim());
+			git(`checkout --quiet ${task.fix} -- ${quote(task.hiddenTests)}`, work);
+			const before = runSuite();
+			git(`checkout --quiet ${task.fix} -- ${quote(source)}`, work);
+			const { expected, targetTests } = targetsFrom(before, runSuite(), runSuite());
+			Object.assign(task, { expected, targetTests });
+			if (!targetTests.length) task.dropped = "test bersaglio instabili";
+			writeFileSync(tasksFile, `${JSON.stringify(tasks, null, "\t")}\n`);
+			console.log(`${task.id}: ${targetTests.length} bersaglio, ${expected.length} attesi${task.dropped ? ` — scartato: ${task.dropped}` : ""}`);
+		}
+		process.exit(0);
+	}
 	const found = tasks.filter((task) => task.repo === repoName && !task.dropped).length;
 	let added = 0;
 	for (const fix of git(`log --format=%H --no-merges -n ${maxCommits}`).trim().split("\n")) {
@@ -91,11 +119,8 @@ if (isMain) {
 		if (issue && tasks.some((task) => task.repo === repoName && task.issue.number === issue.number)) continue;
 		if (!issue || leaksFix(`${issue.title}\n${issue.body}`, git(`diff ${fix}^ ${fix} -- ${quote(source)}`))) continue;
 		// Validate on a clean checkout of the parent commit.
-		rmSync(work, { recursive: true, force: true });
-		execSync(`git clone --quiet --shared ${JSON.stringify(clone)} ${JSON.stringify(work)}`);
-		git(`checkout --quiet ${fix}^`, work);
 		try {
-			execSync(repo.install, { cwd: work, stdio: "ignore", timeout: 600_000 });
+			prepare(`${fix}^`);
 		} catch {
 			continue;
 		}
@@ -105,16 +130,15 @@ if (isMain) {
 		git(`checkout --quiet ${fix} -- ${quote(hiddenTests)}`, work);
 		const before = runSuite();
 		git(`checkout --quiet ${fix} -- ${quote(source.filter((file) => git(`ls-tree --name-only ${fix} -- ${JSON.stringify(file)}`).trim()))}`, work);
-		const after = runSuite();
-		const targetTests = after.passed.filter((id) => !before.passed.includes(id));
-		const broken = baseline.filter((id) => !after.passed.includes(id));
+		const { expected, targetTests } = targetsFrom(before, runSuite(), runSuite());
+		const broken = baseline.filter((id) => !expected.includes(id));
 		if (!targetTests.length || broken.length || baseline.length < 20) {
 			console.log(`- ${fix.slice(0, 7)} scartato: target ${targetTests.length}, rotti dalla correzione ${broken.length}, baseline ${baseline.length}`);
 			continue;
 		}
-		tasks.push({ id: `${repoName}-${fix.slice(0, 7)}`, repo: repoName, base: git(`rev-parse ${fix}^`).trim(), fix, date: git(`log -1 --format=%cs ${fix}`).trim(), issue, hiddenTests, targetTests, baseline, sourceFiles: source.length, sourceLines });
+		tasks.push({ id: `${repoName}-${fix.slice(0, 7)}`, repo: repoName, base: git(`rev-parse ${fix}^`).trim(), fix, date: git(`log -1 --format=%cs ${fix}`).trim(), issue, hiddenTests, targetTests, expected, baseline, sourceFiles: source.length, sourceLines });
 		added++;
-		writeFileSync(tasksFile, `${JSON.stringify(tasks, null, "\t")}\n`);
+		writeFileSync(tasksFile, `${JSON.stringify(dropSharedIssues(tasks), null, "\t")}\n`);
 		console.log(`+ ${repoName}-${fix.slice(0, 7)} #${issue.number} ${source.length} file, ${sourceLines} righe, ${targetTests.length} test bersaglio — ${issue.title}`);
 	}
 	console.log(`${repoName}: ${found + added}/${want} compiti`);

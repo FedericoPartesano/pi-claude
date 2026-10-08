@@ -6,5 +6,5 @@ import { mkdirSync, rmSync } from "node:fs";
 export function checkoutAt(clone, base, dir) {
 	rmSync(dir, { recursive: true, force: true });
 	mkdirSync(dir, { recursive: true });
-	execSync(`git init -q && git fetch -q --no-tags ${JSON.stringify(clone)} ${base}:refs/heads/main && git checkout -q main`, { cwd: dir, stdio: ["ignore", "ignore", "pipe"] });
+	execSync(`git init -q && git fetch -q --no-tags ${JSON.stringify(clone)} ${base}:refs/heads/main && git checkout -q main && rm -f .git/FETCH_HEAD`, { cwd: dir, stdio: ["ignore", "ignore", "pipe"] });
 }

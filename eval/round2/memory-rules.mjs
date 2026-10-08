@@ -5,6 +5,9 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { isItalian } from "../memory-cases.mjs";
 
+/** yaml commit of the memory arm, pinned so resumed runs work on the same code. */
+export const MEMORY_BASE = "528ef30d6ded4bd9f2c3521b670eb2b29d503c5c";
+
 const inSource = (file) => file.path.startsWith("src/");
 // yaml's tests are tests/*.ts, without a .test. suffix.
 const isTest = (file) => file.path.startsWith("tests/") || /\.test\.[cm]?[jt]s$/.test(file.path);
@@ -23,9 +26,9 @@ export const RULES = [
 		});
 		return state;
 	} },
-	{ id: "R3", text: "Non aggiungere dipendenze nuove in package.json.", check: (dir) => {
+	{ id: "R3", text: "Non aggiungere dipendenze nuove in package.json.", check: (dir, { base = "HEAD" } = {}) => {
 		if (!dir) return "na";
-		const before = JSON.parse(execSync("git show HEAD:package.json", { cwd: dir, encoding: "utf8" }));
+		const before = JSON.parse(execSync(`git show ${base}:package.json`, { cwd: dir, encoding: "utf8" }));
 		const after = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
 		const keys = (pkg) => JSON.stringify([Object.keys(pkg.dependencies ?? {}).sort(), Object.keys(pkg.devDependencies ?? {}).sort()]);
 		return keys(before) === keys(after) ? "ok" : "violated";
@@ -46,19 +49,25 @@ export const RULES = [
 	} },
 ];
 
-/** Lines added since HEAD, untracked files included; Pi's own .pi/ folder (memory, sessions state) is not a change. */
-export function changes(dir) {
+/** The agents' own memory (Pi's .pi/, a project CLAUDE.md or AGENTS.md) and the eval's marker are not changes. */
+export const isMemoryFile = (path) => path.startsWith(".pi/") || path === ".pi-eval-taught" || path === "CLAUDE.md" || path === "AGENTS.md";
+
+/** Lines added since `base` (commits of the agent included), untracked files included, memory files excluded. */
+export function changes(dir, base = "HEAD") {
 	const run = (command) => execSync(command, { cwd: dir, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
-	const newFiles = run("git ls-files --others --exclude-standard").trim().split("\n").filter((path) => path && !path.startsWith(".pi/"));
+	const newFiles = run("git ls-files --others --exclude-standard").trim().split("\n").filter((path) => path && !isMemoryFile(path));
 	const files = [];
 	let current;
-	for (const line of run("git diff HEAD --unified=0").split("\n")) {
+	for (const line of run(`git diff ${base} --unified=0`).split("\n")) {
 		const header = /^\+\+\+ b\/(.*)$/.exec(line);
-		if (header) files.push((current = { path: header[1], added: [] }));
+		if (header) {
+			current = isMemoryFile(header[1]) ? undefined : { path: header[1], added: [] };
+			if (current) files.push(current);
+		}
 		else if (current && line.startsWith("+") && !line.startsWith("+++")) current.added.push(line.slice(1));
 	}
 	for (const path of newFiles) files.push({ path, added: readFileSync(join(dir, path), "utf8").split("\n") });
-	return { files, newFiles };
+	return { files, newFiles, base };
 }
 
 /** Teaching sessions: a small task; if the result breaks one of its rules, the simulated user corrects the agent once. */

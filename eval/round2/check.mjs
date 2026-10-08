@@ -1,5 +1,6 @@
 // Verdict of a round-2 task: with the fix's test files restored over whatever the agent wrote, every target test (one
-// that passes only with the real fix) must pass, and no test of the stable baseline may stop passing.
+// that passes only with the real fix) must pass, and every other test passing steadily with the fix (expected; the
+// baseline for older tasks) must still pass.
 import { execSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -23,7 +24,9 @@ export function checkTask(dir, task, repo, fixFiles) {
 		return { pass: false, reason: "suite in errore o timeout", hiddenFailed: [], regressions: [] };
 	}
 	const hiddenFailed = task.targetTests.filter((id) => !results.passed.includes(id));
-	const regressions = task.baseline.filter((id) => !results.passed.includes(id));
+	// expected (stable over two runs after the fix) also covers new hidden tests that already passed before it.
+	const required = task.expected ?? task.baseline;
+	const regressions = required.filter((id) => !task.targetTests.includes(id) && !results.passed.includes(id));
 	const reason = hiddenFailed.length ? `test nascosti falliti: ${hiddenFailed.length}` : regressions.length ? `regressioni: ${regressions.length}` : "ok";
 	return { pass: reason === "ok", reason, hiddenFailed, regressions };
 }

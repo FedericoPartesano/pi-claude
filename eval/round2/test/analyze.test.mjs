@@ -19,3 +19,21 @@ test("a difference of 2 tasks or less is a tie", () => {
 	assert.equal(verdict(14, 10, 20), "più bravo");
 	assert.equal(verdict(9, 13, 20), "meno bravo");
 });
+
+test("only task × attempt keys both harnesses completed are compared; contaminated runs are left out and counted", async () => {
+	const { comparable } = await import("../analyze.mjs");
+	const records = [
+		run("a", "pi-full", 1, true), run("a", "claude-code", 1, true),
+		run("b", "pi-full", 1, true),
+		{ ...run("c", "pi-full", 1, true), contaminated: ["gh"] }, run("c", "claude-code", 1, false),
+	];
+	const { kept, contaminated, unmatched } = comparable(records);
+	assert.deepEqual(kept.map((r) => `${r.task}|${r.harness}`), ["a|pi-full", "a|claude-code"]);
+	assert.equal(contaminated, 1);
+	assert.equal(unmatched, 2, "b has no Claude Code run; c lost its pair");
+});
+
+test("memory setup records are not task records", () => {
+	const summary = summarizeMemory([{ type: "setup", arm: "memory", harness: "pi-full", corrected: ["R1"] }, { arm: "memory", harness: "pi-full", rules: { R1: "ok" } }]);
+	assert.deepEqual(summary["memory|pi-full"], { ok: 1, violated: 0, compliance: 1 });
+});

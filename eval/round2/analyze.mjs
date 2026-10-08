@@ -25,10 +25,24 @@ export function summarizeTasks(records) {
 	return out;
 }
 
+/**
+ * The records the comparison may use: contaminated runs (a way to the fix in the transcript) out, then only the
+ * task × attempt keys that every harness completed, so a run stopped midway does not compare unequal sets.
+ */
+export function comparable(records) {
+	const clean = records.filter((record) => !record.contaminated);
+	const harnesses = [...new Set(records.map((record) => record.harness))];
+	const slot = (record) => `${record.task}|${record.attempt}`;
+	const complete = new Set([...new Set(clean.map(slot))].filter((key) => harnesses.every((harness) => clean.some((record) => slot(record) === key && record.harness === harness))));
+	const kept = clean.filter((record) => complete.has(slot(record)));
+	return { kept, contaminated: records.length - clean.length, unmatched: clean.length - kept.length };
+}
+
 /** Compliance = ok / (ok + violated): rules that do not apply to a change do not count. */
 export function summarizeMemory(records) {
 	const out = {};
 	for (const record of records) {
+		if (record.type === "setup" || !record.rules) continue;
 		const entry = (out[`${record.arm}|${record.harness}`] ??= { ok: 0, violated: 0, compliance: 0 });
 		for (const state of Object.values(record.rules)) {
 			if (state === "ok") entry.ok++;
@@ -47,7 +61,8 @@ if (isMain) {
 	const [tasksRun, memoryRun] = process.argv.slice(2);
 	const evalDir = new URL(".", import.meta.url).pathname;
 	const read = (name) => (name ? readFileSync(join(evalDir, "../results", `${name}.jsonl`), "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line)) : []);
-	const taskRecords = read(tasksRun);
+	const allTaskRecords = read(tasksRun);
+	const { kept: taskRecords, contaminated, unmatched } = comparable(allTaskRecords);
 	const memoryRecords = read(memoryRun);
 	const tasks = summarizeTasks(taskRecords);
 	const memory = summarizeMemory(memoryRecords);
@@ -58,6 +73,8 @@ if (isMain) {
 		`Run compiti: \`${tasksRun}\` · run memoria: \`${memoryRun ?? "—"}\` · spec: \`docs/specs/2026-10-08-eval-round2-design.md\``,
 		"",
 		"## Compiti difficili",
+		"",
+		`Confrontate solo le coppie compito × tentativo completate da entrambi. Esclusi: ${contaminated} esecuzioni contaminate (accesso alla correzione nella trascrizione), ${unmatched} senza la controparte.`,
 		"",
 		"| Harness | Esecuzioni passate | Compiti risolti (≥1 su 2) | Token in | Token out | Tempo | Richieste |",
 		"|---|---|---|---|---|---|---|",
@@ -80,6 +97,8 @@ if (isMain) {
 		"## Analisi",
 		"",
 		"(Da scrivere a mano dopo aver letto i log: perché ognuno ha fallito dove ha fallito, e la risposta \"Pi è più intelligente sì/no/dove\".)",
+		"",
+		"Note di metodo da riportare: il conteggio dei token in uscita di Claude Code nel giro 1 era sottostimato (usava i parziali dello streaming); durante la costruzione di questo giro è stato corretto un bug di /dream di Pi (tipi di memoria sinonimi), senza un intervento equivalente su Claude Code; 12 compiti yaml e 8 marked (marked non ne dava di più validi).",
 		"",
 	];
 	writeFileSync(join(evalDir, "../REPORT-2.md"), lines.join("\n"));

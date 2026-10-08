@@ -43,3 +43,11 @@ test("a broken suite is a failure with a reason, not a crash", () => {
 	const broken = { testCommand: () => "exit 3", parse: () => { throw new Error("no report"); } };
 	assert.deepEqual(checkTask(setup({}), task, broken, fixFiles), { pass: false, reason: "suite in errore o timeout", hiddenFailed: [], regressions: [] });
 });
+
+test("with an 'expected' set (stable after the fix), every expected test must pass: target tests and the rest", () => {
+	const withExpected = { ...task, expected: ["a", "b", "hidden › anchors", "hidden › other new test"] };
+	const missingNew = checkTask(setup({ passed: ["a", "b"], failed: [], fixed: true }), withExpected, fakeRepo, fixFiles);
+	assert.deepEqual([missingNew.pass, missingNew.reason, missingNew.regressions], [false, "regressioni: 1", ["hidden › other new test"]]);
+	const ok = checkTask(setup({ passed: ["a", "b", "hidden › other new test"], failed: [], fixed: true }), withExpected, fakeRepo, fixFiles);
+	assert.equal(ok.pass, true);
+});

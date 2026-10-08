@@ -17,7 +17,8 @@ export const REPOS = {
 		install: "npm ci --ignore-scripts --no-audit --no-fund",
 		runner: "tap",
 		// Its tests import the bundle in lib/: build it first.
-		testCommand: () => "npm run build:esbuild >/dev/null 2>&1; node --test --test-reporter=tap test/run-spec-tests.js test/unit/*.test.js",
+		// A failed build must not leave the tests on an older bundle: no bundle, no report, "suite in errore".
+		testCommand: () => "rm -rf lib && npm run build:esbuild >/dev/null 2>&1 || exit 1; node --test --test-reporter=tap test/run-spec-tests.js test/unit/*.test.js",
 		parse: (output) => parseTap(output),
 	},
 	zod: {
