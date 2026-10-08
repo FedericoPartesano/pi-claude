@@ -70,3 +70,11 @@ test("while a thumbnail is being prepared: an animated loading line, at the exac
 	assert.notEqual(a[0], b[0], "it moves");
 	assert.equal(visibleWidth(renderImageLoading("x".repeat(200), 40, 1)[0]), 40);
 });
+
+test("compact (fullscreen behind ConPTY, no inline images): one line, no pixelated thumbnail, /img opens it", () => {
+	const lines = renderImageEntry("out/vendite.png", thumb, 120, { compact: true });
+	assert.equal(lines.length, 1);
+	assert.doesNotMatch(lines[0], /▀/);
+	assert.match(strip(lines[0]), /out\/vendite.png · 1280×640 · PNG · 84 KB · \/img apri a piena qualità/);
+	assert.equal(visibleWidth(lines[0]), 120);
+});

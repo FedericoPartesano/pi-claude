@@ -9,10 +9,12 @@ export const thumbnailColumns = (width: number) => (width >= 70 ? Math.min(64, w
 // Real images are cached per file and width: rebuilding them each frame would resend the picture to the terminal.
 const realImages = new Map<string, Image>();
 
-export function renderImageEntry(ref: string, thumbnail: Thumbnail | undefined, width: number, options: { sidebarOpen?: boolean } = {}): string[] {
+export function renderImageEntry(ref: string, thumbnail: Thumbnail | undefined, width: number, options: { sidebarOpen?: boolean; compact?: boolean } = {}): string[] {
 	const head = (right: string, color: string) => fit(`  ${fg(C.cyan, "◆")} ${bold(fg(C.cyan, "Img"))}   ${fg(C.text, ref)}`, `${fg(color, right)} `, width);
 	if (!thumbnail) return [head("…", C.cyan)];
 	if ("error" in thumbnail) return [head(thumbnail.error, C.warn)];
+	// No inline images here (fullscreen behind ConPTY): one line instead of a pixelated thumbnail.
+	if (options.compact) return [pad(truncateToWidth(`  ${fg(C.cyan, "◆")} ${fg(C.cyan, underline(ref))} ${fg(C.dim, `· ${thumbnail.info} · `)}${fg(C.mag, "/img")} ${fg(C.dim, "apri a piena qualità")}`, width), width)];
 	// Terminals with an image protocol (WezTerm, kitty, Ghostty, iTerm2): the picture itself, at full resolution.
 	if (getCapabilities().images && thumbnail.png) {
 		const caption = pad(truncateToWidth(`  ${fg(C.cyan, "◆")} ${fg(C.cyan, underline(ref))} ${fg(C.dim, `· ${thumbnail.info} · /img apri`)}`, width), width);
