@@ -3,6 +3,7 @@ import { strength } from "./strength.ts";
 import type { MemoryRecord } from "./store.ts";
 import { extractEntities } from "./entities.ts";
 import { classifyRequest } from "./request.ts";
+import { buildGraph, type MemoryGraph } from "./graph.ts";
 
 /** ~300 tokens (about 3.6 chars per token) at most. */
 export const RECALL_BUDGET_CHARS = 1080;
@@ -40,9 +41,13 @@ export class RecallIndex {
 	private average = 1;
 	private entityStems: Set<string>[][];
 	private entityIndex = new Map<string, number[]>();
+	readonly graph: MemoryGraph;
+	readonly positions: Map<string, number>;
 
 	constructor(records: MemoryRecord[]) {
 		this.records = records;
+		this.graph = buildGraph(records);
+		this.positions = new Map(records.map((record, position) => [record.id, position]));
 		records.forEach((record, position) => {
 			const terms = stems(record.text);
 			this.lengths.push(terms.length);
@@ -130,6 +135,7 @@ export function recall(index: RecallIndex, query: string, options: RecallOptions
 	const bm = index.bm25(query);
 	const ent = index.entityMatches(query);
 	const direct = new Map<number, number>();
+	const eligible = (record: MemoryRecord) => ((record.status === "active" && record.state !== "dormant") || options.includeSuperseded) && !options.exclude?.has(record.id);
 	const candidates = new Set<number>([...bm.keys(), ...ent.keys()]);
 	if (withVectors) index.records.forEach((record, position) => {
 		const vector = options.vectors!.get(record.id);
@@ -137,7 +143,7 @@ export function recall(index: RecallIndex, query: string, options: RecallOptions
 	});
 	for (const position of candidates) {
 		const record = index.records[position];
-		if ((record.status !== "active" && !options.includeSuperseded) || options.exclude?.has(record.id)) continue;
+		if (!eligible(record)) continue;
 		let sem = 0;
 		const vector = withVectors ? options.vectors!.get(record.id) : undefined;
 		if (vector && vector.length === options.queryVector!.length) sem = Math.max(0, Math.min(1, (dot(options.queryVector!, vector) - floor) / span));
@@ -154,9 +160,25 @@ export function recall(index: RecallIndex, query: string, options: RecallOptions
 	const seedPositions = new Set(seeds.map((seed) => seed.position));
 	const final = ranked.map((item) => {
 		const shares = !seedPositions.has(item.position) && index.records[item.position].entities.some((entity) => seedEntities.has(entity));
-		return { position: item.position, direct: item.score, score: item.score + (shares ? 0.1 * factor(index.records[item.position]) : 0) };
+		return { position: item.position, direct: item.score, linked: false, score: item.score + (shares ? 0.1 * factor(index.records[item.position]) : 0) };
 	});
-	const passing = final.filter((item) => item.score >= threshold && item.direct >= threshold * 0.5).sort((a, b) => b.score - a.score);
+	// Explicit links (the why behind a decision, what it depends on) come along with a strong hit even without words in
+	// common with the request: they get most of the seed's score.
+	const byPosition = new Map(final.map((item) => [item.position, item]));
+	for (const seed of seeds) {
+		for (const id of index.graph.links(index.records[seed.position].id)) {
+			const position = index.positions.get(id);
+			if (position === undefined || seedPositions.has(position) || !eligible(index.records[position])) continue;
+			const score = 0.75 * seed.score * factor(index.records[position]);
+			const current = byPosition.get(position);
+			if (current && current.score >= score) continue;
+			const item = { position, direct: current?.direct ?? 0, linked: true, score };
+			byPosition.set(position, item);
+			if (current) final[final.indexOf(current)] = item;
+			else final.push(item);
+		}
+	}
+	const passing = final.filter((item) => item.score >= threshold && (item.linked || item.direct >= threshold * 0.5)).sort((a, b) => b.score - a.score);
 	// Relative cut: weak companions of a strong hit are noise (and tokens).
 	const hits = passing
 		.filter((item) => item.score >= passing[0].score * RELATIVE_CUT)
