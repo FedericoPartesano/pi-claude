@@ -5,7 +5,8 @@
  */
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { diffCounts, parsePatch, renderDiff } from "./diff.ts";
-import { C, bg, bold, fg, fit, pad } from "./palette.ts";
+import { toolIcon, verbFor } from "./icons.ts";
+import { C, bg, bold, fg, fit, hud, pad } from "./palette.ts";
 import { phrase } from "./phrases.ts";
 import { SPINNER } from "./status-bar.ts";
 import { checkOutcome, failingTests } from "./test-output.ts";
@@ -51,7 +52,7 @@ export function completeStep(step: Step, result: { output: string; isError: bool
 	return { ...step, done: true, error: outcome.failed, summary, output, details: result.details, pass: "pass" in outcome ? outcome.pass : undefined };
 }
 
-export function stepRow(step: Step, width: number, frame: number, running: boolean, now = Date.now()): string {
+export function stepRow(step: Step, width: number, frame: number, running: boolean, now = Date.now(), index?: number): string {
 	const { text, arg } = phrase(step.tool, step.args);
 	const icon = step.done ? (step.error ? fg(C.err, "✗") : fg(C.ok, "✓")) : running ? fg(C.cyan, SPINNER[frame % SPINNER.length]) : fg(C.faint, "○");
 	const name = step.done ? fg(step.error ? C.err : C.text, text) : running ? bold(fg(C.cyan, text)) : fg(C.dim, text);
@@ -64,9 +65,15 @@ export function stepRow(step: Step, width: number, frame: number, running: boole
 			: "";
 	const nameWidth = Math.min(30, Math.max(18, Math.floor(width * 0.28)));
 	const narrow = width < 60;
-	const tool = width >= 100 ? fg(C.faint, pad(step.tool.slice(0, 7), 8)) : "";
-	const argWidth = Math.max(0, width - 4 - nameWidth - visibleWidth(tool) - visibleWidth(right) - 2);
-	const left = `  ${icon} ${narrow ? name : pad(truncateToWidth(name, nameWidth - 1), nameWidth)}${narrow ? "" : `${tool}${fg(C.text, truncateToWidth(arg, argWidth))}`}`;
+	// HUD: the step number in front and a short verb (SCAN, PATCH, EXEC…) as the tool column.
+	const number = hud && index !== undefined && !narrow ? fg(C.faint, `⟦${String(index + 1).padStart(2, "0")}⟧ `) : "";
+	const glyph = toolIcon(step.tool);
+	const toolMark = glyph ? `${fg(running ? C.cyan : step.error ? C.err : C.dim, glyph)} ` : "";
+	const verbColor = step.error ? C.err : step.tool === "edit" || step.tool === "write" ? C.mag : C.cyan;
+	const tool = hud && width >= 70 ? bold(fg(verbColor, pad(verbFor(step.tool), 6))) : width >= 100 ? fg(C.faint, pad(step.tool.slice(0, 7), 8)) : "";
+	const head = `  ${number}${icon} ${toolMark}`;
+	const argWidth = Math.max(0, width - visibleWidth(head) - nameWidth - visibleWidth(tool) - visibleWidth(right) - 2);
+	const left = `${head}${narrow ? name : pad(truncateToWidth(name, nameWidth - 1), nameWidth)}${narrow ? "" : `${tool}${fg(C.text, truncateToWidth(arg, argWidth))}`}`;
 	const row = fit(left, right ? `${right} ` : "", width);
 	return running ? bg(C.panel, row) : row;
 }
@@ -106,5 +113,5 @@ export function renderTurn(turn: Step[], width: number, options: { expanded: boo
 		const parts = [`${turn.length} passi completati`, `${files} file`, ...(tests !== undefined ? [fg(C.ok, `${tests} test ok`)] : [])];
 		return [fit(`  ${fg(C.ok, "✓")} ${fg(C.text, parts.join(fg(C.faint, " · ")))}`, `${fg(C.faint, "▸ ctrl+o")} ${fg(C.dim, "dettagli")} `, width)];
 	}
-	return turn.flatMap((step) => [stepRow(step, width, options.frame, !step.done && !options.finished, options.now), ...stepDetails(step, width, options.expanded)]);
+	return turn.flatMap((step, index) => [stepRow(step, width, options.frame, !step.done && !options.finished, options.now, index), ...stepDetails(step, width, options.expanded)]);
 }

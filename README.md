@@ -111,7 +111,7 @@ Variabili: `PI_DREAM_SESSIONS_DIR`, `PI_DREAM_AUTO_APPROVE=1`, `PI_DREAM_MODEL` 
 
 ## Chat Neon Night (`pi-ui`)
 
-Attiva in `pi` e `pi-full`. Temi: `neon-night` (cyberpunk, sfondo nero) e `lilla` (i pastelli di WezTerm); si cambiano da `/settings` → Theme. `install.sh` imposta `neon-night` solo se non hai già scelto un tema.
+Attiva in `pi` e `pi-full`. Temi: `neon-night` (neon su nero), `lilla` (i pastelli di WezTerm) e `night-city` (cyberpunk: giallo acido, ciano e rosso, con stile HUD: etichette a blocco, angoli tagliati, sezioni numerate, verbi `SCAN`/`PATCH`/`EXEC`); si cambiano da `/settings` → Theme. Icone Nerd Font su WezTerm (le include già), Unicode semplice altrove; `PI_UI_ICONS=nerd|plain` le forza. `install.sh` imposta `neon-night` solo se non hai già scelto un tema.
 
 - **Barra di stato** sopra il prompt: `PRONTO`, `AL LAVORO` (cosa sta facendo, passo, secondi), `TOCCA A TE`,
   `FERMO` (interrotto o errore del modello), `FATTO` (tempo, token, ⚠ se l'ultimo controllo è fallito).

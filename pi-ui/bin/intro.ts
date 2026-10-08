@@ -16,6 +16,7 @@ function palette(): [string, string] {
 	try {
 		const settings = JSON.parse(readFileSync(join(process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi/agent"), "settings.json"), "utf8"));
 		if (String(settings.theme ?? "").includes("lilla")) return ["#AE95C7", "#95C7AE"];
+		if (settings.theme === "night-city") return ["#FCEE0A", "#00F0FF"];
 	} catch {
 		// No settings yet: Neon Night.
 	}
