@@ -33,7 +33,7 @@ const logDir = join(evalDir, "../logs", runName);
 mkdirSync(logDir, { recursive: true });
 mkdirSync(join(evalDir, "../results"), { recursive: true });
 
-const tasks = JSON.parse(readFileSync(join(evalDir, "tasks.json"), "utf8")).filter((task) => !only.length || only.includes(task.id));
+const tasks = JSON.parse(readFileSync(join(evalDir, "tasks.json"), "utf8")).filter((task) => !task.dropped && (!only.length || only.includes(task.id)));
 const done = new Set(existsSync(resultsFile) ? readFileSync(resultsFile, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line).key) : []);
 const queue = jobsFor(tasks, harnesses, repeat, done);
 const clones = join(homedir(), ".cache/pi-eval/repos");

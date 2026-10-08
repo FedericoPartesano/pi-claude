@@ -6,6 +6,7 @@ import { execSync } from "node:child_process";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { dropSharedIssues } from "./jobs.mjs";
 import { REPOS } from "./repos.mjs";
 import { stablePassing } from "./runners.mjs";
 
@@ -72,7 +73,7 @@ if (isMain) {
 		}
 		return undefined;
 	};
-	const found = tasks.filter((task) => task.repo === repoName).length;
+	const found = tasks.filter((task) => task.repo === repoName && !task.dropped).length;
 	let added = 0;
 	for (const fix of git(`log --format=%H --no-merges -n ${maxCommits}`).trim().split("\n")) {
 		if (found + added >= want) break;
@@ -86,6 +87,8 @@ if (isMain) {
 		const sourceLines = git(`diff --numstat ${fix}^ ${fix} -- ${quote(source)}`).trim().split("\n").reduce((sum, line) => sum + (Number(line.split("\t")[0]) || 0) + (Number(line.split("\t")[1]) || 0), 0);
 		if (!isHard({ sourceFiles: source.length, sourceLines })) continue;
 		const issue = findIssue(numbers);
+		// An issue already used (or dropped): its other fixes would share the prompt.
+		if (issue && tasks.some((task) => task.repo === repoName && task.issue.number === issue.number)) continue;
 		if (!issue || leaksFix(`${issue.title}\n${issue.body}`, git(`diff ${fix}^ ${fix} -- ${quote(source)}`))) continue;
 		// Validate on a clean checkout of the parent commit.
 		rmSync(work, { recursive: true, force: true });

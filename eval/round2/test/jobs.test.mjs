@@ -20,3 +20,16 @@ test("the prompt carries the issue and the same instructions for everyone", () =
 	assert.match(prompt, /They break\./);
 	assert.match(prompt, /Correggilo\. Puoi lanciare i test del progetto\. Non serve fare commit\./);
 });
+
+test("tasks sharing an issue are dropped: one prompt, several different fixes", async () => {
+	const { dropSharedIssues } = await import("../jobs.mjs");
+	const tasks = [
+		{ id: "a", repo: "marked", issue: { number: 1 } },
+		{ id: "b", repo: "marked", issue: { number: 1 } },
+		{ id: "c", repo: "marked", issue: { number: 2 } },
+		{ id: "d", repo: "yaml", issue: { number: 1 } },
+	];
+	const result = dropSharedIssues(tasks);
+	assert.deepEqual(result.filter((task) => task.dropped).map((task) => task.id), ["a", "b"]);
+	assert.deepEqual(result.filter((task) => !task.dropped).map((task) => task.id), ["c", "d"]);
+});
