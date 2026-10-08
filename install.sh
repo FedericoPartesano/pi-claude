@@ -100,6 +100,20 @@ if [ "$EXTRAS" = 1 ]; then
   done
 fi
 
+step "Scorciatoie ($AGENT/keybindings.json)"
+# Images: on WSL and Windows Pi pastes them with Alt+V only (Ctrl+V is the terminal's text paste there). Ctrl+V too:
+# where the terminal passes it (WezTerm) Pi pastes files, images or text; where it takes it (Windows Terminal) nothing
+# changes. A value the user already set is kept.
+node - "$AGENT/keybindings.json" <<'JS'
+const fs = require("fs");
+const file = process.argv[2];
+const k = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
+if (k["app.clipboard.pasteImage"] === undefined) {
+  k["app.clipboard.pasteImage"] = ["alt+v", "ctrl+v"];
+  fs.writeFileSync(file, JSON.stringify(k, null, 2) + "\n");
+}
+JS
+
 step "Impostazioni ($AGENT/settings.json)"
 # Default claude-code/sonnet solo se l'utente non ha già scelto altro; i pacchetti extra si caricano solo in pi-full.
 EXTRAS="$EXTRAS" node - "$AGENT/settings.json" "${EXTRA_PACKAGES[@]}" <<'JS'
