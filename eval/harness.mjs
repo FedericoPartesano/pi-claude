@@ -49,13 +49,14 @@ function emptyTurn(prompt) {
 
 export class ClaudeCodeHarness {
 	name = "claude-code";
-	constructor(cwd, model) {
+	constructor(cwd, model, { effort } = {}) {
 		this.process = new JsonLineProcess(
 			"claude",
 			[
 				"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
 				"--model", model, "--no-session-persistence",
 				"--permission-mode", "acceptEdits", "--allowedTools", CLAUDE_ALLOWED_TOOLS.join(","),
+				...(effort ? ["--effort", effort] : []),
 			],
 			cwd,
 		);
