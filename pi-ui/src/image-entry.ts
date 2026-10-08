@@ -36,3 +36,17 @@ export function renderImageEntry(ref: string, thumbnail: Thumbnail | undefined, 
 	const caption = [link, fg(C.dim, thumbnail.info), "", `${fg(C.dim, "[")}${fg(C.mag, "/img")} ${fg(C.dim, "apri]")}`];
 	return thumbnail.lines.map((line, index) => full(`  ${bar} ${line}  ${caption[index] ?? ""}`));
 }
+
+const SPIN = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+/** The image entry while its thumbnail is prepared (in a worker): a spinner and a light running along a bar. */
+export function renderImageLoading(ref: string, width: number, frame: number): string[] {
+	const cells = 12;
+	const head = frame % (cells + 4);
+	const bar = Array.from({ length: cells }, (_, index) => {
+		const distance = Math.abs(index - head + 2);
+		return distance === 0 ? fg(C.mag, "▰") : distance === 1 ? fg(C.cyan, "▰") : fg(C.faint, "▱");
+	}).join("");
+	const right = `${fg(C.cyan, SPIN[frame % SPIN.length])} ${fg(C.dim, "preparo l'anteprima")} ${bar} `;
+	return [fit(`  ${fg(C.cyan, "◆")} ${bold(fg(C.cyan, "Img"))}   ${fg(C.text, truncateToWidth(ref, Math.max(4, width - 46)))}`, right, width)];
+}

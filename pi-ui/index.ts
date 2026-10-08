@@ -20,7 +20,7 @@ import { getCapabilities, setCapabilityOverrides, visibleWidth, type Component, 
 import { linkFileRefs, vscodeUrl, wslDistro } from "./src/answer.ts";
 import { subagentRows, teamRows, type AgentRow } from "./src/agents.ts";
 import { CHART_PROMPT, extractCharts, renderChart, type ChartSpec } from "./src/charts.ts";
-import { renderImageEntry, thumbnailColumns } from "./src/image-entry.ts";
+import { renderImageEntry, renderImageLoading, thumbnailColumns } from "./src/image-entry.ts";
 import { findImageRefs, thumbnailFor, type Thumbnail } from "./src/images.ts";
 import { C, bg, bold, fg, fit, hud, label, usePalette } from "./src/palette.ts";
 import { PINNED_MIN_COLUMNS, sidebarRoot, type SidebarRoot } from "./src/sidebar.ts";
@@ -175,12 +175,28 @@ export default function (pi: ExtensionAPI) {
 	// Images of the session: shown once each, thumbnails cached per width.
 	const images: string[] = [];
 	const thumbnails = new Map<string, Thumbnail | undefined>();
+	// Thumbnails are decoded in a worker thread (src/images.ts); while some are on their way the image entries show an
+	// animated loading line, driven by a timer that runs only then.
+	const loading = new Set<string>();
+	let loadingFrame = 0;
+	let loadingTimer: ReturnType<typeof setInterval> | undefined;
 	const thumbnail = (ref: string, cols: number) => {
 		const key = `${cols}|${ref}`;
 		if (!thumbnails.has(key)) {
 			thumbnails.set(key, undefined);
+			loading.add(key);
+			loadingTimer ??= setInterval(() => {
+				loadingFrame++;
+				tui?.requestRender();
+			}, 120);
 			void thumbnailFor(ref, cwd, cols).then((result) => {
 				thumbnails.set(key, result);
+				loading.delete(key);
+				if (!loading.size && loadingTimer) {
+					clearInterval(loadingTimer);
+					loadingTimer = undefined;
+				}
+				panelDirty = true;
 				tui?.requestRender();
 			});
 		}
@@ -476,8 +492,8 @@ export default function (pi: ExtensionAPI) {
 				// Leave room for the panel: a thumbnail under the overlay would bleed its colors.
 				const room = width - (width >= 100 ? reservedRight : 0);
 				const thumb = thumbnail(ref, thumbnailColumns(room));
-				// Not cached until the thumbnail is ready (it loads in the background).
-				if (!thumb) return renderImageEntry(ref, thumb, room, { sidebarOpen: Boolean(sidebar) });
+				// Not ready yet (decoding in the worker): an animated loading line.
+				if (!thumb) return renderImageLoading(ref, room, loadingFrame).map((line) => line + " ".repeat(Math.max(0, width - room)));
 				return remember(`img|${ref}|${width}|${room}|${Boolean(sidebar)}|${C.mag}|${"error" in thumb}`, () => renderImageEntry(ref, thumb, room, { sidebarOpen: Boolean(sidebar) }));
 			},
 			invalidate() {},

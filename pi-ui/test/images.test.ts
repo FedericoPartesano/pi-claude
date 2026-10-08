@@ -75,3 +75,19 @@ test("thumbnailFor also returns the image as PNG base64 (for real terminal image
 	assert.equal(Buffer.from(result.png, "base64").subarray(1, 4).toString(), "PNG");
 	assert.deepEqual([result.width, result.height], [16, 8]);
 });
+
+test("the decode runs in a worker thread (the chat never freezes) with the same result as in the main thread", async () => {
+	const { PNG } = await import("pngjs");
+	const { mkdtempSync, writeFileSync } = await import("node:fs");
+	const { tmpdir } = await import("node:os");
+	const dir = mkdtempSync(join(tmpdir(), "worker-"));
+	const png = new PNG({ width: 4, height: 4 });
+	png.data.fill(200);
+	writeFileSync(join(dir, "w.png"), PNG.sync.write(png));
+	const inWorker = await thumbnailFor("w.png", dir, 4, { worker: true });
+	const inThread = await thumbnailFor("w.png", dir, 4, { worker: false });
+	assert.ok(!("error" in inWorker), JSON.stringify(inWorker));
+	assert.deepEqual(inWorker, inThread);
+	const { closeThumbnailWorker } = await import("../src/images.ts");
+	closeThumbnailWorker();
+});

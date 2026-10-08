@@ -56,3 +56,17 @@ test("with the side panel open a real image cannot be drawn (Pi draws images onl
 	assert.match(hidden[1], /immagine nascosta mentre il pannello è aperto · Alt\+S per vederla · \/img per aprirla/);
 	setCapabilityOverrides({});
 });
+
+test("while a thumbnail is being prepared: an animated loading line, at the exact width, moving frame to frame", async () => {
+	const { renderImageLoading } = await import("../src/image-entry.ts");
+	const strip = (text: string) => text.replace(/\x1b\[[0-9;]*m/g, "");
+	const a = renderImageLoading("shots/a.png", 80, 0);
+	const b = renderImageLoading("shots/a.png", 80, 3);
+	assert.equal(a.length, 1);
+	assert.equal(visibleWidth(a[0]), 80);
+	assert.match(strip(a[0]), /shots\/a\.png/);
+	assert.match(strip(a[0]), /preparo l'anteprima/);
+	assert.match(strip(a[0]), /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/);
+	assert.notEqual(a[0], b[0], "it moves");
+	assert.equal(visibleWidth(renderImageLoading("x".repeat(200), 40, 1)[0]), 40);
+});
