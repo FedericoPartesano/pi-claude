@@ -210,6 +210,37 @@ export function dashboardSource(ctx: ExtensionContext): MemoryDashboardSource {
 	};
 }
 
+/**
+ * The project's memory (.pi/) stays out of git without touching the project's .gitignore: a line in the local
+ * .git/info/exclude (never committed). Projects outside git are left alone.
+ */
+export function ensureLocalIgnore(cwd: string): void {
+	try {
+		let dir = cwd;
+		while (!existsSync(join(dir, ".git"))) {
+			const parent = dirname(dir);
+			if (parent === dir) return;
+			dir = parent;
+		}
+		const exclude = join(dir, ".git", "info", "exclude");
+		const current = existsSync(exclude) ? readFileSync(exclude, "utf8") : "";
+		if (current.split("\n").some((line) => line.trim() === "/.pi/" || line.trim() === ".pi/" || line.trim() === ".pi")) return;
+		mkdirSync(dirname(exclude), { recursive: true });
+		writeFileSync(exclude, `${current}${current && !current.endsWith("\n") ? "\n" : ""}# Pi: memory and state of this project, in any folder (pi-claude)\n.pi/\n`);
+	} catch {
+		// Best effort.
+	}
+}
+
+/**
+ * Whether to run /dream by itself at startup: memory was empty in projects where nobody remembered to run it (a
+ * project with 24 sessions had none). Once a day, with new sessions, in the interactive UI only, unless switched off.
+ */
+export function shouldAutoDream(input: { today: string; lastAutoDream?: string; newSessions: number; hasUI: boolean; env: Record<string, string | undefined> }): boolean {
+	if (input.env.PI_MEMORY_AUTODREAM === "0" || !input.hasUI) return false;
+	return input.newSessions > 0 && input.lastAutoDream !== input.today;
+}
+
 export default function (pi: ExtensionAPI) {
 	const embedder = new BackgroundEmbedder();
 	const recaller = new Recaller();
@@ -266,6 +297,41 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	// Free reminder: only stats of session files.
+	// Automatic /dream: a few seconds after startup (never slowing it), once a day, when there are new sessions.
+	pi.on("session_start", (_event, ctx) => {
+		if (!ctx.hasUI) return;
+		setTimeout(() => {
+			try {
+				const marker = join(ctx.cwd, ".pi", "memory-autodream");
+				const lastAutoDream = existsSync(marker) ? readFileSync(marker, "utf8").trim() : undefined;
+				const since = readState(projectFiles(ctx.cwd).state).lastConsolidated ?? "";
+				let exclude: string | undefined;
+				try {
+					exclude = ctx.sessionManager.getSessionFile();
+				} catch {}
+				const newSessions = lookbackBatch(sessionFiles(ctx), { since, maxChars: LOOKBACK_CHARS, exclude }).text ? 1 : 0;
+				if (!shouldAutoDream({ today: today(), lastAutoDream, newSessions, hasUI: ctx.hasUI, env: process.env })) return;
+				write(marker, `${today()}\n`);
+				showStatus(ctx, { dreaming: true });
+				// Up to 3 batches (a project with many sessions); the rest on the next day or with /dream.
+				void (async () => {
+					for (let run = 0; run < 3; run++) {
+						await dream("", ctx, { auto: true });
+						let pending = 0;
+						try {
+							pending = JSON.parse(readFileSync(projectFiles(ctx.cwd).last, "utf8")).pending ?? 0;
+						} catch {}
+						if (!pending) break;
+					}
+				})()
+					.catch(() => {})
+					.finally(() => showStatus(ctx));
+			} catch {
+				// Memory is best effort: never disturb the session.
+			}
+		}, 6000).unref?.();
+	});
+
 	pi.on("session_start", (_event, ctx) => {
 		// Deep mode: load the embedding model in the background, after startup, only if there is memory to recall.
 		if (deepMode() && ctx.hasUI) {
@@ -319,11 +385,12 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	const dream = async (args: string, ctx: ExtensionContext) => {
+	const dream = async (args: string, ctx: ExtensionContext, options: { auto?: boolean } = {}) => {
 		const global = /--global\b/.test(args);
 		const globalTarget = globalFiles();
 		if (global && !globalTarget) return ctx.ui.notify("Memoria globale disattivata (PI_MEMORY_GLOBAL_PATH vuota).", "warning");
 		const target = global ? globalTarget! : projectFiles(ctx.cwd);
+		ensureLocalIgnore(ctx.cwd);
 		const stateFile = projectFiles(ctx.cwd).state;
 		const state = readState(stateFile);
 		const since = (global ? (readState(target.state).lastConsolidated) : state.lastConsolidated) ?? "";
@@ -373,7 +440,7 @@ export default function (pi: ExtensionAPI) {
 			return ctx.ui.notify(`Niente da ricordare in queste sessioni.${batch.pending ? ` Restano ${batch.pending} sessioni: rilancia /dream.` : ""}`, "info");
 		}
 		let approved: Proposal | undefined = proposal;
-		if (process.env.PI_DREAM_AUTO_APPROVE !== "1") {
+		if (!options.auto && process.env.PI_DREAM_AUTO_APPROVE !== "1") {
 			if (!ctx.hasUI) {
 				write(target.proposal, `# Proposta di /dream (${date})\n\n${lines.join("\n")}\n\n\`\`\`json\n${JSON.stringify(proposal, null, 2)}\n\`\`\`\n`);
 				return ctx.ui.notify(`Proposta in ${target.proposal}: rilancia /dream in modalità interattiva per approvarla.`, "info");
@@ -432,10 +499,10 @@ export default function (pi: ExtensionAPI) {
 			// The result stays in the chat (a notification disappears and leaves the user unsure it was saved).
 			const active = deepRecords?.filter((record) => record.status === "active") ?? [];
 			pi.appendEntry("memory-dream", dreamEntry(result.counts, describe(memory, approved), { active: active.length, pinned: active.filter((record) => record.pinned).length, pending: batch.pending }));
-			return ctx.ui.notify(`Memoria aggiornata: +${added} nuovi, ${reinforced} rinforzati, ${merged} uniti, ${updated} aggiornati (superati), ${forgotten} dimenticati · ${deepRecords?.filter((record) => record.status === "active").length ?? 0} ricordi attivi, nessun tetto${batch.pending ? ` · restano ${batch.pending} sessioni: rilancia /dream` : ""}`, "info");
+			return ctx.ui.notify(`${options.auto ? "Memoria aggiornata in automatico (/memory per vederla)" : "Memoria aggiornata"}: +${added} nuovi, ${reinforced} rinforzati, ${merged} uniti, ${updated} aggiornati (superati), ${forgotten} dimenticati · ${deepRecords?.filter((record) => record.status === "active").length ?? 0} ricordi attivi, nessun tetto${batch.pending ? ` · restano ${batch.pending} sessioni: rilancia /dream` : ""}`, "info");
 		}
 		pi.appendEntry("memory-dream", dreamEntry(result.counts, describe(memory, approved), { active: result.memory.length, pinned: result.memory.filter((entry) => entry.pinned).length, pending: batch.pending }));
-		ctx.ui.notify(`Memoria aggiornata: +${added} nuovi, ${reinforced} rinforzati, ${merged} uniti, ${updated} aggiornati, ${forgotten} dimenticati${capped.moved ? `, ${capped.moved} archiviati per spazio` : ""} · ${result.memory.length} ricordi (~${summary.contextTokens} token in contesto)${batch.pending ? ` · restano ${batch.pending} sessioni: rilancia /dream` : ""}`, "info");
+		ctx.ui.notify(`${options.auto ? "Memoria aggiornata in automatico (/memory per vederla)" : "Memoria aggiornata"}: +${added} nuovi, ${reinforced} rinforzati, ${merged} uniti, ${updated} aggiornati, ${forgotten} dimenticati${capped.moved ? `, ${capped.moved} archiviati per spazio` : ""} · ${result.memory.length} ricordi (~${summary.contextTokens} token in contesto)${batch.pending ? ` · restano ${batch.pending} sessioni: rilancia /dream` : ""}`, "info");
 	};
 
 	/** /memory: summary on top, every memory with its preview; Enter → pin, edit, mark superseded or delete. */

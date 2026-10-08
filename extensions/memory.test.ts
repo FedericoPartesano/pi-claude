@@ -154,3 +154,31 @@ test("parseProposal: a type the model made up (regola, rule…) becomes a valid 
 	assert.deepEqual(parsed.proposal.add.map((entry) => entry.type), ["decisione", "preferenza", "decisione"]);
 	assert.deepEqual(parsed.skipped, []);
 });
+
+test("automatic /dream: once a day, only with new sessions, never when switched off or without a UI", async () => {
+	const { shouldAutoDream } = await import("./memory.ts");
+	const base = { today: "2026-10-08", lastAutoDream: "2026-10-07", newSessions: 3, hasUI: true, env: {} };
+	assert.equal(shouldAutoDream(base), true);
+	assert.equal(shouldAutoDream({ ...base, lastAutoDream: "2026-10-08" }), false, "already today");
+	assert.equal(shouldAutoDream({ ...base, newSessions: 0 }), false, "nothing new");
+	assert.equal(shouldAutoDream({ ...base, newSessions: 1 }), true, "even one new session is worth remembering");
+	assert.equal(shouldAutoDream({ ...base, env: { PI_MEMORY_AUTODREAM: "0" } }), false);
+	assert.equal(shouldAutoDream({ ...base, hasUI: false }), false, "print/RPC runs (evaluations, scripts) never dream on their own");
+	assert.equal(shouldAutoDream({ ...base, lastAutoDream: undefined }), true);
+});
+
+test("the project memory folder is ignored by git locally (.git/info/exclude), never touching the project's .gitignore", async () => {
+	const { ensureLocalIgnore } = await import("./memory.ts");
+	const { execSync } = await import("node:child_process");
+	const { mkdtempSync, readFileSync, existsSync } = await import("node:fs");
+	const { tmpdir } = await import("node:os");
+	const { join } = await import("node:path");
+	const dir = mkdtempSync(join(tmpdir(), "ignore-"));
+	execSync("git init -q", { cwd: dir });
+	ensureLocalIgnore(dir);
+	ensureLocalIgnore(dir);
+	const exclude = readFileSync(join(dir, ".git/info/exclude"), "utf8");
+	assert.equal(exclude.split("\n").filter((line) => line === ".pi/").length, 1, "added once, for .pi in any folder");
+	assert.equal(existsSync(join(dir, ".gitignore")), false);
+	ensureLocalIgnore(mkdtempSync(join(tmpdir(), "nogit-")));
+});
