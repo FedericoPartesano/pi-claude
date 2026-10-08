@@ -32,7 +32,11 @@ done
 RESTART="${PI_UI_RESTART_FILE:-$A/pi-ui-restart}"
 rm -f "$RESTART"
 # Intro animation (pi-ui): only on the first start, not after /custom-reload. PI_UI_INTRO=0 turns it off.
-if [ -t 1 ] && [ "${PI_UI_INTRO:-1}" != 0 ] && [ "${PI_UI:-}" != off ]; then
+# Full intro once a day (the first start); later starts go straight in. PI_UI_INTRO=always shows it every time.
+INTRO_STAMP="$A/pi-ui-intro-day"
+if [ "${PI_UI_INTRO:-1}" = always ] || [ "$(cat "$INTRO_STAMP" 2>/dev/null)" != "$(date +%F)" ]; then show_intro=1; else show_intro=0; fi
+if [ -t 1 ] && [ "$show_intro" = 1 ] && [ "${PI_UI_INTRO:-1}" != 0 ] && [ "${PI_UI:-}" != off ]; then
+  date +%F > "$INTRO_STAMP" 2>/dev/null
   branch="$(git branch --show-current 2>/dev/null)"
   node --disable-warning=ExperimentalWarning "$REPO/pi-ui/bin/intro.ts" "claude code · pi-full · $(basename "$PWD")${branch:+ ⎇ $branch}" || true
 fi

@@ -127,7 +127,7 @@ Attiva in `pi` e `pi-full`. Temi: `neon-night` (neon su nero), `lilla` (i pastel
 - **Pannello** sempre visibile come colonna a destra (fullscreen, terminale ≥ 120 colonne: la chat si restringe, niente viene coperto); `Alt+S` (o `/pannello`) lo nasconde e lo mostra, sotto le 120 colonne lo apre come overlay. `PI_UI_PANEL=float` = solo su richiesta; `PI_UI_PANEL_KEY` cambia il tasto. Sezioni: sessione, turno, **piano** (todo, passo in corso evidenziato), **intent** attivo, sub-agenti, test falliti, attività, file, suggerimenti, memoria, git, **token risparmiati** da lean-tools, immagini, uso 5h/7g/contesto; se l'altezza non basta si nascondono prima le meno utili.
 - **Notifica** di Windows e campanella a fine turni lunghi (≥ 30 s; `PI_UI_NOTIFY=0`).
 - **Lean tools** (`extensions/lean-tools.ts`, sempre attivo in `pi`): output di bash lunghi compattati (test: fallimenti e riepilogo; altro: inizio e fine, il resto in un file), output di `grep`/`rg` raggruppati per file senza perdere righe, riletture di file invariati sostituite da una nota. Costo fisso zero, affidabilità invariata nelle prove (`eval/LEAN-REPORT.md`). `PI_LEAN=0` lo spegne; `PI_LEAN_SEARCH=1`/`PI_LEAN_OUTLINE=1` aggiungono i tool `search` e `outline`.
-- **Intro** col logo animato all'avvio di `pi-full` (un tasto la salta; `PI_UI_INTRO=0` la spegne).
+- **Intro** col logo animato alla prima apertura di `pi-full` della giornata (un tasto la salta; `PI_UI_INTRO=always` sempre, `PI_UI_INTRO=0` mai).
 - Link `file:riga` → VS Code nelle risposte, solo dove il terminale mostra i link. In tmux:
   `set -as terminal-features ',*:hyperlinks'` nel `~/.tmux.conf`.
 
