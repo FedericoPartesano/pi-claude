@@ -4,6 +4,8 @@ import type { MemoryRecord } from "./store.ts";
 import { extractEntities } from "./entities.ts";
 import { classifyRequest } from "./request.ts";
 import { buildGraph, type MemoryGraph } from "./graph.ts";
+import { pushPpr } from "./ppr.ts";
+import { VectorIndex } from "./vector-index.ts";
 
 /** ~300 tokens (about 3.6 chars per token) at most. */
 export const RECALL_BUDGET_CHARS = 1080;
@@ -29,10 +31,32 @@ const stems = (text: string) => normalize(text).split(" ").filter((word) => word
 export interface Scored {
 	record: MemoryRecord;
 	score: number;
+	/** deep = reached through the memory graph, not by the request's words or meaning. */
+	via?: "deep";
 }
 
 const K1 = 1.2;
 const B = 0.75;
+
+/** Entities shared by more memories than this connect too much to mean anything: never expanded in the graph walk. */
+export const HUB_DEGREE = 30;
+/** Terms in more than this share of memories carry no information: skipped by BM25 (and they cost the most). */
+const COMMON_TERM_SHARE = 0.2;
+
+/** Depth: how recall walks the memory graph (Personalized PageRank by push, see ppr.ts). Tuned on bench/deep-bench.ts. */
+export const DEPTH = {
+	/** Strongest direct hits that seed the walk. */
+	seeds: 5,
+	/** PPR restart probability (HippoRAG 2: 0.5). */
+	alpha: 0.5,
+	epsilon: 1e-4,
+	/** Seeds: hits within this share of the best one (a weak hit's neighbourhood is noise). */
+	seedShare: 0.8,
+	/** Share of the cues reserved to memories the walk reaches (shown as "collegato"). */
+	slotShare: 0.4,
+	/** Below this PPR mass relative to the top seed a reached memory is not worth a cue. */
+	minMass: 1e-3,
+};
 
 export class RecallIndex {
 	readonly records: MemoryRecord[];
@@ -41,8 +65,11 @@ export class RecallIndex {
 	private average = 1;
 	private entityStems: Set<string>[][];
 	private entityIndex = new Map<string, number[]>();
+	/** Entity stem → positions of records with an entity containing it: entity matching without a full scan. */
+	private entityTokens = new Map<string, number[]>();
 	readonly graph: MemoryGraph;
 	readonly positions: Map<string, number>;
+	private vectorIndexes = new WeakMap<Map<string, Float32Array>, VectorIndex>();
 
 	constructor(records: MemoryRecord[]) {
 		this.records = records;
@@ -65,7 +92,33 @@ export class RecallIndex {
 				list.push(position);
 				this.entityIndex.set(entity, list);
 			}
+			const tokens = new Set(this.entityStems[position].flatMap((set) => [...set]));
+			for (const token of tokens) {
+				const list = this.entityTokens.get(token) ?? [];
+				list.push(position);
+				this.entityTokens.set(token, list);
+			}
 		});
+	}
+
+	private strengthCache = new WeakMap<MemoryRecord, { day: string; last: string; confirmations: number; value: number }>();
+	/** strength() per record, computed once a day (it parses dates). */
+	strengthOf(record: MemoryRecord, today: string): number {
+		const cached = this.strengthCache.get(record);
+		if (cached && cached.day === today && cached.last === record.last && cached.confirmations === record.confirmations) return cached.value;
+		const value = strength(record, today);
+		this.strengthCache.set(record, { day: today, last: record.last, confirmations: record.confirmations, value });
+		return value;
+	}
+
+	/** The vector index for a set of vectors, built once (sign bits + exact rescoring). */
+	vectorsFor(vectors: Map<string, Float32Array>): VectorIndex {
+		let index = this.vectorIndexes.get(vectors);
+		if (!index) {
+			index = new VectorIndex(this.records.map((record) => record.id), vectors);
+			this.vectorIndexes.set(vectors, index);
+		}
+		return index;
 	}
 
 	/** Saturating BM25 in [0, 1) per record position (only records sharing a term are present). */
@@ -73,9 +126,10 @@ export class RecallIndex {
 		const out = new Map<number, number>();
 		// Small stores behave like a 300-memory corpus, so idf (and the threshold) does not depend on store size.
 		const n = Math.max(this.records.length, 300);
+		const common = Math.max(50, this.records.length * COMMON_TERM_SHARE);
 		for (const term of new Set(stems(query))) {
 			const posting = this.postings.get(term);
-			if (!posting) continue;
+			if (!posting || posting.size > common) continue;
 			const idf = Math.log(1 + (n - posting.size + 0.5) / (posting.size + 0.5));
 			for (const [position, frequency] of posting) {
 				const part = idf * ((frequency * (K1 + 1)) / (frequency + K1 * (1 - B + (B * this.lengths[position]) / this.average)));
@@ -91,16 +145,45 @@ export class RecallIndex {
 		const out = new Map<number, number>();
 		const mentioned = new Set(extractEntities(query));
 		const queryStems = new Set(stems(query));
-		this.records.forEach((_record, position) => {
+		const candidates = new Set<number>();
+		for (const entity of mentioned) for (const position of this.entityIndex.get(entity) ?? []) candidates.add(position);
+		const common = Math.max(HUB_DEGREE * 10, this.records.length * 0.01);
+		for (const token of queryStems) {
+			const list = this.entityTokens.get(token) ?? [];
+			// A token in thousands of entities (a domain name) identifies nothing; BM25 still weighs it.
+			if (list.length <= common) for (const position of list) candidates.add(position);
+		}
+		for (const position of candidates) {
 			let matches = 0;
 			this.records[position].entities.forEach((entity, k) => {
 				const tokens = this.entityStems[position][k];
 				if (mentioned.has(entity) || (tokens.size > 0 && [...tokens].every((token) => queryStems.has(token)))) matches++;
 			});
 			if (matches > 0) out.set(position, Math.min(1, 0.6 + 0.2 * (matches - 1)));
-		});
+		}
 		return out;
 	}
+
+	/**
+	 * Graph for the walk, over memory positions: explicit links, and memories sharing a specific entity (one used by at
+	 * most HUB_DEGREE memories) are direct neighbours — a chain through a shared file is as short as a linked one.
+	 */
+	neighbors = (node: string): string[] => {
+		const position = Number(node.slice(1));
+		const record = this.records[position];
+		const out = new Set<number>();
+		for (const id of this.graph.links(record.id)) {
+			const other = this.positions.get(id);
+			if (other !== undefined) out.add(other);
+		}
+		for (const entity of record.entities) {
+			const members = this.entityIndex.get(entity) ?? [];
+			if (members.length > HUB_DEGREE) continue;
+			for (const other of members) if (other !== position) out.add(other);
+		}
+		return [...out].map((other) => `m${other}`);
+	};
+
 }
 
 export interface RecallOptions {
@@ -118,72 +201,73 @@ export interface RecallOptions {
 	includeSuperseded?: boolean;
 	/** Ids never returned (already present elsewhere in the context). */
 	exclude?: Set<string>;
+	/** false = no graph walk (direct hits only). */
+	deep?: boolean;
 }
 
-const dot = (a: Float32Array, b: Float32Array) => {
-	let sum = 0;
-	for (let i = 0; i < a.length; i++) sum += a[i] * b[i];
-	return sum;
-};
+/** Semantic candidates kept per request (the vector index rescores a few hundred, whatever the store size). */
+const SEMANTIC_CANDIDATES = 64;
+/** Lexical candidates fully scored per request. */
+const LEXICAL_CANDIDATES = 300;
 
 export function recall(index: RecallIndex, query: string, options: RecallOptions): { hits: Scored[] } {
 	const base = options.threshold ?? DEFAULT_THRESHOLD;
 	const threshold = classifyRequest(query) === "inquiry" ? Math.max(base, options.inquiryThreshold ?? INQUIRY_THRESHOLD) : base;
 	const floor = options.semFloor ?? 0.15;
 	const span = options.semSpan ?? 1 - floor;
-	const withVectors = Boolean(options.queryVector && options.vectors && options.vectors.size > 0);
 	const bm = index.bm25(query);
 	const ent = index.entityMatches(query);
-	const direct = new Map<number, number>();
+	const sem = new Map<number, number>();
+	if (options.queryVector && options.vectors && options.vectors.size > 0) {
+		for (const hit of index.vectorsFor(options.vectors).search(options.queryVector, SEMANTIC_CANDIDATES)) {
+			const value = Math.max(0, Math.min(1, (hit.score - floor) / span));
+			if (value > 0) sem.set(hit.position, value);
+		}
+	}
 	const eligible = (record: MemoryRecord) => ((record.status === "active" && record.state !== "dormant") || options.includeSuperseded) && !options.exclude?.has(record.id);
-	const candidates = new Set<number>([...bm.keys(), ...ent.keys()]);
-	if (withVectors) index.records.forEach((record, position) => {
-		const vector = options.vectors!.get(record.id);
-		if (vector && vector.length === options.queryVector!.length && Math.max(0, dot(options.queryVector!, vector) - floor) > 0) candidates.add(position);
-	});
-	for (const position of candidates) {
+	const factor = (record: MemoryRecord) => 0.85 + 0.15 * index.strengthOf(record, options.today);
+	const direct = new Map<number, number>();
+	// Full scoring only for the best few hundred by lexical evidence plus the semantic ones: a common word can hit
+	// thousands of memories, and scoring them all was most of the time at 100k.
+	const lexicalOnly = new Map<number, number>();
+	for (const [position, value] of bm) lexicalOnly.set(position, value);
+	for (const [position, value] of ent) lexicalOnly.set(position, Math.max(lexicalOnly.get(position) ?? 0, value));
+	const lexicalTop = lexicalOnly.size <= LEXICAL_CANDIDATES ? [...lexicalOnly.keys()] : [...lexicalOnly].sort((a, b) => b[1] - a[1]).slice(0, LEXICAL_CANDIDATES).map(([position]) => position);
+	for (const position of new Set<number>([...lexicalTop, ...sem.keys()])) {
 		const record = index.records[position];
 		if (!eligible(record)) continue;
-		let sem = 0;
-		const vector = withVectors ? options.vectors!.get(record.id) : undefined;
-		if (vector && vector.length === options.queryVector!.length) sem = Math.max(0, Math.min(1, (dot(options.queryVector!, vector) - floor) / span));
 		// Lexical evidence (BM25 + entities) alone is enough; semantics can only add to it.
 		const [b, e] = [bm.get(position) ?? 0, ent.get(position) ?? 0];
 		const lexical = 0.8 * Math.max(b, e) + 0.2 * Math.min(b, e);
-		direct.set(position, Math.max(lexical, SEM_WEIGHT * sem + (1 - SEM_WEIGHT) * lexical));
+		const score = Math.max(lexical, SEM_WEIGHT * (sem.get(position) ?? 0) + (1 - SEM_WEIGHT) * lexical);
+		direct.set(position, score * factor(record));
 	}
-	const factor = (record: MemoryRecord) => 0.85 + 0.15 * strength(record, options.today);
-	const ranked = [...direct].map(([position, score]) => ({ position, score: score * factor(index.records[position]) })).sort((a, b) => b.score - a.score);
-	// One step of spreading activation: memories sharing an entity with the strongest hits get a small boost.
-	const seeds = ranked.filter((item) => item.score >= threshold).slice(0, 3);
-	const seedEntities = new Set(seeds.flatMap((seed) => index.records[seed.position].entities));
-	const seedPositions = new Set(seeds.map((seed) => seed.position));
-	const final = ranked.map((item) => {
-		const shares = !seedPositions.has(item.position) && index.records[item.position].entities.some((entity) => seedEntities.has(entity));
-		return { position: item.position, direct: item.score, linked: false, score: item.score + (shares ? 0.1 * factor(index.records[item.position]) : 0) };
-	});
-	// Explicit links (the why behind a decision, what it depends on) come along with a strong hit even without words in
-	// common with the request: they get most of the seed's score.
-	const byPosition = new Map(final.map((item) => [item.position, item]));
-	for (const seed of seeds) {
-		for (const id of index.graph.links(index.records[seed.position].id)) {
-			const position = index.positions.get(id);
-			if (position === undefined || seedPositions.has(position) || !eligible(index.records[position])) continue;
-			const score = 0.75 * seed.score * factor(index.records[position]);
-			const current = byPosition.get(position);
-			if (current && current.score >= score) continue;
-			const item = { position, direct: current?.direct ?? 0, linked: true, score };
-			byPosition.set(position, item);
-			if (current) final[final.indexOf(current)] = item;
-			else final.push(item);
-		}
-	}
-	const passing = final.filter((item) => item.score >= threshold && (item.linked || item.direct >= threshold * 0.5)).sort((a, b) => b.score - a.score);
+	const ranked = [...direct].map(([position, score]) => ({ position, score })).sort((a, b) => b.score - a.score);
+	const passing = ranked.filter((item) => item.score >= threshold);
+	const limit = options.limit ?? RECALL_LIMIT;
 	// Relative cut: weak companions of a strong hit are noise (and tokens).
-	const hits = passing
-		.filter((item) => item.score >= passing[0].score * RELATIVE_CUT)
-		.slice(0, options.limit ?? RECALL_LIMIT)
-		.map((item) => ({ record: index.records[item.position], score: item.score }));
+	const directHits = passing.filter((item) => item.score >= (passing[0]?.score ?? 0) * RELATIVE_CUT);
+	if (directHits.length === 0) return { hits: [] };
+	const slots = options.deep === false ? 0 : Math.max(1, Math.round(limit * DEPTH.slotShare));
+	const chosen = directHits.slice(0, Math.max(1, limit - slots));
+	const hits: Scored[] = chosen.map((item) => ({ record: index.records[item.position], score: item.score }));
+	if (slots > 0) {
+		// Depth: Personalized PageRank from the strongest hits over the memory graph. What the request does not mention
+		// but its hits lead to (the reason two links away) fills the reserved cues, strongest mass first.
+		const top = directHits[0].score;
+		const seeds = directHits.filter((item) => item.score >= top * DEPTH.seedShare).slice(0, DEPTH.seeds);
+		const mass = pushPpr(new Map(seeds.map((seed) => [`m${seed.position}`, seed.score ** 3])), index.neighbors, { alpha: DEPTH.alpha, epsilon: DEPTH.epsilon });
+		const reference = Math.max(...seeds.map((seed) => mass.get(`m${seed.position}`) ?? 0)) || 1;
+		const taken = new Set(chosen.map((item) => item.position));
+		const reached = [...mass]
+			.map(([node, value]) => ({ position: Number(node.slice(1)), share: value / reference }))
+			.filter((item) => !taken.has(item.position) && item.share >= DEPTH.minMass && eligible(index.records[item.position]))
+			.sort((a, b) => b.share - a.share)
+			.slice(0, slots);
+		for (const item of reached) hits.push({ record: index.records[item.position], score: top * Math.min(1, item.share), via: "deep" });
+		// Unused deep slots go back to direct hits.
+		for (const item of directHits.slice(chosen.length, chosen.length + slots - reached.length)) hits.push({ record: index.records[item.position], score: item.score });
+	}
 	return { hits };
 }
 
@@ -245,9 +329,10 @@ const clipTo = (text: string, max: number) => (text.length <= max ? text : `${te
 export function renderCues(hits: Scored[], limit: number, budget = CUES_BUDGET_CHARS): string {
 	const lines: string[] = [];
 	let used = 0;
-	for (const [index, { record }] of hits.slice(0, limit).entries()) {
+	for (const [index, { record, via }] of hits.slice(0, limit).entries()) {
 		const body = index < FULL_CUES ? clipTo(record.text, FULL_CUE_CHARS) : clipTo(record.gist ?? record.text, CUE_CHARS);
-		const line = `- [${record.type}] ${body} #${record.id}`;
+		// Reached through the graph: the model should read it as related context, not as an answer to the words.
+		const line = `- ${via === "deep" ? "↳ collegato " : ""}[${record.type}] ${body} #${record.id}`;
 		if (used + line.length + 1 > budget) {
 			if (index < FULL_CUES) continue;
 			break;
