@@ -12,7 +12,7 @@
  *   failing tests, last image, usage).
  * Interactive TUI only; PI_UI=off turns it off (the theme stays selectable in /settings → Theme).
  */
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
 import { AgentSession, CustomEditor, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -24,7 +24,7 @@ import { renderImageEntry, renderImageLoading, thumbnailColumns } from "./src/im
 import { findImageRefs, thumbnailFor, type Thumbnail } from "./src/images.ts";
 import { C, bg, bold, fg, fit, hud, label, usePalette } from "./src/palette.ts";
 import { PINNED_MIN_COLUMNS, sidebarRoot, type SidebarRoot } from "./src/sidebar.ts";
-import { behindConPty, imageProtocolFor, regularWidth } from "./src/terminal.ts";
+import { behindConPty, imageProtocolFor, regularMode, regularWidth } from "./src/terminal.ts";
 import { activeIntent, planFromBranch, planFromDetails, type PlanTask } from "./src/sources.ts";
 import { PANEL_KEY, PANEL_WIDTH, parseAheadBehind, parseNumstat, parsePorcelain, renderPanel, type ChangedFile, type PanelInfo } from "./src/panel.ts";
 import { shouldNotify, toastScript } from "./src/notify.ts";
@@ -97,10 +97,19 @@ export default function (pi: ExtensionAPI) {
 	// Real images need a terminal protocol; when detection misses it (e.g. WSL started from WezTerm without its variables),
 	// PI_UI_IMAGES=kitty or iterm2 forces it. Under tmux they stay off unless forced (tmux needs allow-passthrough).
 	// WezTerm behind Windows ConPTY (WSL or native Windows) gets iTerm2 images; PI_UI_IMAGES=kitty|iterm2 forces one.
-	const forcedImages = imageProtocolFor(process.env, process.platform);
+	const settingsMode = (() => {
+		try {
+			return (JSON.parse(readFileSync(resolve(process.env.PI_CODING_AGENT_DIR || `${homedir()}/.pi/agent`, "settings.json"), "utf8")) as { tuiMode?: string }).tuiMode;
+		} catch {
+			return undefined;
+		}
+	})();
+	const forcedImages = imageProtocolFor(process.env, process.platform, regularMode(process.argv, settingsMode));
+	// null = no inline images (fullscreen behind ConPTY): image entries become one line pointing to /img.
+	const compactImages = forcedImages === null;
 	// Measured hot paths (typing on a long session) are cached below; this is a plain call kept for readability.
 	const timed = <T>(_name: string, fn: () => T): T => fn();
-	if (forcedImages) setCapabilityOverrides({ images: forcedImages });
+	if (forcedImages !== undefined) setCapabilityOverrides({ images: forcedImages });
 	const panelKey = (process.env.PI_UI_PANEL_KEY || PANEL_KEY).toLowerCase();
 
 	let status = initialStatus();
@@ -500,7 +509,7 @@ export default function (pi: ExtensionAPI) {
 				const thumb = thumbnail(ref, thumbnailColumns(room));
 				// Not ready yet (decoding in the worker): an animated loading line.
 				if (!thumb) return renderImageLoading(ref, room, loadingFrame).map((line) => line + " ".repeat(Math.max(0, width - room)));
-				return remember(`img|${ref}|${width}|${room}|${Boolean(sidebar)}|${C.mag}|${"error" in thumb}`, () => renderImageEntry(ref, thumb, room, { sidebarOpen: Boolean(sidebar) }));
+				return remember(`img|${ref}|${width}|${room}|${Boolean(sidebar)}|${C.mag}|${"error" in thumb}`, () => renderImageEntry(ref, thumb, room, { sidebarOpen: Boolean(sidebar), compact: compactImages }));
 			},
 			invalidate() {},
 		};

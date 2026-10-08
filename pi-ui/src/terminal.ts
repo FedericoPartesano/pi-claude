@@ -1,7 +1,8 @@
 /**
  * Which image protocol reaches the screen. WezTerm on Windows (native, or WSL through its WSL domain) sits behind
- * ConPTY, which drops kitty's APC sequences and passes iTerm2's OSC 1337 (measured): there images must be iTerm2, and
- * Pi must run in regular mode (its fullscreen mode draws kitty images only). tmux in between: no images.
+ * ConPTY, which drops kitty's APC sequences and passes iTerm2's OSC 1337 (measured): there images must be iTerm2, which
+ * only Pi's regular mode draws. Regular mode drifts a row behind ConPTY (doubled status bar), so fullscreen stays the
+ * default there and images open with /img. tmux in between: no images.
  */
 type Env = Record<string, string | undefined>;
 
@@ -12,10 +13,24 @@ export function behindConPty(env: Env, platform: string): boolean {
 	return platform === "win32" || Boolean(env.WSL_DISTRO_NAME);
 }
 
-/** The protocol to force, or undefined to let pi-tui decide. PI_UI_IMAGES=kitty|iterm2 always wins. */
-export function imageProtocolFor(env: Env, platform: string): "kitty" | "iterm2" | undefined {
+/**
+ * The protocol to force, null for none, or undefined to let pi-tui decide. PI_UI_IMAGES=kitty|iterm2 always wins.
+ * Behind ConPTY only Pi's regular mode can show images (iTerm2); fullscreen draws kitty only, which ConPTY filters,
+ * so there are none inline (the entry says /img opens them at full quality).
+ */
+export function imageProtocolFor(env: Env, platform: string, regular: boolean): "kitty" | "iterm2" | null | undefined {
 	if (env.PI_UI_IMAGES === "kitty" || env.PI_UI_IMAGES === "iterm2") return env.PI_UI_IMAGES;
-	return behindConPty(env, platform) ? "iterm2" : undefined;
+	if (!behindConPty(env, platform)) return undefined;
+	return regular ? "iterm2" : null;
+}
+
+/** Whether Pi runs in regular mode: --tui-mode on the command line wins over tuiMode in the settings; fullscreen by default. */
+export function regularMode(argv: string[], settingsMode?: string): boolean {
+	for (let i = 0; i < argv.length; i++) {
+		if (argv[i] === "--tui-mode") return argv[i + 1] === "regular";
+		if (argv[i].startsWith("--tui-mode=")) return argv[i].slice("--tui-mode=".length) === "regular";
+	}
+	return settingsMode === "regular";
 }
 
 /**
