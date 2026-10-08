@@ -43,8 +43,11 @@ const sourceOf = (entry) => (typeof entry === "string" ? entry : entry?.source);
 const lastSegment = (path) => path.replace(/[\\/]+$/, "").split(/[\\/]/).pop();
 
 /** Drops this repo's old registrations (sub-packages, single extensions) and adds the package entry once. */
-export function migrateSettings(settings, { source }) {
+export function migrateSettings(settings, { source: wanted }) {
 	const s = structuredClone(settings);
+	// Installed from git with a ref (a tag, a branch): that entry is the package, ref included.
+	const pinned = wanted === GIT_SOURCE ? (s.packages ?? []).map(sourceOf).find((value) => typeof value === "string" && value.startsWith(`${GIT_SOURCE}@`)) : undefined;
+	const source = pinned ?? wanted;
 	const isOldSubpackage = (entry) => {
 		const value = sourceOf(entry);
 		return typeof value === "string" && !/^(npm|git):/.test(value) && SUBPACKAGES.has(lastSegment(value));

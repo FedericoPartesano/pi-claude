@@ -34,3 +34,9 @@ test("migration with the git source: the package entry is the git one, local pat
 	const after = migrateSettings({ packages: [source, "../../old/pi-claude/pi-ui"] }, { repo, source, agentDir: "/home/u/.pi/agent" });
 	assert.deepEqual(after.packages, [source]);
 });
+
+test("a git install pinned to a ref (pi install git:...@v0.3.0) keeps its ref", () => {
+	const pinned = "git:github.com/FedericoPartesano/pi-claude@v0.3.0";
+	const after = migrateSettings({ packages: [pinned] }, { source: "git:github.com/FedericoPartesano/pi-claude" });
+	assert.deepEqual(after.packages, [pinned]);
+});
