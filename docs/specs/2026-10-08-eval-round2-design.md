@@ -118,6 +118,7 @@ Stesso schema di `eval/memory-cases.mjs`, ma su uno dei due repo reali e contro 
 - **Auto-memory di Claude Code in `-p`**: va verificato che in modalità headless scriva davvero memoria (probe prima di
   costruire il braccio). Se non la scrive, il braccio memoria di Claude Code si fa in sessioni interattive pilotate in
   tmux, oppure si dichiara il limite nel report.
+- Esito sonda (2026-10-08): **cc-memory: headless**. In `-p` Claude Code ha scritto `MEMORY.md` e `messaggi-errore-in-italiano.md` sotto `~/.claude/projects/<percorso>/memory/` e nella sessione nuova ha risposto "Italiano". Il braccio memoria usa l'harness headless, niente tmux.
 - **`pi-full` in RPC**: `eval/harness.mjs` lancia `pi`; va aggiunta l'opzione per lanciare le stesse estensioni di
   `bin/pi-full`.
 - **Quota**: stima ~1,5-3M token in input su 80 esecuzioni Opus più la memoria; si lancia di notte, a blocchi, con stop
