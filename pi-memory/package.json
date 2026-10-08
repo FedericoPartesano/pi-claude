@@ -1,7 +1,7 @@
 {
   "name": "pi-memory",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "Deep recall memory for Pi: local multilingual embeddings, hybrid recall, bounded injection",
   "scripts": {
