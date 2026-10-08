@@ -2,9 +2,10 @@
 # Installa pi-claude su questa macchina: Pi, bridge claude-code, hook di sicurezza, estensioni di pi-full.
 # Idempotente: si può rilanciare dopo ogni aggiornamento della repo (git pull / git checkout <tag>).
 #
-# Uso: ./install.sh [--no-extras] [--no-hooks]
+# Uso: ./install.sh [--no-extras]
 #   --no-extras  niente pi-full (web, todo, domande, subagent, team)
-#   --no-hooks   niente hook protected-paths (la conferma dei comandi pericolosi è in pi-ui: PI_UI_PERMISSION=0 la spegne)
+# Su un altro PC: pi install git:github.com/FedericoPartesano/pi-claude, poi questo script dalla copia installata
+# (~/.pi/agent/git/github.com/FedericoPartesano/pi-claude/install.sh). Su Windows nativo: node .../scripts/setup.mjs
 set -euo pipefail
 export NPM_CONFIG_UPDATE_NOTIFIER=false
 
@@ -17,15 +18,13 @@ EXTRA_PACKAGES=(
 
 REPO="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 AGENT="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
-BIN_DIR="$HOME/.local/bin"
+BIN_DIR="${PI_CLAUDE_BIN_DIR:-$HOME/.local/bin}"
 EXTRAS=1
-HOOKS=1
 
 for arg in "$@"; do
   case "$arg" in
     --no-extras) EXTRAS=0 ;;
-    --no-hooks) HOOKS=0 ;;
-    -h|--help) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Opzione sconosciuta: $arg" >&2; exit 2 ;;
   esac
 done
@@ -45,15 +44,6 @@ link() {
   fi
   ln -sfn "$target" "$dest"
   ok "$dest → $target"
-}
-
-# Esegue `npm ci` solo se node_modules manca o è più vecchio del lockfile.
-deps() {
-  local dir="$1"
-  if [ ! -f "$dir/node_modules/.package-lock.json" ] || [ "$dir/package-lock.json" -nt "$dir/node_modules/.package-lock.json" ]; then
-    (cd "$dir" && npm ci --no-audit --no-fund --loglevel=error)
-  fi
-  ok "dipendenze di $(basename "$dir")"
 }
 
 step "Requisiti"
@@ -79,150 +69,55 @@ fi
 PI_PKG="$(npm root -g)/@earendil-works/pi-coding-agent"
 [ -d "$PI_PKG/examples/extensions" ] || die "Pi installato ma esempi non trovati in $PI_PKG."
 
-step "Dipendenze dei pacchetti"
-deps "$REPO/pi-claude-code"
-deps "$REPO/pi-picker"
-deps "$REPO/pi-memory"
-deps "$REPO/pi-ui"
-[ "$EXTRAS" = 1 ] && deps "$REPO/pi-team"
+# Installed from GitHub (pi install git:..., the copy lives under $AGENT/git/): Pi already registered the package and
+# installed its dependencies. A working copy: the folder itself is the package (edits show at once).
+case "$REPO/" in
+  "$AGENT/git/"*) FROM_GIT=1 ;;
+  *) FROM_GIT=0 ;;
+esac
 
-step "Pacchetti Pi"
-pi install "$REPO/pi-claude-code" >/dev/null
-ok "pi-claude-code"
-pi install "$REPO/pi-picker" >/dev/null
-ok "pi-picker (Alt+A, /pick)"
-pi install "$REPO/pi-ui" >/dev/null
-ok "pi-ui (chat Neon Night: barra di stato, prompt, footer)"
+step "Dipendenze"
+if [ "$FROM_GIT" = 0 ]; then
+  (cd "$REPO" && npm install --no-audit --no-fund --loglevel=error)
+  ok "dipendenze del pacchetto"
+else
+  ok "installate da pi install"
+fi
+
 if [ "$EXTRAS" = 1 ]; then
+  step "Pacchetti extra (solo in pi-full)"
   for pkg in "${EXTRA_PACKAGES[@]}"; do
     pi install "$pkg" >/dev/null
     ok "$pkg"
   done
-fi
-
-step "Scorciatoie ($AGENT/keybindings.json)"
-# Images: on WSL and Windows Pi pastes them with Alt+V only (Ctrl+V is the terminal's text paste there). Ctrl+V too:
-# where the terminal passes it (WezTerm) Pi pastes files, images or text; where it takes it (Windows Terminal) nothing
-# changes. A value the user already set is kept.
-node - "$AGENT/keybindings.json" <<'JS'
-const fs = require("fs");
-const file = process.argv[2];
-const k = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
-if (k["app.clipboard.pasteImage"] === undefined) {
-  k["app.clipboard.pasteImage"] = ["alt+v", "ctrl+v"];
-  fs.writeFileSync(file, JSON.stringify(k, null, 2) + "\n");
-}
-JS
-
-step "Impostazioni ($AGENT/settings.json)"
-# Default claude-code/sonnet solo se l'utente non ha già scelto altro; i pacchetti extra si caricano solo in pi-full.
-EXTRAS="$EXTRAS" node - "$AGENT/settings.json" "${EXTRA_PACKAGES[@]}" <<'JS'
+  # Loaded only by pi-full: no extensions from them in plain pi.
+  node - "$AGENT/settings.json" "${EXTRA_PACKAGES[@]}" <<'JS'
 const fs = require("fs");
 const [file, ...extras] = process.argv.slice(2);
-const s = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
-const before = JSON.stringify(s);
-s.defaultProvider ??= "claude-code";
-s.defaultModel ??= "sonnet";
-s.defaultThinkingLevel ??= "medium";
-// pi-ui: Neon Night theme and no resource listing at startup, unless the user chose otherwise.
-s.theme ??= "neon-night";
-s.quietStartup ??= true;
-// Compact at ~60% of a 200k window instead of near the limit: every turn carries the whole conversation, so long
-// sessions answered slowly (one was at 63%). Kept if already set.
-s.compaction ??= {};
-s.compaction.reserveTokens ??= 80000;
-// Thinking folded to one line ("◇ penso ▸"): Ctrl+T opens it, the status bar shows it live.
-s.hideThinkingBlock ??= true;
-if (process.env.EXTRAS === "1") {
-  s.packages = (s.packages ?? []).map((p) => {
-    const source = typeof p === "string" ? p : p.source;
-    return extras.includes(source) ? { ...(typeof p === "string" ? { source } : p), extensions: [] } : p;
-  });
-}
-if (JSON.stringify(s) !== before) {
-  if (fs.existsSync(file)) fs.copyFileSync(file, `${file}.bak-install`);
-  fs.writeFileSync(file, JSON.stringify(s, null, 2) + "\n");
-}
-console.log(`    provider ${s.defaultProvider}/${s.defaultModel}, thinking ${s.defaultThinkingLevel}, tema ${s.theme}`);
+const s = JSON.parse(fs.readFileSync(file, "utf8"));
+s.packages = (s.packages ?? []).map((p) => {
+  const source = typeof p === "string" ? p : p.source;
+  return extras.includes(source) ? { ...(typeof p === "string" ? { source } : p), extensions: [] } : p;
+});
+fs.writeFileSync(file, JSON.stringify(s, null, 2) + "\n");
 JS
+fi
 
-# La conferma dei comandi pericolosi ora è in pi-ui (nella barra di stato): il vecchio permission-gate chiederebbe due volte.
+step "Pacchetto pi-claude e impostazioni"
+# The dangerous-command confirmation is in pi-ui (status bar): the old permission-gate would ask twice.
 if [ -L "$AGENT/extensions/permission-gate.ts" ] && [ "$(readlink "$AGENT/extensions/permission-gate.ts")" = "$PI_PKG/examples/extensions/permission-gate.ts" ]; then
   rm "$AGENT/extensions/permission-gate.ts"
   ok "permission-gate sostituito dalla conferma di pi-ui"
 fi
-
-if [ "$HOOKS" = 1 ]; then
-  step "Hook di sicurezza"
-  link "$REPO/extensions/protected-paths.ts" "$AGENT/extensions/protected-paths.ts"
+# protected-paths is part of the package now: the old link would load it twice.
+if [ -L "$AGENT/extensions/protected-paths.ts" ]; then
+  rm "$AGENT/extensions/protected-paths.ts"
+  ok "vecchio link di protected-paths rimosso (ora nel pacchetto)"
 fi
-
-step "Comandi"
-# intent.ts importa moduli vicini (./work-advisor.ts → ../pi-team): Pi non segue i symlink per gli import
-# relativi, quindi si registra il percorso reale in settings.json invece di un link in extensions/.
-[ -L "$AGENT/extensions/intent.ts" ] && rm "$AGENT/extensions/intent.ts"
-node - "$AGENT/settings.json" "$REPO/extensions/intent.ts" <<'JS'
-const fs = require("fs");
-const [file, extension] = process.argv.slice(2);
-const s = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
-s.extensions ??= [];
-if (!s.extensions.includes(extension)) {
-  s.extensions.push(extension);
-  fs.writeFileSync(file, JSON.stringify(s, null, 2) + "\n");
-}
-JS
-ok "intent ($REPO/extensions/intent.ts)"
-# lean-tools.ts importa ./lean/*.ts e ../pi-memory: percorso reale in settings.json. Solo i pezzi a costo fisso zero
-# sono accesi (riletture, output di bash, grep raggruppato); PI_LEAN=0 lo spegne (eval/LEAN-REPORT.md).
-node - "$AGENT/settings.json" "$REPO/extensions/lean-tools.ts" <<'JS'
-const fs = require("fs");
-const [file, extension] = process.argv.slice(2);
-const s = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
-s.extensions ??= [];
-if (!s.extensions.includes(extension)) {
-  s.extensions.push(extension);
-  fs.writeFileSync(file, JSON.stringify(s, null, 2) + "\n");
-}
-JS
-ok "lean-tools ($REPO/extensions/lean-tools.ts)"
-# loop.ts importa ./intent.ts e ../pi-team: stesso motivo, percorso reale in settings.json.
-node - "$AGENT/settings.json" "$REPO/extensions/loop.ts" <<'JS'
-const fs = require("fs");
-const [file, extension] = process.argv.slice(2);
-const s = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
-s.extensions ??= [];
-if (!s.extensions.includes(extension)) {
-  s.extensions.push(extension);
-  fs.writeFileSync(file, JSON.stringify(s, null, 2) + "\n");
-}
-JS
-ok "loop ($REPO/extensions/loop.ts)"
-# goal.ts importa ./intent.ts: stesso motivo, percorso reale in settings.json.
-[ -L "$AGENT/extensions/goal.ts" ] && rm "$AGENT/extensions/goal.ts"
-node - "$AGENT/settings.json" "$REPO/extensions/goal.ts" <<'JS'
-const fs = require("fs");
-const [file, extension] = process.argv.slice(2);
-const s = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
-s.extensions ??= [];
-if (!s.extensions.includes(extension)) {
-  s.extensions.push(extension);
-  fs.writeFileSync(file, JSON.stringify(s, null, 2) + "\n");
-}
-JS
-ok "goal ($REPO/extensions/goal.ts)"
-# memory.ts importa ./memory-core.ts e ../pi-memory/src (embedding locali, dipendenze in pi-memory/node_modules):
-# stesso motivo, percorso reale in settings.json.
-node - "$AGENT/settings.json" "$REPO/extensions/memory.ts" <<'JS'
-const fs = require("fs");
-const [file, extension] = process.argv.slice(2);
-const s = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
-s.extensions ??= [];
-if (!s.extensions.includes(extension)) {
-  s.extensions.push(extension);
-  fs.writeFileSync(file, JSON.stringify(s, null, 2) + "\n");
-}
-JS
-ok "memoria ($REPO/extensions/memory.ts)"
+[ -f "$AGENT/settings.json" ] && cp "$AGENT/settings.json" "$AGENT/settings.json.bak-install"
+# Defaults (claude-code/sonnet, Neon Night, compaction, Ctrl+V for images), one package entry instead of the old
+# per-file registrations. The same script runs on native Windows: node scripts/setup.mjs
+node "$REPO/scripts/setup.mjs"
 
 if [ "$EXTRAS" = 1 ]; then
   step "pi-full"
