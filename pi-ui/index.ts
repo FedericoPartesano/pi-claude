@@ -160,6 +160,11 @@ export default function (pi: ExtensionAPI) {
 			if (!/^https?:\/\//i.test(ref) && !existsSync(local)) continue;
 			images.push(ref);
 			pi.appendEntry("pi-ui-image", { ref });
+			// A new image is shown at full width: the side column (which would hide it) steps aside; Alt+S brings it back.
+			if (sidebarOn && getCapabilities().images) {
+				sidebarOn = false;
+				syncSidebar();
+			}
 		}
 	};
 
@@ -413,7 +418,7 @@ export default function (pi: ExtensionAPI) {
 			const ref = entry.data?.ref ?? "";
 			// Leave room for the panel: a thumbnail under the overlay would bleed its colors.
 			const room = width - (width >= 100 ? reservedRight : 0);
-			return renderImageEntry(ref, thumbnail(ref, thumbnailColumns(room)), room);
+			return renderImageEntry(ref, thumbnail(ref, thumbnailColumns(room)), room, { sidebarOpen: Boolean(sidebar) });
 		},
 		invalidate() {},
 	}));
