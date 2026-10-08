@@ -17,6 +17,7 @@ test("the fullscreen layout root becomes an hstack: the chat grows, the panel ha
 	assert.equal(node.type, "hstack");
 	assert.equal(node.entries[0].component, chat);
 	assert.equal(node.entries[0].grow, 1);
+	assert.equal(node.entries[0].basis, 0, "a numeric basis: the layout never measures the chat at full width (that doubled the Markdown work on each keystroke)");
 	assert.equal(node.entries[1].component, panel);
 	assert.equal(node.entries[1].basis, 41);
 	assert.equal(node.entries[1].visible?.({ width: 160, height: 40 }), true);

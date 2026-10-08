@@ -33,7 +33,9 @@ export function sidebarRoot(inner: Component, panel: Component, width: number): 
 			gap: 0,
 			align: "stretch",
 			entries: [
-				{ component: inner, grow: 1, shrink: 1 },
+				// basis 0 + grow: the chat takes the rest without being measured at full width first (measuring it at another
+				// width than it is drawn at defeated Pi's Markdown cache: ~84 ms per keystroke instead of ~7 on a long session).
+				{ component: inner, basis: 0, grow: 1, shrink: 1 },
 				{ component: panel, basis: width, shrink: 0, visible: (viewport) => viewport.width >= PINNED_MIN_COLUMNS },
 			],
 		}),

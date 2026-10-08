@@ -41,6 +41,91 @@ export interface GoalState {
 	idleContinuations: number;
 	intentFile?: string;
 	paused?: string;
+	/** When the goal started (ms), for the elapsed time. */
+	startedAt?: number;
+	/** The last notable thing that happened, for the panel ("chiusura rifiutata: mancano 2"). */
+	lastEvent?: string;
+}
+
+// ---- What the user sees: progress, state, chat lines ------------------------------------------------------------
+
+/** The intent's expected outcomes as a checklist: "[x] …" done, "[ ] …" or a plain bullet still to do. */
+export function outcomeMarks(outcomes: string[]): { text: string; done: boolean }[] {
+	return outcomes.map((outcome) => {
+		const match = /^\[( |x|X)\]\s*(.*)$/.exec(outcome);
+		return match ? { text: match[2], done: match[1] !== " " } : { text: outcome, done: false };
+	});
+}
+
+export interface GoalSnapshot {
+	state: "attivo" | "in pausa";
+	text: string;
+	intentFile?: string;
+	pausedReason?: string;
+	outcomes: { text: string; done: boolean }[];
+	done: number;
+	total: number;
+	round: number;
+	max: number;
+	minutes: number;
+	lastEvent?: string;
+	checks: string[];
+}
+
+export function goalSnapshot(goal: GoalState, outcomes: string[], now: number): GoalSnapshot {
+	const marks = outcomeMarks(outcomes);
+	return {
+		state: goal.paused ? "in pausa" : "attivo",
+		text: goal.text,
+		intentFile: goal.intentFile,
+		pausedReason: goal.paused,
+		outcomes: marks,
+		done: marks.filter((mark) => mark.done).length,
+		total: marks.length,
+		round: goal.continuations,
+		max: goal.max,
+		minutes: goal.startedAt === undefined ? 0 : Math.floor((now - goal.startedAt) / 60_000),
+		lastEvent: goal.lastEvent,
+		checks: goal.checks,
+	};
+}
+
+/** The footer's goal status: state, outcomes done, round. */
+export function statusText(snapshot: GoalSnapshot): string {
+	const progress = snapshot.total ? `${snapshot.done}/${snapshot.total} · ` : "";
+	return snapshot.state === "in pausa" ? `⏸ in pausa · ${progress}giro ${snapshot.round}/${snapshot.max}` : `▶ ${progress}giro ${snapshot.round}/${snapshot.max}`;
+}
+
+export type GoalEvent =
+	| { kind: "start"; text: string; intentFile?: string; total: number }
+	| { kind: "continue"; round: number; max: number; done: number; total: number; next?: string }
+	| { kind: "rejected"; missing: string[] }
+	| { kind: "check-failed"; check: string }
+	| { kind: "paused"; reason: string }
+	| { kind: "blocked"; reason: string }
+	| { kind: "done"; total: number; minutes: number }
+	| { kind: "stopped" };
+
+/** One line in the chat for each moment of the goal (an entry: shown to the user, never sent to the model). */
+export function eventLine(event: GoalEvent): string {
+	switch (event.kind) {
+		case "start":
+			return `▶ Goal avviato: ${event.text}${event.intentFile ? ` · ${event.intentFile}` : ""}${event.total ? ` · ${event.total} risultati attesi` : ""}`;
+		case "continue":
+			return `↻ Goal · giro ${event.round}/${event.max}${event.total ? ` · fatti ${event.done}/${event.total}` : ""}${event.next ? ` · prossimo: ${event.next}` : ""}`;
+		case "rejected":
+			return `✗ Chiusura rifiutata · mancano: ${event.missing.join(", ")}`;
+		case "check-failed":
+			return `✗ Chiusura rifiutata · il controllo \`${event.check}\` fallisce`;
+		case "paused":
+			return `⏸ Goal in pausa: ${event.reason} · /goal resume per riprendere`;
+		case "blocked":
+			return `⏸ Goal in attesa di te: ${event.reason} · /goal resume quando hai deciso`;
+		case "done":
+			return `✓ Goal completato${event.total ? ` · ${event.total}/${event.total} risultati` : ""} · ${event.minutes} min`;
+		case "stopped":
+			return "■ Goal chiuso dall'utente";
+	}
 }
 
 export interface TurnInfo {
@@ -85,11 +170,16 @@ const INTENTION = /\b(voglio|vorrei|dovrebbe|bisogna|nuova (funzionalità|featur
 const ACTION = /\b(correggi|aggiungi|crea|implementa|rinomina|sposta|scrivi|rimuovi|aggiorna|migra|refactor|genera|prepara|converti|sistema|integra)\w*/i;
 
 /** Large or vague goals get an intent file (persistence across sessions, explicit outcomes); small precise ones do not. */
+/**
+ * Whether /goal writes an intent first: its checklist of expected outcomes is what goal_done checks one by one, so any
+ * goal with more than one deliverable needs it (measured: a goal asking for a module, a test and a README closed with
+ * the one-proof minimum because it had no intent). Short single actions do without.
+ */
 export function shouldCreateIntent(text: string): boolean {
-	if (text.trim().length >= 160) return true;
+	if (text.trim().length >= 80) return true;
 	if (INTENTION.test(text)) return true;
-	const parts = text.split(/,|;|\b(?:e poi|poi|inoltre|infine|dopodiché)\b/i).filter((part) => ACTION.test(part)).length;
-	return parts >= 3;
+	const parts = text.split(/,|;|\s+e\s+|\b(?:e poi|poi|inoltre|infine|dopodiché)\b/i).filter((part) => ACTION.test(part) || /\b(test|readme|documenta)/i.test(part)).length;
+	return parts >= 2;
 }
 
 export function decideAfterSettle(state: GoalState, turn: TurnInfo): SettleDecision {
@@ -140,7 +230,7 @@ export function startMessages(state: GoalState, options: { intent?: Intent; crea
 		if (lines.length) lines.push("");
 		lines.push(
 			`Prima di iniziare scrivi l'intent ${createIntentAt}, sintetizzato da questo obiettivo senza fare domande:`,
-			`frontmatter con status: in-progress, created e source: user; sezioni ## Problema, ## Outcome atteso (punti verificabili),`,
+			`frontmatter con status: in-progress, created e source: user; sezioni ## Problema, ## Outcome atteso (checklist di punti verificabili: \`- [ ] …\`),`,
 			"## Utenti e sistemi impattati, ## Vincoli, ## Domande aperte, ## Verifica (blocco bash con i comandi che dimostrano il risultato, se esistono).",
 			"Gli Outcome atteso devono coprire tutto ciò che l'obiettivo chiede, anche le parti difficili o manuali (per esempio una verifica nel browser): goal_done li controllerà uno per uno e il goal non si chiude finché non sono fatti e provati.",
 		);
@@ -148,6 +238,7 @@ export function startMessages(state: GoalState, options: { intent?: Intent; crea
 	if (lines.length) lines.push("");
 	lines.push(
 		"Lavora in autonomia, un passo dopo l'altro, finché l'obiettivo non è raggiunto per intero.",
+		...(createIntentAt || state.intentFile ? ["Man mano che completi un risultato atteso, spuntalo nell'intent con la prova: `- [x] <risultato> — prova: <comando e risultato, test, file>` (l'utente segue l'avanzamento da lì)."] : []),
 		"Chiama goal_done solo quando ogni risultato atteso è fatto e provato: riporta ciascuno in outcomes con la prova (comando e risultato, test, file, cosa hai visto). Test verdi su una parte non bastano per il tutto; una parte non fatta non è un \"limite\" da scrivere nel riepilogo, è lavoro ancora da fare.",
 	);
 	if (state.checks.length > 0) lines.push(`goal_done esegue questi controlli e passa solo se riescono: ${state.checks.map((check) => `\`${check}\``).join(", ")}.`);
@@ -195,10 +286,10 @@ const MIN_EVIDENCE = 12;
  * check in Chrome, a real PDF) were not done, listing them as "limits" in its summary. Every expected outcome must be
  * reported done with evidence; without an intent, at least one proven point. Otherwise the reason says what is missing.
  */
-export function completionVerdict(outcomes: string[], reported: OutcomeReport[]): { ok: true } | { ok: false; reason: string } {
+export function completionVerdict(outcomes: string[], reported: OutcomeReport[]): { ok: true } | { ok: false; reason: string; missing: string[] } {
 	const proven = (report: OutcomeReport | undefined) => Boolean(report?.done && (report.evidence ?? "").trim().length >= MIN_EVIDENCE);
 	if (outcomes.length === 0) {
-		return reported.some(proven) ? { ok: true } : { ok: false, reason: "Elenca in outcomes almeno un punto dell'obiettivo fatto, con la prova (comando e risultato, test, file)." };
+		return reported.some(proven) ? { ok: true } : { ok: false, missing: ["la prova di almeno un punto"], reason: "Elenca in outcomes almeno un punto dell'obiettivo fatto, con la prova (comando e risultato, test, file)." };
 	}
 	const byNumber = new Map(reported.map((report) => [report.n, report]));
 	const notDone = outcomes.map((text, index) => ({ text, n: index + 1, report: byNumber.get(index + 1) })).filter(({ report }) => !report?.done);
@@ -207,6 +298,7 @@ export function completionVerdict(outcomes: string[], reported: OutcomeReport[])
 	const list = (items: { n: number; text: string }[]) => items.map(({ n, text }) => `${n}. ${text}`).join("\n");
 	return {
 		ok: false,
+		missing: [...notDone, ...unproven].sort((a, b) => a.n - b.n).map(({ n, text }) => `${n}. ${outcomeMarks([text])[0].text}`),
 		reason: [
 			...(notDone.length ? [`Non è finito: questi risultati attesi non sono fatti o non li hai riportati:\n${list(notDone)}`] : []),
 			...(unproven.length ? [`Manca la prova (comando e risultato, test, file, cosa hai visto) per:\n${list(unproven)}`] : []),
@@ -236,9 +328,20 @@ export default function (pi: ExtensionAPI) {
 		const others = pi.getActiveTools().filter((name) => name !== "goal_done");
 		pi.setActiveTools(on ? [...others, "goal_done"] : others);
 	};
+	/** Footer status and the state pi-ui shows in its panel (pi.events "goal:state"; undefined = no goal). */
 	const footer = (ctx: ExtensionContext) => {
+		const snapshot = goal ? goalSnapshot(goal, readIntent(ctx.cwd, goal.intentFile)?.outcomes ?? [], Date.now()) : undefined;
+		pi.events.emit("goal:state", snapshot);
 		if (!ctx.hasUI) return;
-		ctx.ui.setStatus("goal", goal ? (goal.paused ? `goal in pausa (${goal.continuations}/${goal.max})` : `goal ${goal.continuations}/${goal.max}`) : undefined);
+		ctx.ui.setStatus("goal", snapshot ? `goal ${statusText(snapshot)}` : undefined);
+	};
+	/** A line in the chat for a moment of the goal: an entry, shown but never sent to the model. */
+	const event = (ctx: ExtensionContext, goalEvent: GoalEvent) => {
+		const line = eventLine(goalEvent);
+		pi.appendEntry("goal-event", { line, kind: goalEvent.kind });
+		if (goal) goal.lastEvent = line.replace(/^\S+\s+/, "");
+		footer(ctx);
+		if (!ctx.hasUI) console.error(line);
 	};
 	const tell = (ctx: ExtensionContext, text: string, level: "info" | "warning" = "info") => {
 		if (ctx.hasUI) ctx.ui.notify(text, level);
@@ -247,8 +350,7 @@ export default function (pi: ExtensionAPI) {
 	const pause = (ctx: ExtensionContext, reason: string) => {
 		if (!goal) return;
 		goal.paused = reason;
-		footer(ctx);
-		tell(ctx, `Goal in pausa: ${reason}. /goal resume per riprendere, /goal stop per chiudere.`, "warning");
+		event(ctx, { kind: "paused", reason });
 	};
 	const finish = (ctx: ExtensionContext) => {
 		goal = undefined;
@@ -284,25 +386,40 @@ export default function (pi: ExtensionAPI) {
 				const text = (content: string) => ({ content: [{ type: "text" as const, text: content }], details: undefined });
 				if (!goal) return text("Nessun goal attivo.");
 				if (blocked) {
-					pause(ctx, "il modello chiede una decisione all'utente");
+					goal.paused = "serve una tua decisione";
+					event(ctx, { kind: "blocked", reason: summary.split("\n")[0].slice(0, 160) });
 					return text("Goal in pausa. Spiega all'utente cosa ti serve e fermati: riprenderà con /goal resume.");
 				}
 				// The intent as it is now (the model may have written it at the start): its outcomes and its Verifica commands.
 				const intent = readIntent(ctx.cwd, goal.intentFile);
 				const verdict = completionVerdict(intent?.outcomes ?? [], Array.isArray(reported) ? reported : []);
-				if (!verdict.ok) return text(verdict.reason);
+				if (!verdict.ok) {
+					event(ctx, { kind: "rejected", missing: verdict.missing });
+					return text(verdict.reason);
+				}
 				for (const check of [...new Set([...goal.checks, ...(intent?.checks ?? [])])]) {
 					const result = await runCheck(check, ctx.cwd, signal);
+					if (!result.ok) event(ctx, { kind: "check-failed", check });
 					if (!result.ok) return text(`Il controllo \`${check}\` fallisce, il goal resta aperto. Correggi e richiama goal_done.\n\n${result.output.trim()}`);
 				}
 				markIntent(ctx.cwd, goal.intentFile, "done");
 				const closed = goal;
+				event(ctx, { kind: "done", total: intent?.outcomes.length ?? 0, minutes: closed.startedAt === undefined ? 0 : Math.floor((Date.now() - closed.startedAt) / 60_000) });
 				finish(ctx);
-				tell(ctx, `Goal completato (${closed.continuations} continuazioni): ${summary.slice(0, 200)}`);
 				return text(`Goal completato${closed.checks.length > 0 ? ": tutti i controlli passano" : ""}. Riassumi all'utente in breve e fermati.`);
 			},
 		});
 	};
+
+	// The goal's moments in the chat: one coloured line each (entries, not sent to the model).
+	const COLORS: Record<string, "accent" | "success" | "warning" | "error" | "muted"> = { start: "accent", continue: "muted", rejected: "error", "check-failed": "error", paused: "warning", blocked: "warning", done: "success", stopped: "muted" };
+	const oneLine = (text: string, color: (text: string) => string) => ({
+		render: (width: number) => ["", ` ${color(text.length > width - 2 ? `${text.slice(0, width - 3)}…` : text)}`],
+		invalidate() {},
+	});
+	pi.registerEntryRenderer<{ line: string; kind: string }>("goal-event", (entry, _options, theme) => oneLine(entry.data?.line ?? "", (text) => theme.fg(COLORS[entry.data?.kind ?? ""] ?? "muted", text)));
+	// The reminder the model gets at each round: long for the model, one line for the user (the event above says the rest).
+	pi.registerMessageRenderer("goal-reminder", (_message, _options, theme) => oneLine("↳ promemoria del goal inviato al modello", (text) => theme.fg("dim", text)));
 
 	// The goal's working instructions ride along with its first turn, hidden from the chat.
 	let pendingInstructions: string | undefined;
@@ -328,6 +445,8 @@ export default function (pi: ExtensionAPI) {
 		setTool(true);
 		markIntent(ctx.cwd, state.intentFile, "in-progress");
 		footer(ctx);
+		state.startedAt = Date.now();
+		event(ctx, { kind: "start", text: intent?.title || state.text, intentFile: state.intentFile, total: intent?.outcomes.length ?? 0 });
 		const { visible, instructions } = startMessages(state, { intent, createIntentAt });
 		pendingInstructions = instructions;
 		await send(ctx, visible);
@@ -346,9 +465,11 @@ export default function (pi: ExtensionAPI) {
 		toolCalls = 0;
 		if (decision.action === "pause") return void pause(ctx, decision.reason);
 		goal.idleContinuations = calls === 0 ? goal.idleContinuations + 1 : 0;
-		const reminder = renderReminder(goal, readIntent(ctx.cwd, goal.intentFile));
+		const intentNow = readIntent(ctx.cwd, goal.intentFile);
+		const reminder = renderReminder(goal, intentNow);
 		goal.continuations++;
-		footer(ctx);
+		const marks = outcomeMarks(intentNow?.outcomes ?? []);
+		event(ctx, { kind: "continue", round: goal.continuations, max: goal.max, done: marks.filter((mark) => mark.done).length, total: marks.length, next: marks.find((mark) => !mark.done)?.text });
 		return { entries: [{ type: "custom_message", customType: "goal-reminder", content: reminder, display: true }], continue: true };
 	});
 
@@ -360,12 +481,15 @@ export default function (pi: ExtensionAPI) {
 			if (parsed.action === "status") {
 				// No goal: pick an open intent (prefills /goal @intents/...), or explain the usage.
 				if (!goal) return ctx.mode === "tui" && (await pickIntent(ctx)) ? undefined : tell(ctx, `Nessun goal attivo. ${USAGE}`);
-				return tell(ctx, `Goal: ${goal.text || goal.intentFile} · ${goal.continuations}/${goal.max} continuazioni${goal.paused ? ` · in pausa (${goal.paused})` : ""}${goal.checks.length > 0 ? ` · controlli: ${goal.checks.join(", ")}` : ""}`);
+				const snapshot = goalSnapshot(goal, readIntent(ctx.cwd, goal.intentFile)?.outcomes ?? [], Date.now());
+				const list = snapshot.outcomes.map((outcome, index) => `${outcome.done ? "✓" : "○"} ${index + 1}. ${outcome.text}`).join("\n");
+				return tell(ctx, [`Goal ${statusText(snapshot)} · ${snapshot.minutes} min: ${goal.text || goal.intentFile}`, ...(goal.intentFile ? [`Intent: ${goal.intentFile}`] : []), ...(list ? [list] : []), ...(goal.paused ? [`In pausa: ${goal.paused}`] : []), ...(goal.lastEvent ? [`Ultimo evento: ${goal.lastEvent}`] : []), ...(goal.checks.length ? [`Controlli: ${goal.checks.join(", ")}`] : [])].join("\n"));
 			}
 			if (parsed.action === "stop") {
 				if (!goal) return tell(ctx, "Nessun goal attivo.");
+				event(ctx, { kind: "stopped" });
 				finish(ctx);
-				return tell(ctx, "Goal chiuso.");
+				return;
 			}
 			if (!ctx.isIdle()) return tell(ctx, "Pi è occupato: aspetta la fine del turno.", "warning");
 			if (parsed.action === "resume") {
@@ -374,8 +498,9 @@ export default function (pi: ExtensionAPI) {
 					goal.continuations = 0;
 					goal.idleContinuations = 0;
 					toolCalls = 0;
-					footer(ctx);
-					return send(ctx, renderReminder(goal, readIntent(ctx.cwd, goal.intentFile)));
+					event(ctx, { kind: "continue", round: 0, max: goal.max, done: 0, total: 0, next: "ripreso dall'utente" });
+					pendingInstructions = renderReminder(goal, readIntent(ctx.cwd, goal.intentFile));
+					return send(ctx, `Riprendi il goal: ${goal.text || goal.intentFile}`);
 				}
 				const active = activeIntent(ctx.cwd);
 				if (!active) return tell(ctx, "Niente da riprendere: nessun goal in pausa né intent in-progress.", "warning");
