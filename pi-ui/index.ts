@@ -35,6 +35,7 @@ import { startTrace } from "./src/trace.ts";
 import { frameEditor } from "./src/editor.ts";
 import { phrase } from "./src/phrases.ts";
 import { completeStep, renderTurn, type Step } from "./src/steps.ts";
+import { describeActivity, findCommandProcess, sampleActivity, slowCommandHint, type Sample } from "./src/liveness.ts";
 import { checkOutcome, failingTests } from "./src/test-output.ts";
 import { renderFooter } from "./src/footer.ts";
 import { renderStatusBar } from "./src/status-bar.ts";
@@ -370,14 +371,43 @@ export default function (pi: ExtensionAPI) {
 			tui?.requestRender();
 		}, 150);
 	});
+	// Long commands: what they are doing (src/liveness.ts), sampled once a second and only while one runs.
+	type Watch = { command: string; startedAt: number; lastOutputAt?: number; pid?: number; sample?: Sample; live: NonNullable<Step["live"]> };
+	const watches = new Map<string, Watch>();
+	let watchTimer: ReturnType<typeof setInterval> | undefined;
+	const procfs = process.platform === "linux";
+	const watchTick = () => {
+		const now = Date.now();
+		for (const watch of watches.values()) {
+			if (now - watch.startedAt < 3000) continue;
+			if (procfs && watch.pid === undefined) watch.pid = findCommandProcess(process.pid, watch.command);
+			if (procfs && watch.pid !== undefined) watch.sample = sampleActivity(watch.pid, watch.sample) ?? watch.sample;
+			const sample = procfs ? watch.sample : undefined;
+			watch.live.activity = describeActivity({ cpu: sample?.cpu, state: sample?.state, comm: sample?.comm, silentMs: now - (watch.lastOutputAt ?? watch.startedAt) });
+		}
+	};
+	const stopWatch = (id: string) => {
+		watches.delete(id);
+		if (watches.size === 0 && watchTimer) {
+			clearInterval(watchTimer);
+			watchTimer = undefined;
+		}
+	};
 	pi.on("tool_execution_start", (event) => {
 		if (!active || event.parentToolCallId) return;
 		argsOf.set(event.toolCallId, event.args);
+		if (event.toolName === "bash" && process.env.PI_UI_LIVE !== "0") {
+			const command = String((event.args as { command?: unknown } | undefined)?.command ?? "");
+			watches.set(event.toolCallId, { command, startedAt: Date.now(), live: { hint: slowCommandHint(command) } });
+			watchTimer ??= setInterval(watchTick, 1000);
+			watchTimer.unref?.();
+		}
 		if (event.toolName === "subagent" || event.toolName === "team") agentCalls.set(event.toolCallId, { tool: event.toolName, args: event.args ?? {}, lines: [], startedAt: Date.now() });
 		liveThinking = "";
 		update({ type: "tool_start", activity: lower(phrase(event.toolName, event.args).text) });
 	});
 	pi.on("tool_execution_end", (event) => {
+		stopWatch(event.toolCallId);
 		if (!active || event.parentToolCallId) return;
 		if (event.toolName === "todo") plan = planFromDetails((event.result as { details?: unknown } | undefined)?.details) ?? plan;
 		const isTestRun = event.toolName === "bash" && /test/.test(phrase("bash", argsOf.get(event.toolCallId)).text);
@@ -395,6 +425,15 @@ export default function (pi: ExtensionAPI) {
 	});
 	// Thinking streamed by the model: the last lines in a dark box while it reasons; the box goes when it ends.
 	pi.on("tool_execution_update", (event) => {
+		const watch = watches.get(event.toolCallId);
+		if (watch) {
+			const lines = resultText(event.partialResult).split("\n").filter((line) => line.trim());
+			const last = lines[lines.length - 1]?.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "").slice(0, 300);
+			if (last && last !== watch.live.lastLine) {
+				watch.live.lastLine = last;
+				watch.lastOutputAt = Date.now();
+			}
+		}
 		const call = agentCalls.get(event.toolCallId);
 		if (!call) return;
 		call.partial = event.partialResult;
@@ -478,7 +517,10 @@ export default function (pi: ExtensionAPI) {
 						if (owner[0]?.id !== context.toolCallId) return [];
 						const room = Math.max(30, width - (width >= 100 ? reservedRight : 0));
 						const finished = owner !== liveTurn;
-						if (!finished) return renderTurn(owner, room, { expanded: context.expanded, finished, frame, now: Date.now() });
+						if (!finished) {
+							for (const entry of owner) if (!entry.done) entry.live = watches.get(entry.id)?.live;
+							return renderTurn(owner, room, { expanded: context.expanded, finished, frame, now: Date.now() });
+						}
 						const key = `turn|${turnKey(owner)}|${room}|${context.expanded}|${owner.length}|${owner.filter((entry) => entry.done).length}|${C.mag}`;
 						return remember(key, () => renderTurn(owner, room, { expanded: context.expanded, finished, frame, now: Date.now() }));
 					},
