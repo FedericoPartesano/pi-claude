@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { behindConPty, imageProtocolFor } from "../src/terminal.ts";
+import { behindConPty, imageProtocolFor, regularWidth } from "../src/terminal.ts";
 
 test("WezTerm reached through Windows ConPTY (WSL or native Windows) gets iTerm2 images: kitty is filtered there", () => {
 	assert.equal(behindConPty({ WSL_DISTRO_NAME: "Ubuntu", WEZTERM_PANE: "3" }, "linux"), true);
@@ -11,4 +11,12 @@ test("WezTerm reached through Windows ConPTY (WSL or native Windows) gets iTerm2
 	assert.equal(imageProtocolFor({ WSL_DISTRO_NAME: "Ubuntu", WEZTERM_PANE: "3" }, "linux"), "iterm2");
 	assert.equal(imageProtocolFor({ WEZTERM_PANE: "3" }, "linux"), undefined, "elsewhere pi-tui decides");
 	assert.equal(imageProtocolFor({ WSL_DISTRO_NAME: "Ubuntu", WEZTERM_PANE: "3", PI_UI_IMAGES: "kitty" }, "linux"), "kitty", "the user's choice wins");
+});
+
+test("regularWidth: one column short behind ConPTY, unchanged elsewhere", () => {
+	assert.equal(regularWidth(160, 0, false), 160);
+	assert.equal(regularWidth(160, 0, true), 159);
+	assert.equal(regularWidth(160, 40, false), 119);
+	assert.equal(regularWidth(160, 40, true), 118);
+	assert.equal(regularWidth(30, 40, true), 20);
 });

@@ -96,7 +96,9 @@ test("render: at most 5 memories within the char budget, short header", () => {
 	const many = Array.from({ length: 12 }, (_, i) => rec(`r${i}`, `Ricordo lungo ${"parola ".repeat(30)} ${i}`));
 	const text = renderRecall(many.map((record) => ({ record, score: 1 })));
 	assert.ok(text.length <= RECALL_BUDGET_CHARS);
-	assert.match(text, /^Ricordi pertinenti \(da sessioni precedenti\):/);
+	assert.match(text, /^Ricordi pertinenti \(da sessioni precedenti/);
+	// Context, not a request: the model must answer the user's message, not the memories (it once replied to them).
+	assert.match(text.split("\n")[0], /non sono una richiesta/);
 	assert.ok(text.split("\n").length - 1 <= 5);
 	assert.equal(renderRecall([]), "");
 });

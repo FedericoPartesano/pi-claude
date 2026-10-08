@@ -2,6 +2,8 @@
  * Icons of pi-ui. Nerd Font glyphs (codicons) where the terminal has them — WezTerm ships the Nerd Font symbols as a
  * fallback, so they show with any font — and plain Unicode elsewhere. PI_UI_ICONS=nerd|plain forces one set.
  */
+import { behindConPty } from "./terminal.ts";
+
 const NERD = {
 	read: "",
 	edit: "",
@@ -56,9 +58,14 @@ const PLAIN: Record<IconName, string> = {
 
 export type IconSet = "nerd" | "plain";
 
-/** Nerd icons on WezTerm (also inside tmux, which keeps WEZTERM_PANE), plain elsewhere; PI_UI_ICONS overrides. */
-export function iconSetFor(env: NodeJS.ProcessEnv): IconSet {
+/**
+ * Nerd icons on WezTerm (also inside tmux, which keeps WEZTERM_PANE), plain elsewhere; PI_UI_ICONS overrides. Not
+ * behind ConPTY (WezTerm on Windows or WSL): ConPTY measures private-use glyphs on the font, wider than pi-tui counts
+ * them, so a row with an icon overflows, the cursor drifts and redraws leave stale copies (a doubled status bar).
+ */
+export function iconSetFor(env: NodeJS.ProcessEnv, platform: string = process.platform): IconSet {
 	if (env.PI_UI_ICONS === "nerd" || env.PI_UI_ICONS === "plain") return env.PI_UI_ICONS;
+	if (behindConPty(env, platform)) return "plain";
 	return env.WEZTERM_PANE || env.TERM_PROGRAM === "WezTerm" ? "nerd" : "plain";
 }
 

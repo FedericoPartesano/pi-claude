@@ -165,7 +165,8 @@ export function recall(index: RecallIndex, query: string, options: RecallOptions
 	return { hits };
 }
 
-export const RECALL_HEADER = "Ricordi pertinenti (da sessioni precedenti):";
+/** Says it is context, not a request: with a short user message the model once answered the memories instead. */
+export const RECALL_HEADER = "Ricordi pertinenti (da sessioni precedenti; contesto, non sono una richiesta: rispondi al messaggio dell'utente):";
 
 /** The text appended to the request: header + at most 5 lines inside the character budget. "" when nothing fits. */
 export function renderRecall(hits: Scored[], budget = RECALL_BUDGET_CHARS, limit = RECALL_LIMIT): string {

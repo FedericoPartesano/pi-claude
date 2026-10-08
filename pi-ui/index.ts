@@ -15,7 +15,7 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
-import { CustomEditor, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { AgentSession, CustomEditor, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getCapabilities, setCapabilityOverrides, visibleWidth, type Component, type TUI } from "@earendil-works/pi-tui";
 import { linkFileRefs, vscodeUrl, wslDistro } from "./src/answer.ts";
 import { subagentRows, teamRows, type AgentRow } from "./src/agents.ts";
@@ -24,12 +24,13 @@ import { renderImageEntry, renderImageLoading, thumbnailColumns } from "./src/im
 import { findImageRefs, thumbnailFor, type Thumbnail } from "./src/images.ts";
 import { C, bg, bold, fg, fit, hud, label, usePalette } from "./src/palette.ts";
 import { PINNED_MIN_COLUMNS, sidebarRoot, type SidebarRoot } from "./src/sidebar.ts";
-import { imageProtocolFor } from "./src/terminal.ts";
+import { behindConPty, imageProtocolFor, regularWidth } from "./src/terminal.ts";
 import { activeIntent, planFromBranch, planFromDetails, type PlanTask } from "./src/sources.ts";
 import { PANEL_KEY, PANEL_WIDTH, parseAheadBehind, parseNumstat, parsePorcelain, renderPanel, type ChangedFile, type PanelInfo } from "./src/panel.ts";
 import { shouldNotify, toastScript } from "./src/notify.ts";
 import { answerFor, dangerReason } from "./src/permission.ts";
 import { extractSuggestions, renderSuggestions, SUGGESTION_MARK, SUGGESTION_PROMPT } from "./src/suggestions.ts";
+import { patchPromptRace, runtimeAgentSession } from "./src/prompt-race.ts";
 import { frameEditor } from "./src/editor.ts";
 import { phrase } from "./src/phrases.ts";
 import { completeStep, renderTurn, type Step } from "./src/steps.ts";
@@ -281,6 +282,8 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx: ExtensionContext) => {
 		if (ctx.mode !== "tui") return;
+		const session = (await runtimeAgentSession(process.argv[1], AgentSession)) as { prototype: Parameters<typeof patchPromptRace>[0] };
+		patchPromptRace(session.prototype);
 		active = true;
 		cwd = ctx.cwd;
 		// Resumed session: images for /img and the panel, suggestions for keys 1-4.
@@ -600,15 +603,16 @@ export default function (pi: ExtensionAPI) {
 	 */
 	const fullscreen = () => typeof (tui as unknown as LayoutHost | undefined)?.setLayoutRoot === "function";
 	const regularColumn = () => Boolean(closePanel) && !fullscreen() && wide();
+	const conpty = behindConPty(process.env, process.platform);
 	const patchRegularRender = () => {
 		const proto = (tui ? Object.getPrototypeOf(tui) : null) as { render: (width: number) => string[] } | null;
 		if (!proto || Object.prototype.hasOwnProperty.call(proto, "piUiColumn")) return;
 		const original = proto.render;
 		proto.render = function (this: unknown, width: number) {
-			if (!regularColumn()) return original.call(this, width);
+			if (!regularColumn()) return original.call(this, regularWidth(width, 0, conpty));
 			// No padding: the regular renderer erases each line it writes, and measuring every line of the conversation
 			// on each frame cost ~40 ms per keystroke on a long session.
-			return original.call(this, Math.max(20, width - PANEL_WIDTH - 1));
+			return original.call(this, regularWidth(width, PANEL_WIDTH, conpty));
 		};
 		Object.defineProperty(proto, "piUiColumn", { value: true });
 	};
@@ -675,7 +679,7 @@ export default function (pi: ExtensionAPI) {
 				closePanel = () => done();
 				return { render: (width: number) => cachedPanel(ctx, width, wide()), invalidate() {} };
 			},
-			{ overlay: true, overlayOptions: { anchor: "top-right", width: PANEL_WIDTH, maxHeight: wide() ? "100%" : "95%", margin: { top: wide() ? 0 : 1, right: 0 }, nonCapturing: true, visible: (width) => width >= 60 } },
+			{ overlay: true, overlayOptions: { anchor: "top-right", width: PANEL_WIDTH, maxHeight: wide() ? "100%" : "95%", margin: { top: wide() ? 0 : 1, right: conpty ? 1 : 0 }, nonCapturing: true, visible: (width) => width >= 60 } },
 		);
 		closePanel = undefined;
 		reservedRight = 0;

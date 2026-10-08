@@ -10,6 +10,12 @@ test("Nerd icons on WezTerm (also in tmux), plain elsewhere, PI_UI_ICONS wins", 
 	assert.equal(iconSetFor({ PI_UI_ICONS: "nerd" }), "nerd");
 });
 
+test("plain icons behind ConPTY (WezTerm on Windows/WSL): it measures Nerd glyphs on the font, wider than pi-tui thinks, and lines drift", () => {
+	assert.equal(iconSetFor({ WEZTERM_PANE: "3", WSL_DISTRO_NAME: "Ubuntu" }, "linux"), "plain");
+	assert.equal(iconSetFor({ WEZTERM_PANE: "3" }, "win32"), "plain");
+	assert.equal(iconSetFor({ WEZTERM_PANE: "3", WSL_DISTRO_NAME: "Ubuntu", PI_UI_ICONS: "nerd" }, "linux"), "nerd", "the user's choice wins");
+});
+
 test("each tool has an icon in the Nerd set and none in the plain one; HUD verbs", () => {
 	useIcons("nerd");
 	for (const tool of ["read", "edit", "write", "bash", "grep", "ls", "subagent", "fetch_content", "something"]) assert.ok(toolIcon(tool), tool);
