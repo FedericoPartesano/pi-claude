@@ -1,0 +1,27 @@
+{
+  "name": "pi-claude",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pi with Claude Code: Neon Night UI, deep memory, goals, intents, loops and lean tools, as one Pi package",
+  "keywords": ["pi-package"],
+  "license": "UNLICENSED",
+  "pi": {
+    "extensions": [
+      "./pi-claude-code/index.ts",
+      "./pi-picker/index.ts",
+      "./pi-ui/index.ts",
+      "./extensions/protected-paths.ts",
+      "./extensions/intent.ts",
+      "./extensions/lean-tools.ts",
+      "./extensions/loop.ts",
+      "./extensions/goal.ts",
+      "./extensions/memory.ts"
+    ],
+    "themes": ["./pi-ui/themes/*.json"]
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^3.7.0",
+    "jpeg-js": "^0.4.4",
+    "pngjs": "^7.0.0"
+  }
+}
