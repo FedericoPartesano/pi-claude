@@ -16,13 +16,15 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
 import { CustomEditor, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { getCapabilities, setCapabilityOverrides, type Component, type TUI } from "@earendil-works/pi-tui";
+import { getCapabilities, setCapabilityOverrides, visibleWidth, type Component, type TUI } from "@earendil-works/pi-tui";
 import { linkFileRefs, vscodeUrl, wslDistro } from "./src/answer.ts";
 import { subagentRows, teamRows, type AgentRow } from "./src/agents.ts";
 import { CHART_PROMPT, extractCharts, renderChart, type ChartSpec } from "./src/charts.ts";
 import { renderImageEntry, thumbnailColumns } from "./src/image-entry.ts";
 import { findImageRefs, thumbnailFor, type Thumbnail } from "./src/images.ts";
-import { C, bold, fg, fit, hud, label, usePalette } from "./src/palette.ts";
+import { C, bg, bold, fg, fit, hud, label, usePalette } from "./src/palette.ts";
+import { PINNED_MIN_COLUMNS, sidebarRoot, type SidebarRoot } from "./src/sidebar.ts";
+import { activeIntent, planFromBranch, planFromDetails, type PlanTask } from "./src/sources.ts";
 import { PANEL_KEY, PANEL_WIDTH, parseAheadBehind, parseNumstat, parsePorcelain, renderPanel, type ChangedFile, type PanelInfo } from "./src/panel.ts";
 import { shouldNotify, toastScript } from "./src/notify.ts";
 import { answerFor, dangerReason } from "./src/permission.ts";
@@ -117,6 +119,15 @@ export default function (pi: ExtensionAPI) {
 	const argsOf = new Map<string, Record<string, unknown>>();
 	/** Columns kept free on the right while the session panel is open (part 5). */
 	let reservedRight = 0;
+	/** Panel pinned as a side column (default; PI_UI_PANEL=float keeps it a toggled overlay). */
+	const pinned = process.env.PI_UI_PANEL !== "float";
+	let plan: PlanTask[] | undefined;
+	let intentInfo: ReturnType<typeof activeIntent>;
+	let saved = 0;
+	// lean-tools reports the tokens its compactions saved.
+	pi.events.on("lean:saved", (data) => {
+		saved += Number((data as { tokens?: number })?.tokens) || 0;
+	});
 	let cwd = process.cwd();
 	let suggestions: string[] = [];
 	let lastAnswer = "";
@@ -209,6 +220,8 @@ export default function (pi: ExtensionAPI) {
 		const restored = restoreSession(ctx.sessionManager.getBranch() as Parameters<typeof restoreSession>[0]);
 		images.splice(0, images.length, ...restored.images);
 		suggestions = restored.suggestions;
+		plan = planFromBranch(ctx.sessionManager.getBranch() as Iterable<unknown>);
+		intentInfo = activeIntent(ctx.cwd);
 		if (process.env.PI_UI_PERMISSION !== "0") {
 			askInBar = (question) => new Promise((resolveAnswer) => {
 				pendingAnswer = resolveAnswer;
@@ -227,6 +240,7 @@ export default function (pi: ExtensionAPI) {
 		ctx.ui.setWidget("pi-ui-status", (widgetTui) => {
 			tui = widgetTui;
 			return line((width) => {
+				syncSidebar();
 				// The palette follows Pi's theme (/settings → Theme: neon-night, lilla or night-city): on a switch, redraw everything once.
 				if (usePalette(ctx.ui.theme.name)) widgetTui.requestRender();
 				return renderStatusBar(status, width, Date.now(), frame);
@@ -281,6 +295,7 @@ export default function (pi: ExtensionAPI) {
 	});
 	pi.on("tool_execution_end", (event) => {
 		if (!active || event.parentToolCallId) return;
+		if (event.toolName === "todo") plan = planFromDetails((event.result as { details?: unknown } | undefined)?.details) ?? plan;
 		const isTestRun = event.toolName === "bash" && /test/.test(phrase("bash", argsOf.get(event.toolCallId)).text);
 		const failed = event.toolName === "bash" ? checkOutcome(resultText(event.result), event.isError, isTestRun).failed : event.isError;
 		update({ type: "tool_end", failed });
@@ -336,6 +351,7 @@ export default function (pi: ExtensionAPI) {
 	});
 	pi.on("agent_settled", (_event, ctx) => {
 		if (!active) return;
+		intentInfo = activeIntent(ctx.cwd);
 		clearInterval(spinner);
 		liveThinking = "";
 		update({ type: "settled", at: Date.now(), outcome });
@@ -424,46 +440,97 @@ export default function (pi: ExtensionAPI) {
 		return undefined;
 	});
 
-	// Session panel: overlay on the right that never takes the keyboard; steps leave room for it on wide terminals.
+	// Session panel. Fullscreen on a wide terminal: a real side column (the layout root becomes an hstack, see
+	// src/sidebar.ts). Otherwise an overlay on the right that never takes the keyboard; steps leave room for it.
+	let panelCtx: ExtensionContext | undefined;
+	const panelLines = (ctx: ExtensionContext, width: number, column: boolean): string[] => {
+		const usage = readUsage();
+		const context = ctx.getContextUsage();
+		const last = images[images.length - 1];
+		const thumb = last ? thumbnail(last, width - 4) : undefined;
+		const rows = process.stdout.rows ?? 40;
+		const lines = renderPanel({
+			session: statuses,
+			files,
+			failures: lastFailures,
+			image: last && thumb && "lines" in thumb ? { ref: last, lines: thumb.lines.slice(0, 8) } : undefined,
+			turn: { mode: status.mode, steps: status.step, seconds: elapsedSeconds(status, Date.now()), tokensIn: status.tokensIn, tokensOut: status.tokensOut },
+			activity,
+			git,
+			memory: statuses.get("memory"),
+			suggestions,
+			agents: agentRows(),
+			now: Date.now(),
+			plan,
+			intent: intentInfo,
+			saved,
+			usage: {
+				fiveHour: usage?.fiveHour,
+				sevenDay: usage?.sevenDay,
+				contextPercent: context?.percent ?? undefined,
+				contextTokens: context?.tokens ?? undefined,
+				contextWindow: context?.contextWindow ?? ctx.model?.contextWindow,
+				model: ctx.model?.id ?? "?",
+				thinking: pi.getThinkingLevel(),
+			},
+		}, width, panelKey, Math.max(12, rows - (column ? 1 : 3)));
+		// As a column it runs to the bottom of the screen.
+		const blank = `${fg(C.mag, "▌")}${bg(C.panel, " ".repeat(Math.max(0, width - 1)))}`;
+		return column && lines.length < rows - 1 ? [...lines, ...Array(rows - 1 - lines.length).fill(blank)] : lines;
+	};
+
+	type LayoutHost = { layoutRoot?: Component; setLayoutRoot?: (component: Component | undefined) => void; requestRender: () => void };
+	let sidebarOn = false;
+	let sidebar: SidebarRoot | undefined;
+	const sidebarComponent: Component = { render: (width) => (panelCtx ? panelLines(panelCtx, width, true) : []), invalidate() {} };
+	const wide = () => (process.stdout.columns ?? 0) >= PINNED_MIN_COLUMNS;
+	/** Fullscreen renderer with a layout root to wrap (regular mode has none: the overlay is used there). */
+	const layoutHost = (): LayoutHost | undefined => {
+		const host = tui as unknown as LayoutHost | undefined;
+		return host && typeof host.setLayoutRoot === "function" && (host.layoutRoot || sidebar) ? host : undefined;
+	};
+	/** Wraps or unwraps Pi's layout root to match sidebarOn (Pi may set its root again: checked on every frame). */
+	const syncSidebar = () => {
+		const host = layoutHost();
+		if (!host) return;
+		const current = host.layoutRoot;
+		const wanted = sidebarOn && wide();
+		if (wanted && current && current !== sidebar) {
+			sidebar = sidebarRoot(current, sidebarComponent, PANEL_WIDTH);
+			const next = sidebar;
+			setTimeout(() => {
+				host.setLayoutRoot?.(next);
+				host.requestRender();
+			}, 0);
+		} else if (!wanted && sidebar && current === sidebar) {
+			const inner = sidebar.inner;
+			sidebar = undefined;
+			setTimeout(() => {
+				host.setLayoutRoot?.(inner);
+				host.requestRender();
+			}, 0);
+		}
+	};
+
 	const togglePanel = async (ctx: ExtensionContext) => {
 		if (!active) return;
+		panelCtx = ctx;
+		if (layoutHost() && wide()) {
+			// Side column: Alt+S hides and shows it.
+			if (closePanel) closePanel();
+			sidebarOn = !sidebarOn;
+			if (sidebarOn) void refreshChanges(ctx.cwd);
+			syncSidebar();
+			tui?.requestRender();
+			return;
+		}
 		if (closePanel) return closePanel();
 		void refreshChanges(ctx.cwd);
 		reservedRight = PANEL_WIDTH + 1;
 		await ctx.ui.custom<void>(
 			(_panelTui, _theme, _keybindings, done) => {
 				closePanel = () => done();
-				return {
-					render: (width: number) => {
-						const usage = readUsage();
-						const context = ctx.getContextUsage();
-						const last = images[images.length - 1];
-						const thumb = last ? thumbnail(last, width - 4) : undefined;
-						return renderPanel({
-							session: statuses,
-							files,
-							failures: lastFailures,
-							image: last && thumb && "lines" in thumb ? { ref: last, lines: thumb.lines.slice(0, 8) } : undefined,
-							turn: { mode: status.mode, steps: status.step, seconds: elapsedSeconds(status, Date.now()), tokensIn: status.tokensIn, tokensOut: status.tokensOut },
-							activity,
-							git,
-							memory: statuses.get("memory"),
-							suggestions,
-							agents: agentRows(),
-							now: Date.now(),
-							usage: {
-								fiveHour: usage?.fiveHour,
-								sevenDay: usage?.sevenDay,
-								contextPercent: context?.percent ?? undefined,
-								contextTokens: context?.tokens ?? undefined,
-								contextWindow: context?.contextWindow ?? ctx.model?.contextWindow,
-								model: ctx.model?.id ?? "?",
-								thinking: pi.getThinkingLevel(),
-							},
-						}, width, panelKey);
-					},
-					invalidate() {},
-				};
+				return { render: (width: number) => panelLines(ctx, width, false), invalidate() {} };
 			},
 			{ overlay: true, overlayOptions: { anchor: "top-right", width: PANEL_WIDTH, maxHeight: "95%", margin: { top: 1, right: 0 }, nonCapturing: true, visible: (width) => width >= 60 } },
 		);
@@ -471,6 +538,14 @@ export default function (pi: ExtensionAPI) {
 		reservedRight = 0;
 		tui?.requestRender();
 	};
+	// Pinned: the panel opens with the session as a side column on wide terminals (Alt+S still hides and shows it).
+	pi.on("session_start", (_event, ctx) => {
+		if (ctx.mode !== "tui" || !pinned) return;
+		panelCtx = ctx;
+		// The side column only (fullscreen, wide): an overlay opened by itself would cover the chat.
+		sidebarOn = true;
+		void refreshChanges(ctx.cwd);
+	});
 	pi.registerShortcut(panelKey as Parameters<typeof pi.registerShortcut>[0], { description: "Pannello della sessione: goal/loop/team, file, test, immagini, uso", handler: togglePanel });
 	pi.registerCommand("pannello", { description: `Apre o chiude il pannello della sessione (come ${panelKey})`, handler: async (_args, ctx) => togglePanel(ctx) });
 

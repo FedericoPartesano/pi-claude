@@ -154,6 +154,12 @@ export default function (pi: ExtensionAPI) {
 		for (const event of ["session_compact", "session_tree", "session_start"] as const) pi.on(event, () => tracker.reset());
 	}
 
+	/** Tokens saved (estimated: characters / 3.6), for pi-ui's panel. */
+	const report = (before: string, after: string) => {
+		const tokens = Math.round((before.length - after.length) / 3.6);
+		if (tokens > 0) pi.events.emit("lean:saved", { tokens });
+	};
+
 	pi.on("tool_result", (event) => {
 		if (event.isError) {
 			if (event.toolName !== "bash") return undefined;
@@ -162,6 +168,7 @@ export default function (pi: ExtensionAPI) {
 		if (event.toolName === "read" && on("REREAD") && !event.content.some((block) => block.type === "image")) {
 			const input = event.input as { path?: string; offset?: number; limit?: number };
 			const note = tracker.check({ path: String(input.path ?? ""), offset: input.offset, limit: input.limit, content: body, minChars: 400 });
+			if (note) report(body, note);
 			return note ? { content: [{ type: "text", text: note }] } : undefined;
 		}
 		if (event.toolName === "bash" && on("BASH")) {
@@ -180,13 +187,17 @@ export default function (pi: ExtensionAPI) {
 			if (regrouped !== undefined) source = regrouped;
 			const compacting = () => compactBash(source, { command, exitCode: event.isError ? 1 : 0, fullOutputPath });
 			let compact = compacting();
-			if (compact === undefined) return regrouped === undefined ? undefined : { content: [{ type: "text", text: regrouped }] };
+			if (compact === undefined) {
+				if (regrouped !== undefined) report(body, regrouped);
+				return regrouped === undefined ? undefined : { content: [{ type: "text", text: regrouped }] };
+			}
 			if (!fullOutputPath && compact.includes("righe omesse")) {
 				// Keep the full output reachable: write it where the model can read ranges of it.
 				fullOutputPath = join(mkdtempSync(join(tmpdir(), "pi-lean-")), "output.log");
 				writeFileSync(fullOutputPath, source);
 				compact = compacting();
 			}
+			if (compact !== undefined) report(body, compact);
 			return compact === undefined ? undefined : { content: [{ type: "text", text: compact }] };
 		}
 		return undefined;

@@ -109,7 +109,7 @@ export function renderReminder(state: GoalState, intent?: Intent): string {
 		...(state.intentFile ? [`Riferimento: ${state.intentFile}`] : []),
 		...bullets("Outcome atteso", intent?.outcomes ?? []),
 		...bullets("Vincoli", intent?.constraints ?? []),
-		"Continua con il prossimo passo concreto. Quando l'obiettivo è raggiunto chiama goal_done con un riepilogo" +
+		"Continua con il prossimo passo concreto. Quando ogni risultato atteso è fatto e provato chiama goal_done con outcomes (n, done, evidence)" +
 			(state.checks.length > 0 ? " (eseguirà i controlli)." : ".") +
 			" Se non puoi procedere senza l'utente, chiama goal_done con blocked: true e spiega cosa ti serve.",
 	].join("\n");
@@ -142,10 +142,14 @@ export function startMessages(state: GoalState, options: { intent?: Intent; crea
 			`Prima di iniziare scrivi l'intent ${createIntentAt}, sintetizzato da questo obiettivo senza fare domande:`,
 			`frontmatter con status: in-progress, created e source: user; sezioni ## Problema, ## Outcome atteso (punti verificabili),`,
 			"## Utenti e sistemi impattati, ## Vincoli, ## Domande aperte, ## Verifica (blocco bash con i comandi che dimostrano il risultato, se esistono).",
+			"Gli Outcome atteso devono coprire tutto ciò che l'obiettivo chiede, anche le parti difficili o manuali (per esempio una verifica nel browser): goal_done li controllerà uno per uno e il goal non si chiude finché non sono fatti e provati.",
 		);
 	}
 	if (lines.length) lines.push("");
-	lines.push("Lavora in autonomia, un passo dopo l'altro, finché l'obiettivo non è raggiunto. Quando hai finito chiama il tool goal_done con un riepilogo.");
+	lines.push(
+		"Lavora in autonomia, un passo dopo l'altro, finché l'obiettivo non è raggiunto per intero.",
+		"Chiama goal_done solo quando ogni risultato atteso è fatto e provato: riporta ciascuno in outcomes con la prova (comando e risultato, test, file, cosa hai visto). Test verdi su una parte non bastano per il tutto; una parte non fatta non è un \"limite\" da scrivere nel riepilogo, è lavoro ancora da fare.",
+	);
 	if (state.checks.length > 0) lines.push(`goal_done esegue questi controlli e passa solo se riescono: ${state.checks.map((check) => `\`${check}\``).join(", ")}.`);
 	lines.push("Se ti serve una decisione dell'utente, chiama goal_done con blocked: true.");
 	return { visible: visible.join("\n"), instructions: lines.join("\n") };
@@ -174,6 +178,41 @@ export function runCheck(command: string, cwd: string, signal?: AbortSignal): Pr
 		child.on("error", (error) => resolve({ ok: false, output: `${output}\n${error.message}` }));
 		child.on("close", (code) => resolve({ ok: code === 0, output }));
 	});
+}
+
+export interface OutcomeReport {
+	/** Number of the expected outcome (1-based, as listed in the intent). */
+	n: number;
+	done: boolean;
+	/** What proves it: a command and its result, a test, a file, what was seen in the browser. */
+	evidence: string;
+}
+
+const MIN_EVIDENCE = 12;
+
+/**
+ * Whether goal_done may close the goal. Measured: the model closed a goal with green tests while parts of it (a manual
+ * check in Chrome, a real PDF) were not done, listing them as "limits" in its summary. Every expected outcome must be
+ * reported done with evidence; without an intent, at least one proven point. Otherwise the reason says what is missing.
+ */
+export function completionVerdict(outcomes: string[], reported: OutcomeReport[]): { ok: true } | { ok: false; reason: string } {
+	const proven = (report: OutcomeReport | undefined) => Boolean(report?.done && (report.evidence ?? "").trim().length >= MIN_EVIDENCE);
+	if (outcomes.length === 0) {
+		return reported.some(proven) ? { ok: true } : { ok: false, reason: "Elenca in outcomes almeno un punto dell'obiettivo fatto, con la prova (comando e risultato, test, file)." };
+	}
+	const byNumber = new Map(reported.map((report) => [report.n, report]));
+	const notDone = outcomes.map((text, index) => ({ text, n: index + 1, report: byNumber.get(index + 1) })).filter(({ report }) => !report?.done);
+	const unproven = outcomes.map((text, index) => ({ text, n: index + 1, report: byNumber.get(index + 1) })).filter(({ report }) => report?.done && !proven(report));
+	if (!notDone.length && !unproven.length) return { ok: true };
+	const list = (items: { n: number; text: string }[]) => items.map(({ n, text }) => `${n}. ${text}`).join("\n");
+	return {
+		ok: false,
+		reason: [
+			...(notDone.length ? [`Non è finito: questi risultati attesi non sono fatti o non li hai riportati:\n${list(notDone)}`] : []),
+			...(unproven.length ? [`Manca la prova (comando e risultato, test, file, cosa hai visto) per:\n${list(unproven)}`] : []),
+			"Il goal resta aperto: continua a lavorarci. Se non puoi farli senza una decisione o un accesso dell'utente, chiama goal_done con blocked: true e spiega cosa ti serve.",
+		].join("\n\n"),
+	};
 }
 
 function readIntent(cwd: string, file: string | undefined): Intent | undefined {
@@ -224,27 +263,35 @@ export default function (pi: ExtensionAPI) {
 			name: "goal_done",
 			label: "Goal done",
 			description:
-				"Call when the current goal is reached, with a short summary of what was done and how each expected outcome is met. " +
-				"If check commands are set they run now and the goal closes only if they pass; otherwise you get their output and keep working. " +
-				"Set blocked: true when you cannot continue without a decision from the user, and explain what you need.",
+				"Call only when every expected outcome of the goal is done and proven. Report each one in outcomes (n as numbered in the intent, done, evidence: command and result, test, file, what you saw). " +
+				"The goal closes only if all are done with evidence and the check commands pass; otherwise it stays open and you keep working. " +
+				"Something you cannot do without the user: blocked: true, and explain what you need. Never close with parts left as 'limits'.",
 			parameters: {
 				type: "object",
 				properties: {
-					summary: { type: "string", description: "What was done and how the expected outcomes are met" },
-					blocked: { type: "boolean", description: "True if you need the user to continue" },
+					summary: { type: "string" },
+					outcomes: {
+						type: "array",
+						items: { type: "object", properties: { n: { type: "number" }, done: { type: "boolean" }, evidence: { type: "string" } }, required: ["n", "done", "evidence"] },
+					},
+					blocked: { type: "boolean" },
 				},
 				required: ["summary"],
 			} as never,
 
 			async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-				const { summary, blocked } = params as { summary: string; blocked?: boolean };
+				const { summary, blocked, outcomes: reported = [] } = params as { summary: string; blocked?: boolean; outcomes?: OutcomeReport[] };
 				const text = (content: string) => ({ content: [{ type: "text" as const, text: content }], details: undefined });
 				if (!goal) return text("Nessun goal attivo.");
 				if (blocked) {
 					pause(ctx, "il modello chiede una decisione all'utente");
 					return text("Goal in pausa. Spiega all'utente cosa ti serve e fermati: riprenderà con /goal resume.");
 				}
-				for (const check of goal.checks) {
+				// The intent as it is now (the model may have written it at the start): its outcomes and its Verifica commands.
+				const intent = readIntent(ctx.cwd, goal.intentFile);
+				const verdict = completionVerdict(intent?.outcomes ?? [], Array.isArray(reported) ? reported : []);
+				if (!verdict.ok) return text(verdict.reason);
+				for (const check of [...new Set([...goal.checks, ...(intent?.checks ?? [])])]) {
 					const result = await runCheck(check, ctx.cwd, signal);
 					if (!result.ok) return text(`Il controllo \`${check}\` fallisce, il goal resta aperto. Correggi e richiama goal_done.\n\n${result.output.trim()}`);
 				}
