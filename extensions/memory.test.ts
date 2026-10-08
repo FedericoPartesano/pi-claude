@@ -141,3 +141,16 @@ test("buildDreamPrompt numbers the memory and stays compact", () => {
 	assert.match(prompt, /"add"/);
 	assert.ok(prompt.length < 3500, String(prompt.length));
 });
+
+test("parseProposal: a type the model made up (regola, rule…) becomes a valid one instead of losing the entry", () => {
+	const reply = JSON.stringify({ add: [
+		{ type: "regola", text: "Ogni modifica aggiunge una riga in CHANGES-local.md." },
+		{ type: "Preferenza", text: "Risposte brevi." },
+		{ type: "rule", text: "Niente console.log nel sorgente." },
+	] });
+	const parsed = parseProposal(reply, 0);
+	assert.ok(parsed.ok);
+	if (!parsed.ok) return;
+	assert.deepEqual(parsed.proposal.add.map((entry) => entry.type), ["decisione", "preferenza", "decisione"]);
+	assert.deepEqual(parsed.skipped, []);
+});

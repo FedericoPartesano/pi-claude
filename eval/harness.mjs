@@ -1,6 +1,7 @@
 // Drivers that run a multi-turn conversation against Claude Code (native) or Pi (claude-code
 // bridge) inside a working directory, and collect per-turn metrics.
 import { spawn } from "node:child_process";
+import { appendFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
 const TURN_TIMEOUT_MS = Number(process.env.EVAL_TURN_TIMEOUT_MS ?? 300_000);
@@ -13,6 +14,29 @@ const CLAUDE_ALLOWED_TOOLS = [
 	"Bash(find:*)", "Bash(du:*)", "Bash(awk:*)", "Bash(sed:*)", "Bash(cut:*)", "Bash(echo:*)",
 	"Bash(mkdir:*)", "Bash(cp:*)", "Bash(mv:*)", "Bash(touch:*)", "Bash(diff:*)", "Bash(jq:*)",
 ];
+// Round 2: the commands Pi ran freely in the smoke run (npx vitest, tsc, rm, cd … &&) so the two are not unequal.
+const CLAUDE_ALLOWED_TOOLS_ROUND2 = [...CLAUDE_ALLOWED_TOOLS, "Bash(npx:*)", "Bash(tsc:*)", "Bash(rm:*)", "Bash(cd:*)", "Bash(pwd:*)", "Bash(printf:*)", "Bash(tr:*)", "Bash(xargs:*)", "Bash(tee:*)", "Bash(sh:*)", "Bash(bash:*)", "Bash(set:*)", "Bash(test:*)", "Bash(true:*)", "Bash(env:*)"];
+
+/** Claude Code's arguments. noWeb (round 2): web tools disallowed and the wider command allowlist. */
+export function claudeArgs(model, { effort, noWeb = false } = {}) {
+	return [
+		"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+		"--model", model, "--no-session-persistence",
+		"--permission-mode", "acceptEdits", "--allowedTools", (noWeb ? CLAUDE_ALLOWED_TOOLS_ROUND2 : CLAUDE_ALLOWED_TOOLS).join(","),
+		...(noWeb ? ["--disallowedTools", "WebFetch,WebSearch"] : []),
+		...(effort ? ["--effort", effort] : []),
+	];
+}
+
+/** The shared usage file's record, as the Pi bridge writes it, from a Claude Code rate_limit_event. */
+export function usageRecord(info) {
+	return {
+		fiveHourUtilization: info?.unifiedWindows?.five_hour?.utilization,
+		sevenDayUtilization: info?.unifiedWindows?.seven_day?.utilization,
+		isUsingOverage: info?.isUsingOverage ?? false,
+		updatedAt: new Date().toISOString(),
+	};
+}
 
 class JsonLineProcess {
 	constructor(command, args, cwd, environment = {}) {
@@ -47,18 +71,35 @@ function emptyTurn(prompt) {
 	return { prompt, answer: "", seconds: 0, requests: 0, inputTokens: 0, outputTokens: 0, tools: [], errors: [], denials: 0, timedOut: false };
 }
 
+/**
+ * End of a Claude Code turn. Streamed assistant messages carry partial usage (output_tokens 1 while streaming); the
+ * result record has the turn totals, so they replace the streamed counts when present.
+ */
+export function applyClaudeResult(turn, record) {
+	turn.answer = record.result ?? "";
+	if (record.is_error) turn.errors.push(`result error: ${record.subtype} ${String(record.result ?? "").slice(0, 200)}`);
+	turn.denials = record.permission_denials?.length ?? 0;
+	const usage = record.usage;
+	if (usage) {
+		turn.inputTokens = (usage.input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0);
+		turn.outputTokens = usage.output_tokens ?? 0;
+	}
+}
+
 export class ClaudeCodeHarness {
 	name = "claude-code";
-	constructor(cwd, model) {
-		this.process = new JsonLineProcess(
-			"claude",
-			[
-				"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-				"--model", model, "--no-session-persistence",
-				"--permission-mode", "acceptEdits", "--allowedTools", CLAUDE_ALLOWED_TOOLS.join(","),
-			],
-			cwd,
-		);
+	constructor(cwd, model, { effort, noWeb = false, environment = {}, logPath, usageFile } = {}) {
+		this.process = new JsonLineProcess("claude", claudeArgs(model, { effort, noWeb }), cwd, environment);
+		// Transcript for the analysis and the leak audit (Pi has its debug log).
+		if (logPath) this.process.listeners.add((record) => appendFileSync(logPath, `${JSON.stringify(record)}\n`));
+		// Keep the shared usage file fresh while only Claude Code runs (the Pi bridge updates it otherwise).
+		if (usageFile) this.process.listeners.add((record) => {
+			if (record.type === "rate_limit_event") {
+				try {
+					writeFileSync(usageFile, JSON.stringify(usageRecord(record.rate_limit_info)));
+				} catch {}
+			}
+		});
 	}
 	runTurn(prompt) {
 		const turn = emptyTurn(prompt);
@@ -92,9 +133,7 @@ export class ClaudeCodeHarness {
 					for (const block of record.message.content ?? []) if (block.type === "tool_use") turn.tools.push(block.name);
 				}
 				if (record.type === "result") {
-					turn.answer = record.result ?? "";
-					if (record.is_error) turn.errors.push(`result error: ${record.subtype} ${String(record.result ?? "").slice(0, 200)}`);
-					turn.denials = record.permission_denials?.length ?? 0;
+					applyClaudeResult(turn, record);
 					finish();
 				}
 			};
@@ -107,13 +146,18 @@ export class ClaudeCodeHarness {
 	}
 }
 
+/** Pi's RPC arguments; persistSession saves the session where Pi normally does (for /dream). */
+export function piArgs(model, { extraArgs = [], persistSession = false } = {}) {
+	return ["--mode", "rpc", ...(persistSession ? [] : ["--no-session"]), "--provider", "claude-code", "--model", model, ...(process.env.EVAL_PI_THINKING ? ["--thinking", process.env.EVAL_PI_THINKING] : []), ...extraArgs];
+}
+
 export class PiHarness {
 	name = "pi";
-	constructor(cwd, model, debugLogPath, { extraArgs = [], environment = {} } = {}) {
+	constructor(cwd, model, debugLogPath, { extraArgs = [], environment = {}, persistSession = false } = {}) {
 		this.dialogs = 0;
 		this.process = new JsonLineProcess(
 			"pi",
-			["--mode", "rpc", "--no-session", "--provider", "claude-code", "--model", model, ...(process.env.EVAL_PI_THINKING ? ["--thinking", process.env.EVAL_PI_THINKING] : []), ...extraArgs],
+			piArgs(model, { extraArgs, persistSession }),
 			cwd,
 			{ ...(debugLogPath ? { PI_CLAUDE_DEBUG: debugLogPath } : {}), ...environment },
 		);

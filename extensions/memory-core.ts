@@ -231,6 +231,22 @@ export function enforceCap(memory: MemoryEntry[], archive: MemoryEntry[], maxCha
 /** The model sometimes echoes the metadata it was shown ("(conferme 3, ultima 2026-10-01)", "(c 1, ultima …)"). */
 const cleanText = (text: string) => text.replace(/\s*\((?:c|conferme)[:\s]+\d+[^)]*ultima[^)]*\)/gi, "").trim();
 
+/**
+ * Types the consolidation model writes instead of ours (measured: haiku proposed a taught project rule as "regola" and
+ * the entry was lost). Recognisable synonyms map to a valid type, case aside; nonsense stays invalid.
+ */
+const TYPE_SYNONYMS: Record<string, MemoryType> = {
+	regola: "decisione", regole: "decisione", rule: "decisione", rules: "decisione", convenzione: "decisione", convention: "decisione",
+	vincolo: "decisione", constraint: "decisione", policy: "decisione", norma: "decisione", standard: "decisione", decision: "decisione",
+	preference: "preferenza", correction: "correzione", fact: "fatto", episode: "episodio", evento: "episodio", event: "episodio",
+};
+
+export function normalizeType(type: unknown): unknown {
+	if (typeof type !== "string") return type;
+	const lower = type.trim().toLowerCase();
+	return (MEMORY_TYPES as readonly string[]).includes(lower) ? lower : (TYPE_SYNONYMS[lower] ?? type);
+}
+
 export function parseProposal(text: string, memoryCount: number): { ok: true; proposal: Proposal; skipped: string[] } | { ok: false; error: string } {
 	const cleaned = text.replace(/```(?:json)?/g, "");
 	const start = cleaned.indexOf("{");
@@ -241,6 +257,10 @@ export function parseProposal(text: string, memoryCount: number): { ok: true; pr
 		raw = JSON.parse(cleaned.slice(start, end + 1));
 	} catch (error) {
 		return { ok: false, error: `JSON non valido: ${(error as Error).message}` };
+	}
+	for (const key of ["add", "merge", "update"]) {
+		if (!Array.isArray(raw[key])) continue;
+		for (const item of raw[key] as unknown[]) if (typeof item === "object" && item !== null && "type" in item) (item as Record<string, unknown>).type = normalizeType((item as Record<string, unknown>).type);
 	}
 	const problems: string[] = [];
 	const validId = (id: unknown): id is string => {
