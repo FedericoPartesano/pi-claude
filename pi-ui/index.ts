@@ -31,6 +31,7 @@ import { shouldNotify, toastScript } from "./src/notify.ts";
 import { answerFor, dangerReason } from "./src/permission.ts";
 import { extractSuggestions, renderSuggestions, SUGGESTION_MARK, SUGGESTION_PROMPT } from "./src/suggestions.ts";
 import { patchPromptRace, runtimeAgentSession } from "./src/prompt-race.ts";
+import { startTrace } from "./src/trace.ts";
 import { frameEditor } from "./src/editor.ts";
 import { phrase } from "./src/phrases.ts";
 import { completeStep, renderTurn, type Step } from "./src/steps.ts";
@@ -87,6 +88,8 @@ function registerPermissionGate(pi: ExtensionAPI, askInBar: (question: string) =
 }
 
 export default function (pi: ExtensionAPI) {
+	// Rendering glitches that only a real terminal shows: record the byte stream to replay it (see src/trace.ts).
+	if (process.env.PI_UI_TRACE) startTrace(process.env.PI_UI_TRACE);
 	// Asked in the bar while pi-ui is active, else with a dialog: set below once the TUI is up.
 	let askInBar: (question: string) => Promise<"yes" | "no" | "always"> | undefined = () => undefined;
 	registerPermissionGate(pi, (question) => askInBar(question));
