@@ -41,6 +41,20 @@ export interface PanelInfo {
 	intent?: { file: string; title: string; outcomes: string[] };
 	/** Tokens saved by lean-tools in this session (estimated). */
 	saved?: number;
+	/** The running goal (extensions/goal.ts, pi.events "goal:state"). */
+	goal?: {
+		state: "attivo" | "in pausa";
+		text: string;
+		intentFile?: string;
+		pausedReason?: string;
+		outcomes: { text: string; done: boolean }[];
+		done: number;
+		total: number;
+		round: number;
+		max: number;
+		minutes: number;
+		lastEvent?: string;
+	};
 }
 
 /** `git rev-list --left-right --count @{upstream}...HEAD` → commits behind / ahead of the remote. */
@@ -85,7 +99,7 @@ export function renderPanel(info: PanelInfo, width: number, key = PANEL_KEY, max
 	const inner = width - 2;
 	// Sections with their icon; the HUD style numbers them: `// 01 SESSIONE`.
 	let sections = 0;
-	const ICONS: Record<string, IconName> = { SESSIONE: "session", TURNO: "turn", "SUB-AGENTI": "agent", "ATTIVITÀ": "activity", FILE: "files", TEST: "test", MEMORIA: "memory", SUGGERIMENTI: "suggest", GIT: "branch", IMMAGINI: "image", USO: "usage", PIANO: "todo", INTENT: "session", RISPARMIO: "usage" };
+	const ICONS: Record<string, IconName> = { SESSIONE: "session", TURNO: "turn", "SUB-AGENTI": "agent", "ATTIVITÀ": "activity", FILE: "files", TEST: "test", MEMORIA: "memory", SUGGERIMENTI: "suggest", GIT: "branch", IMMAGINI: "image", USO: "usage", PIANO: "todo", INTENT: "session", RISPARMIO: "usage", GOAL: "session" };
 	const section = (title: string, right = "") => {
 		sections++;
 		const icon = I[ICONS[title] ?? "tool"];
@@ -98,8 +112,25 @@ export function renderPanel(info: PanelInfo, width: number, key = PANEL_KEY, max
 	const blocks: { priority: number; render: () => string[] }[] = [];
 	const add = (priority: number, render: () => string[]) => blocks.push({ priority, render });
 
+	const title = hud ? `${fg(C.mag, "◢■")} ${bold(fg(C.mag, "SYS//PANNELLO"))}` : bold(fg(C.mag, "PANNELLO"));
+	add(0, () => [fit(title, `${fg(C.text, key)} ${fg(C.dim, "chiudi")}`, inner)]);
+	// The goal first: is it running, how far, what happened last.
+	const goal = info.goal;
 	add(0, () => {
-		const title = hud ? `${fg(C.mag, "◢■")} ${bold(fg(C.mag, "SYS//PANNELLO"))}` : bold(fg(C.mag, "PANNELLO"));
+		if (!goal) return [];
+		const badge = goal.state === "attivo" ? fg(C.ok, "▶ attivo") : fg(C.warn, "⏸ in pausa");
+		const rows = [section("GOAL", badge), bold(fg(C.text, goal.text || goal.intentFile || "goal"))];
+		if (goal.state === "in pausa") rows.push(fg(C.warn, goal.pausedReason ?? "in pausa"), fg(C.dim, "/goal resume per riprendere"));
+		const open = goal.outcomes.filter((outcome) => !outcome.done);
+		// The open outcomes first (what is left), then the done ones while there is room.
+		for (const outcome of [...open.slice(0, 6), ...goal.outcomes.filter((entry) => entry.done).slice(0, Math.max(0, 8 - Math.min(6, open.length)))]) {
+			rows.push(`${outcome.done ? fg(C.ok, "✓") : fg(C.faint, "○")} ${fg(outcome.done ? C.dim : C.text, outcome.text)}`);
+		}
+		rows.push(fg(C.dim, `${goal.total ? `${goal.done}/${goal.total} · ` : ""}giro ${goal.round}/${goal.max} · ${goal.minutes} min`));
+		if (goal.lastEvent) rows.push(fg(C.dim, goal.lastEvent));
+		return [...rows, ""];
+	});
+	add(0, () => {
 		const session = [
 			["goal", "GOAL", C.mag],
 			["loop", "LOOP", C.cyan],
@@ -109,7 +140,7 @@ export function renderPanel(info: PanelInfo, width: number, key = PANEL_KEY, max
 			const text = info.session.get(name)?.replace(new RegExp(`^${name}\\s*`, "i"), "");
 			return text ? [`${bold(fg(color, tag))} ${fg(C.text, text)}`] : [];
 		});
-		return [fit(title, `${fg(C.text, key)} ${fg(C.dim, "chiudi")}`, inner), section("SESSIONE"), ...(rows.length ? rows : [fg(C.dim, "nessun goal, loop o team")])];
+		return [section("SESSIONE"), ...(rows.length ? rows : [fg(C.dim, "nessun goal, loop o team")])];
 	});
 	const turn = info.turn;
 	const mode = turn?.mode;

@@ -42,6 +42,11 @@ if [[ " $* " != *" --tui-mode "* ]] && ! grep -q '"tuiMode"' "$A/settings.json" 
   mode="$(node --disable-warning=ExperimentalWarning "$REPO/pi-ui/bin/tui-mode.ts" 2>/dev/null)"
   [ -n "$mode" ] && args+=(--tui-mode "$mode")
 fi
+# Startup: Pi checks npm package updates by running `npm view` in the project folder; in a big monorepo npm loads its
+# whole dependency tree (measured: ~20 s of CPU at every start, slowing typing). PI_OFFLINE=0 keeps the checks;
+# `pi update` updates by hand.
+export PI_OFFLINE="${PI_OFFLINE:-1}"
+[ "$PI_OFFLINE" = 0 ] && unset PI_OFFLINE
 PI_UI_LOOP=1 pi "${args[@]}" "$@"
 code=$?
 while [ -f "$RESTART" ]; do

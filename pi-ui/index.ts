@@ -94,6 +94,8 @@ export default function (pi: ExtensionAPI) {
 	// PI_UI_IMAGES=kitty or iterm2 forces it. Under tmux they stay off unless forced (tmux needs allow-passthrough).
 	// WezTerm behind Windows ConPTY (WSL or native Windows) gets iTerm2 images; PI_UI_IMAGES=kitty|iterm2 forces one.
 	const forcedImages = imageProtocolFor(process.env, process.platform);
+	// Measured hot paths (typing on a long session) are cached below; this is a plain call kept for readability.
+	const timed = <T>(_name: string, fn: () => T): T => fn();
 	if (forcedImages) setCapabilityOverrides({ images: forcedImages });
 	const panelKey = (process.env.PI_UI_PANEL_KEY || PANEL_KEY).toLowerCase();
 
@@ -127,6 +129,12 @@ export default function (pi: ExtensionAPI) {
 	let plan: PlanTask[] | undefined;
 	let intentInfo: ReturnType<typeof activeIntent>;
 	let saved = 0;
+	// The running goal (extensions/goal.ts): state, progress, last event; undefined when no goal runs.
+	let goalState: PanelInfo["goal"];
+	pi.events.on("goal:state", (data) => {
+		goalState = data as PanelInfo["goal"];
+		tui?.requestRender();
+	});
 	// lean-tools reports the tokens its compactions saved.
 	pi.events.on("lean:saved", (data) => {
 		saved += Number((data as { tokens?: number })?.tokens) || 0;
@@ -140,6 +148,27 @@ export default function (pi: ExtensionAPI) {
 	let closePanel: (() => void) | undefined;
 	/** Thinking being streamed: shown in a dark box above the status bar, gone when the thinking ends. */
 	let liveThinking = "";
+
+	// Rendered lines of chat components, outside the components: Pi may rebuild or invalidate them on every frame, and
+	// re-measuring long ANSI lines on each keystroke made typing slow (profiled). Keys carry everything that changes the
+	// output (width, panel state, palette); a bounded map.
+	const rendered = new Map<string, string[]>();
+	const remember = (key: string, build: () => string[]) => {
+		let lines = rendered.get(key);
+		if (!lines) {
+			lines = build();
+			if (rendered.size > 500) rendered.delete(rendered.keys().next().value as string);
+			rendered.set(key, lines);
+		}
+		return lines;
+	};
+	const turnKeys = new WeakMap<Step[], number>();
+	let turnCounter = 0;
+	const turnKey = (turn: Step[]) => {
+		let key = turnKeys.get(turn);
+		if (key === undefined) turnKeys.set(turn, (key = ++turnCounter));
+		return key;
+	};
 
 	// Images of the session: shown once each, thumbnails cached per width.
 	const images: string[] = [];
@@ -260,7 +289,7 @@ export default function (pi: ExtensionAPI) {
 			statuses = footerData.getExtensionStatuses();
 			return {
 				...line((width) => {
-					const usage = readUsage();
+					const usage = timed("readUsage", () => readUsage());
 					return renderFooter({
 						statuses: footerData.getExtensionStatuses(),
 						project: basename(ctx.cwd),
@@ -268,7 +297,7 @@ export default function (pi: ExtensionAPI) {
 						changes: files.length,
 						fiveHour: usage?.fiveHour,
 						overage: usage?.overage,
-						contextPercent: ctx.getContextUsage()?.percent ?? undefined,
+						contextPercent: timed("getContextUsage(footer)", () => ctx.getContextUsage())?.percent ?? undefined,
 						model: ctx.model?.id ?? "?",
 						thinking: pi.getThinkingLevel(),
 					}, width);
@@ -395,11 +424,17 @@ export default function (pi: ExtensionAPI) {
 				const owner = turn;
 				const step = owner.find((candidate) => candidate.id === context.toolCallId);
 				if (step && args) step.args = args as Record<string, unknown>;
+				// Pi renders every component on every frame (each keystroke): a finished turn's rows are kept and rebuilt
+				// only when the width, the expansion or its steps change (measured: ~80 ms per keystroke on a long session).
 				return {
-					render: (width: number) =>
-						owner[0]?.id === context.toolCallId
-							? renderTurn(owner, Math.max(30, width - (width >= 100 ? reservedRight : 0)), { expanded: context.expanded, finished: owner !== liveTurn, frame, now: Date.now() })
-							: [],
+					render: (width: number) => {
+						if (owner[0]?.id !== context.toolCallId) return [];
+						const room = Math.max(30, width - (width >= 100 ? reservedRight : 0));
+						const finished = owner !== liveTurn;
+						if (!finished) return renderTurn(owner, room, { expanded: context.expanded, finished, frame, now: Date.now() });
+						const key = `turn|${turnKey(owner)}|${room}|${context.expanded}|${owner.length}|${owner.filter((entry) => entry.done).length}|${C.mag}`;
+						return remember(key, () => renderTurn(owner, room, { expanded: context.expanded, finished, frame, now: Date.now() }));
+					},
 					invalidate() {},
 				};
 			},
@@ -416,30 +451,46 @@ export default function (pi: ExtensionAPI) {
 		};
 	});
 
-	pi.registerEntryRenderer<{ ref: string }>("pi-ui-image", (entry) => ({
-		render: (width: number) => {
-			const ref = entry.data?.ref ?? "";
-			// Leave room for the panel: a thumbnail under the overlay would bleed its colors.
-			const room = width - (width >= 100 ? reservedRight : 0);
-			return renderImageEntry(ref, thumbnail(ref, thumbnailColumns(room)), room, { sidebarOpen: Boolean(sidebar) });
-		},
-		invalidate() {},
-	}));
+	pi.registerEntryRenderer<{ ref: string }>("pi-ui-image", (entry) => {
+		// Kept per width, panel state and thumbnail: re-measuring every thumbnail line on each keystroke was the main
+		// cost of typing in sessions with many images (profiled: ~3 s of CPU for 45 keystrokes).
+		return {
+			render: (width: number) => {
+				const ref = entry.data?.ref ?? "";
+				// Leave room for the panel: a thumbnail under the overlay would bleed its colors.
+				const room = width - (width >= 100 ? reservedRight : 0);
+				const thumb = thumbnail(ref, thumbnailColumns(room));
+				// Not cached until the thumbnail is ready (it loads in the background).
+				if (!thumb) return renderImageEntry(ref, thumb, room, { sidebarOpen: Boolean(sidebar) });
+				return remember(`img|${ref}|${width}|${room}|${Boolean(sidebar)}|${C.mag}|${"error" in thumb}`, () => renderImageEntry(ref, thumb, room, { sidebarOpen: Boolean(sidebar) }));
+			},
+			invalidate() {},
+		};
+	});
 
-	pi.registerEntryRenderer<{ chart: ChartSpec }>("pi-ui-chart", (entry) => ({
-		render: (width: number) => {
-			if (!entry.data?.chart) return [];
-			// Full-width lines (and room for the open panel): see renderImageEntry.
-			const room = width - (width >= 100 ? reservedRight : 0);
-			return ["", ...renderChart(entry.data.chart, room).map((line) => line + " ".repeat(Math.max(0, width - room)))];
-		},
-		invalidate() {},
-	}));
+	pi.registerEntryRenderer<{ chart: ChartSpec }>("pi-ui-chart", (entry) => {
+		return {
+			render: (width: number) => {
+				const chart = entry.data?.chart;
+				if (!chart) return [];
+				// Full-width lines (and room for the open panel): see renderImageEntry. Kept per width and palette.
+				const room = width - (width >= 100 ? reservedRight : 0);
+				return remember(`chart|${JSON.stringify(chart).slice(0, 200)}|${width}|${room}|${C.mag}`, () => ["", ...renderChart(chart, room).map((line) => line + " ".repeat(Math.max(0, width - room)))]);
+			},
+			invalidate() {},
+		};
+	});
 
-	pi.registerEntryRenderer<{ items: string[] }>("pi-ui-suggestions", (entry) => ({
-		render: (width: number) => (entry.data?.items?.length ? ["", renderSuggestions(entry.data.items, width)] : []),
-		invalidate() {},
-	}));
+	pi.registerEntryRenderer<{ items: string[] }>("pi-ui-suggestions", (entry) => {
+		return {
+			render: (width: number) => {
+				const items = entry.data?.items;
+				if (!items?.length) return [];
+				return remember(`sugg|${items.join("|")}|${width}|${C.mag}`, () => ["", renderSuggestions(items, width)]);
+			},
+			invalidate() {},
+		};
+	});
 
 	// The suggestions instruction (about 70 tokens, cached with the system prompt).
 	pi.on("before_agent_start", (event) => {
@@ -452,8 +503,8 @@ export default function (pi: ExtensionAPI) {
 	// src/sidebar.ts). Otherwise an overlay on the right that never takes the keyboard; steps leave room for it.
 	let panelCtx: ExtensionContext | undefined;
 	const panelLines = (ctx: ExtensionContext, width: number, column: boolean): string[] => {
-		const usage = readUsage();
-		const context = ctx.getContextUsage();
+		const usage = timed("readUsage", () => readUsage());
+		const context = timed("getContextUsage(panel)", () => ctx.getContextUsage());
 		const last = images[images.length - 1];
 		const thumb = last ? thumbnail(last, width - 4) : undefined;
 		const rows = process.stdout.rows ?? 40;
@@ -470,7 +521,9 @@ export default function (pi: ExtensionAPI) {
 			agents: agentRows(),
 			now: Date.now(),
 			plan,
-			intent: intentInfo,
+			goal: goalState,
+			// The goal section already shows its intent.
+			intent: goalState?.intentFile && goalState.intentFile === intentInfo?.file ? undefined : intentInfo,
 			saved,
 			usage: {
 				fiveHour: usage?.fiveHour,
@@ -490,7 +543,16 @@ export default function (pi: ExtensionAPI) {
 	type LayoutHost = { layoutRoot?: Component; setLayoutRoot?: (component: Component | undefined) => void; requestRender: () => void };
 	let sidebarOn = false;
 	let sidebar: SidebarRoot | undefined;
-	const sidebarComponent: Component = { render: (width) => (panelCtx ? panelLines(panelCtx, width, true) : []), invalidate() {} };
+	// The panel is rebuilt at most every 300 ms (it reads files and the context size): typing does not redo it each key.
+	let panelCache: { at: number; width: number; column: boolean; lines: string[] } | undefined;
+	const cachedPanel = (ctx: ExtensionContext, width: number, column: boolean) => {
+		const now = Date.now();
+		if (!panelCache || panelCache.width !== width || panelCache.column !== column || now - panelCache.at > 300) {
+			panelCache = { at: now, width, column, lines: timed("pannello", () => panelLines(ctx, width, column)) };
+		}
+		return panelCache.lines;
+	};
+	const sidebarComponent: Component = { render: (width) => (panelCtx ? cachedPanel(panelCtx, width, true) : []), invalidate() {} };
 	const wide = () => (process.stdout.columns ?? 0) >= PINNED_MIN_COLUMNS;
 	/** Fullscreen renderer with a layout root to wrap (regular mode has none: the overlay is used there). */
 	const layoutHost = (): LayoutHost | undefined => {
@@ -509,8 +571,9 @@ export default function (pi: ExtensionAPI) {
 		const original = proto.render;
 		proto.render = function (this: unknown, width: number) {
 			if (!regularColumn()) return original.call(this, width);
-			const inner = Math.max(20, width - PANEL_WIDTH - 1);
-			return original.call(this, inner).map((line: string) => line + " ".repeat(Math.max(0, width - visibleWidth(line))));
+			// No padding: the regular renderer erases each line it writes, and measuring every line of the conversation
+			// on each frame cost ~40 ms per keystroke on a long session.
+			return original.call(this, Math.max(20, width - PANEL_WIDTH - 1));
 		};
 		Object.defineProperty(proto, "piUiColumn", { value: true });
 	};
@@ -556,7 +619,7 @@ export default function (pi: ExtensionAPI) {
 		await ctx.ui.custom<void>(
 			(_panelTui, _theme, _keybindings, done) => {
 				closePanel = () => done();
-				return { render: (width: number) => panelLines(ctx, width, wide()), invalidate() {} };
+				return { render: (width: number) => cachedPanel(ctx, width, wide()), invalidate() {} };
 			},
 			{ overlay: true, overlayOptions: { anchor: "top-right", width: PANEL_WIDTH, maxHeight: wide() ? "100%" : "95%", margin: { top: wide() ? 0 : 1, right: 0 }, nonCapturing: true, visible: (width) => width >= 60 } },
 		);

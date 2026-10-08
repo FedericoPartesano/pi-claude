@@ -2,6 +2,9 @@
 # Pi writes the session and folder to reopen in $PI_UI_RESTART_FILE and quits; this loop starts it again.
 # Loaded from ~/.bashrc by install.sh:  source <repo>/pi-ui/shell/pi-custom-reload.sh
 pi() {
+	# No automatic `npm view` update checks at startup (a monorepo made them cost ~20 s of CPU); PI_OFFLINE=0 keeps them.
+	local PI_OFFLINE="${PI_OFFLINE:-1}"
+	[ "$PI_OFFLINE" = 0 ] && unset PI_OFFLINE || export PI_OFFLINE
 	local file="${PI_UI_RESTART_FILE:-$HOME/.pi/agent/pi-ui-restart}"
 	rm -f "$file"
 	PI_UI_LOOP=1 command pi "$@"

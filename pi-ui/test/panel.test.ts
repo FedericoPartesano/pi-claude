@@ -124,3 +124,24 @@ test("too many sections for the height: the least useful ones go first, usage an
 	assert.match(text, /sezion[ei] nascost[ae]/);
 	for (const line of lines) assert.equal(visibleWidth(line), 40);
 });
+
+test("the GOAL section: state, progress checklist, round, time and last event, right under the title", () => {
+	const goal = {
+		state: "attivo" as const, text: "Sconti nel carrello", intentFile: "intents/2026-10-08-sconti.md",
+		outcomes: [{ text: "codice LIBRI10", done: true }, { text: "test verdi", done: false }, { text: "verifica in Chrome", done: false }],
+		done: 1, total: 3, round: 3, max: 20, minutes: 12, lastEvent: "Chiusura rifiutata · mancano: 2. test verdi", checks: [],
+	};
+	const lines = renderPanel({ ...info, goal }, 40, "alt+s").map(strip);
+	const text = lines.join("\n");
+	assert.match(text, /GOAL ─+ ▶ attivo/);
+	assert.match(text, /Sconti nel carrello/);
+	assert.match(text, /✓ codice LIBRI10/);
+	assert.match(text, /○ test verdi/);
+	assert.match(text, /1\/3 · giro 3\/20 · 12 min/);
+	assert.match(text, /Chiusura rifiutata/);
+	assert.ok(lines.findIndex((line) => /GOAL/.test(line)) < lines.findIndex((line) => /SESSIONE/.test(line)), "goal first");
+	const paused = renderPanel({ ...info, goal: { ...goal, state: "in pausa" as const, pausedReason: "serve una tua decisione" } }, 40, "alt+s").map(strip).join("\n");
+	assert.match(paused, /GOAL ─+ ⏸ in pausa/);
+	assert.match(paused, /serve una tua decisione/);
+	assert.match(paused, /\/goal resume/);
+});

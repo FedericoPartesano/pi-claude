@@ -154,3 +154,41 @@ test("without an intent the goal still needs at least one proven point", async (
 	assert.equal(completionVerdict([], []).ok, false);
 	assert.equal(completionVerdict([], [{ n: 1, done: true, evidence: "file ciao.txt scritto, cat mostra 'ciao'" }]).ok, true);
 });
+
+test("progress comes from the intent's checklist: [x] done, [ ] or a plain bullet still to do", async () => {
+	const { outcomeMarks } = await import("./goal.ts");
+	assert.deepEqual(outcomeMarks(["[x] uno — prova: test ok", "[ ] due", "tre", "[X] quattro"]), [
+		{ text: "uno — prova: test ok", done: true },
+		{ text: "due", done: false },
+		{ text: "tre", done: false },
+		{ text: "quattro", done: true },
+	]);
+});
+
+test("the goal's snapshot and its one-line status for the footer", async () => {
+	const { goalSnapshot, statusText } = await import("./goal.ts");
+	const running = goalSnapshot(state({ text: "sconti", continuations: 2, max: 20, intentFile: "intents/a.md", startedAt: 0, lastEvent: "chiusura rifiutata: mancano 2" }), ["[x] uno", "[ ] due"], 125_000);
+	assert.equal(running.state, "attivo");
+	assert.equal(running.done, 1);
+	assert.equal(running.total, 2);
+	assert.equal(running.minutes, 2);
+	assert.equal(statusText(running), "▶ 1/2 · giro 2/20");
+	const paused = goalSnapshot(state({ text: "sconti", paused: "serve una decisione", continuations: 4 }), [], 0);
+	assert.equal(statusText(paused), "⏸ in pausa · giro 4/20");
+	assert.equal(statusText(goalSnapshot(state({ text: "x" }), [], 0)), "▶ giro 0/20");
+});
+
+test("chat lines for the goal's moments (shown, never sent to the model)", async () => {
+	const { eventLine } = await import("./goal.ts");
+	assert.match(eventLine({ kind: "start", text: "sconti nel carrello", intentFile: "intents/a.md", total: 3 }), /▶ Goal avviato: sconti nel carrello · intents\/a\.md · 3 risultati attesi/);
+	assert.match(eventLine({ kind: "continue", round: 3, max: 20, done: 1, total: 3, next: "test verdi" }), /↻ Goal · giro 3\/20 · fatti 1\/3 · prossimo: test verdi/);
+	assert.match(eventLine({ kind: "rejected", missing: ["2. test verdi", "3. Chrome"] }), /✗ Chiusura rifiutata · mancano: 2\. test verdi, 3\. Chrome/);
+	assert.match(eventLine({ kind: "paused", reason: "serve una decisione" }), /⏸ Goal in pausa: serve una decisione · \/goal resume per riprendere/);
+	assert.match(eventLine({ kind: "done", total: 3, minutes: 12 }), /✓ Goal completato · 3\/3 risultati · 12 min/);
+});
+
+test("a goal with several deliverables gets an intent (its checklist is what goal_done checks)", () => {
+	assert.ok(shouldCreateIntent("prepara un piccolo modulo node slugify.js con una funzione slugify, un test che passa con node e un README che spiega come usarla"));
+	assert.ok(shouldCreateIntent("aggiungi la validazione e aggiorna il README"));
+	assert.ok(!shouldCreateIntent("scrivi ciao.txt con dentro ciao"));
+});
