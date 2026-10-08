@@ -1,7 +1,7 @@
 {
   "name": "pi-ui",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "Neon Night chat for Pi: status bar, framed prompt, one-line footer, compact steps, image thumbnails, suggestions and session panel",
   "pi": {
