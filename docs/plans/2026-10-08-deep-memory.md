@@ -5,7 +5,7 @@
 
 ## Vincoli globali
 
-- Costo per richiesta costante: quadro ≤ 1200 caratteri, spunti ≤ 600 caratteri + intestazione, descrizione tool ≤ 60 token.
+- Costo per richiesta costante: quadro ≤ 1200 caratteri, spunti ≤ 1080 caratteri + intestazione, descrizione tool ≤ 60 token.
 - Nessuno store → zero token, zero lavoro. Record vecchi leggibili senza migrazione manuale (campi nuovi opzionali).
 - Interruttori: `PI_MEMORY_TOOL=0`, `PI_MEMORY_CONTEXT=0`, `PI_MEMORY_FORGET=0`.
 
@@ -22,7 +22,7 @@
    diffusione (vicino di un seme: +0.5 × punteggio del seme × forza, entra solo sopra soglia).
    - Test: link bidirezionali; un ricordo collegato ma senza parole in comune con la domanda viene richiamato.
 3. **Spunti e budget adattivo** (`recall.ts`, `engine.ts`): `cueLimit(query)` (saluto/chiacchiera 0, domanda 6,
-   compito 12); `renderCues(hits, budget=600)` → `- gist #id` (gist o testo tagliato a 90). `Recaller.run` usa gli spunti;
+   compito 12); `renderCues(hits, limit)` → i 2 più forti interi, poi `- gist #id` (gist o testo tagliato a 70). `Recaller.run` usa gli spunti;
    esclude `state: "dormant"` (tranne `includeSuperseded`).
    - Test: 12 spunti nel budget; "ciao" → 0; dormienti esclusi; intestazione "non sono una richiesta".
 4. **Quadro** (`engine.ts`, `memory-core.ts`, `memory.ts`): proposta di `/dream` += `gist` (testo del quadro), per voce

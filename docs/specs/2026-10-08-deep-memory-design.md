@@ -19,7 +19,7 @@ la crescita aumenta la qualità, non il costo.
 | Livello | Cosa | Quando | Costo |
 |---|---|---|---|
 | Quadro | riassunto del progetto ≤ 300 token | sempre, nel prompt di sistema (stabile → cache) | ~30 token effettivi (cache) |
-| Spunti | fino a 12 righe brevi (≤ 90 caratteri) | per richiesta, solo se pertinenti; 0 se non c'è niente | 0–150 token |
+| Spunti | fino a 12 righe (i 2 più forti interi, gli altri ≤ 70 caratteri) | per richiesta, solo se pertinenti; 0 se non c'è niente | 0–300 token (stesso tetto di oggi) |
 | Contesto | ricordi legati a file/entità toccati | sul risultato di read/edit, max 3 righe, una volta per sessione e file | 0–60 token |
 | Fondo | tool `ricorda`: ricordo completo, collegati, episodio | solo quando il modello lo chiama | a consumo |
 
@@ -48,10 +48,11 @@ la crescita aumenta la qualità, non il costo.
 
 ### 3. Spunti invece di ricordi interi
 
-- Il richiamo restituisce fino a 12 ricordi, ognuno come **spunto**: `gist` del ricordo (≤ 90 caratteri, scritto da
-  `/dream`; se manca, il testo tagliato) più `#id` per andare a fondo con `ricorda`.
-- Budget adattivo: domanda banale/saluto → 0; richiesta normale → fino a 6; compito complesso o argomento con molti
-  ricordi forti → fino a 12. Tetto fisso 600 caratteri (≈ 150 token) più l'intestazione.
+- Il richiamo restituisce fino a 12 ricordi: i 2 più forti interi (≤ 180 caratteri), gli altri come **spunto**: `gist`
+  del ricordo (≤ 70 caratteri, scritto da `/dream`; se manca, il testo tagliato), ognuno con `#id` per andare a fondo
+  con `ricorda`.
+- Budget adattivo: saluto/chiacchiera → 0; domanda di sola lettura → fino a 6; altro → 8; compito → fino a 12. Tetto fisso 1080 caratteri (≈ 300 token, lo stesso
+  di oggi) più l'intestazione: a parità di tetto, più del doppio dei ricordi.
 - Intestazione esplicita: sono contesto, non una richiesta (fatto: il modello rispondeva ai ricordi).
 
 ### 4. Tool `ricorda`
@@ -101,7 +102,7 @@ la crescita aumenta la qualità, non il costo.
 
 ## Vincoli
 
-- Costo fisso per richiesta, misurato con 50 / 1.000 / 10.000 ricordi sintetici: quadro ≤ 300 token + spunti ≤ 150 +
+- Costo fisso per richiesta, misurato con 50 / 1.000 / 10.000 ricordi sintetici: quadro ≤ 300 token + spunti ≤ 300 +
   descrizione tool ≤ 60. Nessuna crescita con il numero di ricordi.
 - Senza store: zero token, zero lavoro (come oggi).
 - Compatibilità: i record esistenti si leggono senza migrazione manuale (`links`, `gist`, `state`, `level`

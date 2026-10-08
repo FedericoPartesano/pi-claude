@@ -223,6 +223,41 @@ export function recallMessage(text: string, prompt: string): string {
 	return `${text}\nIl messaggio dell'utente a cui rispondere è: «${request.length > 400 ? `${request.slice(0, 399)}…` : request}»`;
 }
 
+/** Cues: the same ceiling as the old recall (~300 tokens), however many memories match; usually far less. */
+export const CUES_BUDGET_CHARS = RECALL_BUDGET_CHARS;
+const FULL_CUES = 2;
+const FULL_CUE_CHARS = 180;
+const CUE_CHARS = 70;
+
+/** How many cues a request deserves: none for small talk, a few for questions, more for tasks (tetto fisso). */
+export function cueLimit(query: string): number {
+	if (isSmallTalk(query)) return 0;
+	const kind = classifyRequest(query);
+	return kind === "edit" ? 12 : kind === "inquiry" ? 6 : 8;
+}
+
+const clipTo = (text: string, max: number) => (text.length <= max ? text : `${text.slice(0, max - 1)}…`);
+
+/**
+ * Recall as cues: the strongest two in full (clipped), the rest as one short line (the gist written by /dream, or the
+ * text clipped), each with its #id so the model can open it with `ricorda`. Same budget whatever the store size.
+ */
+export function renderCues(hits: Scored[], limit: number, budget = CUES_BUDGET_CHARS): string {
+	const lines: string[] = [];
+	let used = 0;
+	for (const [index, { record }] of hits.slice(0, limit).entries()) {
+		const body = index < FULL_CUES ? clipTo(record.text, FULL_CUE_CHARS) : clipTo(record.gist ?? record.text, CUE_CHARS);
+		const line = `- [${record.type}] ${body} #${record.id}`;
+		if (used + line.length + 1 > budget) {
+			if (index < FULL_CUES) continue;
+			break;
+		}
+		lines.push(line);
+		used += line.length + 1;
+	}
+	return lines.length === 0 ? "" : [RECALL_HEADER, ...lines].join("\n");
+}
+
 const CORE_HEADER = "Regole fisse dell'utente (rispettale):";
 
 /** Pinned active memories that fit the core budget, strongest first (stable order: confirmations, then id). */

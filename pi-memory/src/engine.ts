@@ -2,7 +2,7 @@
 import { appendFileSync, existsSync, mkdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Embedder } from "./embed.ts";
-import { CORE_BUDGET_CHARS, RecallIndex, coreIds, coreSection, recall, renderRecall, type Scored } from "./recall.ts";
+import { CORE_BUDGET_CHARS, RecallIndex, coreIds, coreSection, cueLimit, recall, renderCues, type Scored } from "./recall.ts";
 import { embedText, loadStore, missingVectors, saveStore, type MemoryRecord } from "./store.ts";
 
 export interface StoreDirs {
@@ -86,8 +86,11 @@ export class Recaller {
 		// Pinned memories already sit in the system prompt: never repeat them in the request.
 		const pinned = new Set(coreIds(records));
 		const index = parts.length === 1 ? parts[0].index : new RecallIndex(records);
-		const { hits } = recall(index, query, { today, vectors, queryVector, semFloor: embedder?.semFloor, semSpan: embedder?.semSpan, includeSuperseded: options.includeSuperseded, threshold: options.threshold, inquiryThreshold: options.inquiryThreshold, limit: options.limit, exclude: options.includeSuperseded ? undefined : pinned });
-		const text = renderRecall(hits);
+		// Small talk recalls nothing; questions a few cues, tasks more (fixed ceiling).
+		const limit = options.limit ?? cueLimit(query);
+		if (limit === 0) return { text: "", hits: [], ids: [], chars: 0, estTokens: 0, embedderReady: ready, ms: Math.round((performance.now() - started) * 10) / 10 };
+		const { hits } = recall(index, query, { today, vectors, queryVector, semFloor: embedder?.semFloor, semSpan: embedder?.semSpan, includeSuperseded: options.includeSuperseded, threshold: options.threshold, inquiryThreshold: options.inquiryThreshold, limit, exclude: options.includeSuperseded ? undefined : pinned });
+		const text = renderCues(hits, limit);
 		return { text, hits, ids: text ? hits.map((hit) => hit.record.id).slice(0, text.split("\n").length - 1) : [], chars: text.length, estTokens: Math.round(text.length / 3.6), embedderReady: Boolean(queryVector), ms: Math.round((performance.now() - started) * 10) / 10 };
 	}
 }
