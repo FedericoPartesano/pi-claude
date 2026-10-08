@@ -116,31 +116,39 @@ export function renderReminder(state: GoalState, intent?: Intent): string {
 }
 
 export function renderStartMessage(state: GoalState, options: { intent?: Intent; createIntentAt?: string }): string {
+	const { visible, instructions } = startMessages(state, options);
+	return `${visible}\n\n${instructions}`;
+}
+
+/**
+ * The goal as the user sees it in the chat, and the working instructions, which go to the model as a hidden message
+ * of the same turn (shown in the chat, they looked like text the user had typed).
+ */
+export function startMessages(state: GoalState, options: { intent?: Intent; createIntentAt?: string }): { visible: string; instructions: string } {
 	const { intent, createIntentAt } = options;
-	const lines = [`Goal: ${intent?.title || state.text}`];
-	if (state.text && intent) lines.push(`Indicazioni aggiuntive: ${state.text}`);
+	const visible = [`Goal: ${intent?.title || state.text}`];
+	if (state.text && intent) visible.push(`Indicazioni aggiuntive: ${state.text}`);
+	const lines: string[] = [];
 	if (intent && state.intentFile) {
-		lines.push("", `È descritto nell'intent ${state.intentFile} (leggilo: è il riferimento del lavoro; non cambiarne lo status, lo gestisce /goal).`);
+		lines.push(`È descritto nell'intent ${state.intentFile} (leggilo: è il riferimento del lavoro; non cambiarne lo status, lo gestisce /goal).`);
 		lines.push(...bullets("Outcome atteso", intent.outcomes), ...bullets("Vincoli", intent.constraints));
 		if (intent.openQuestions.length > 0) {
 			lines.push("", ...bullets("Prima di lavorare chiudi con l'utente queste domande aperte e aggiorna l'intent con le risposte", intent.openQuestions));
 		}
 	}
 	if (createIntentAt) {
+		if (lines.length) lines.push("");
 		lines.push(
-			"",
 			`Prima di iniziare scrivi l'intent ${createIntentAt}, sintetizzato da questo obiettivo senza fare domande:`,
 			`frontmatter con status: in-progress, created e source: user; sezioni ## Problema, ## Outcome atteso (punti verificabili),`,
 			"## Utenti e sistemi impattati, ## Vincoli, ## Domande aperte, ## Verifica (blocco bash con i comandi che dimostrano il risultato, se esistono).",
 		);
 	}
-	lines.push(
-		"",
-		"Lavora in autonomia, un passo dopo l'altro, finché l'obiettivo non è raggiunto. Quando hai finito chiama il tool goal_done con un riepilogo.",
-	);
+	if (lines.length) lines.push("");
+	lines.push("Lavora in autonomia, un passo dopo l'altro, finché l'obiettivo non è raggiunto. Quando hai finito chiama il tool goal_done con un riepilogo.");
 	if (state.checks.length > 0) lines.push(`goal_done esegue questi controlli e passa solo se riescono: ${state.checks.map((check) => `\`${check}\``).join(", ")}.`);
 	lines.push("Se ti serve una decisione dell'utente, chiama goal_done con blocked: true.");
-	return lines.join("\n");
+	return { visible: visible.join("\n"), instructions: lines.join("\n") };
 }
 
 function readBudgetStop(): string | undefined {
@@ -249,6 +257,15 @@ export default function (pi: ExtensionAPI) {
 		});
 	};
 
+	// The goal's working instructions ride along with its first turn, hidden from the chat.
+	let pendingInstructions: string | undefined;
+	pi.on("before_agent_start", () => {
+		if (!pendingInstructions) return undefined;
+		const content = pendingInstructions;
+		pendingInstructions = undefined;
+		return { message: { customType: "goal-instructions", content, display: false } };
+	});
+
 	// Without a UI (print/json mode) Pi exits when the command returns: wait for the goal's run to finish.
 	const send = async (ctx: ExtensionCommandContext, text: string) => {
 		pi.sendUserMessage(text);
@@ -264,7 +281,9 @@ export default function (pi: ExtensionAPI) {
 		setTool(true);
 		markIntent(ctx.cwd, state.intentFile, "in-progress");
 		footer(ctx);
-		await send(ctx, renderStartMessage(state, { intent, createIntentAt }));
+		const { visible, instructions } = startMessages(state, { intent, createIntentAt });
+		pendingInstructions = instructions;
+		await send(ctx, visible);
 	};
 
 	pi.on("tool_execution_start", () => {
