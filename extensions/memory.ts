@@ -33,7 +33,7 @@ import {
 	type MemoryEntry,
 	type Proposal,
 } from "./memory-core.ts";
-import { BackgroundEmbedder } from "../pi-memory/src/embed.ts";
+import { WorkerEmbedder } from "../pi-memory/src/embed.ts";
 import { Recaller, appendRecallLog, fillVectors, type StoreDirs } from "../pi-memory/src/engine.ts";
 import { entriesToRecords, recordsToEntries } from "../pi-memory/src/reconcile.ts";
 import { loadStore, migrateLegacy, pruneVectors, saveStore, storeExists, type MemoryRecord } from "../pi-memory/src/store.ts";
@@ -153,7 +153,7 @@ function describe(memory: MemoryEntry[], proposal: Proposal): string[] {
 }
 
 /** Embedder and recaller of the running extension, shared with the dashboard source. */
-let shared: { embedder: BackgroundEmbedder; recaller: Recaller } | undefined;
+let shared: { embedder: WorkerEmbedder; recaller: Recaller } | undefined;
 
 /**
  * Data for the memory dashboard (pi-memory/src/dashboard-tui.ts): project + global records ("g:" ids), /dream and recall
@@ -242,7 +242,7 @@ export function shouldAutoDream(input: { today: string; lastAutoDream?: string; 
 }
 
 export default function (pi: ExtensionAPI) {
-	const embedder = new BackgroundEmbedder();
+	const embedder = new WorkerEmbedder();
 	const recaller = new Recaller();
 	shared = { embedder, recaller };
 	const logRecall = process.env.PI_MEMORY_RECALL_LOG === "1";

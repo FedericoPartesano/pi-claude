@@ -91,8 +91,8 @@ export default function (pi: ExtensionAPI) {
 	/** Semantic search over the project's symbols; undefined while the local model is not ready. */
 	async function semanticSearch(cwd: string, query: string, k: number) {
 		if (!embedder) {
-			const { BackgroundEmbedder, MODELS } = await import("../pi-memory/src/embed.ts");
-			embedder = new BackgroundEmbedder(MODELS.e5);
+			const { WorkerEmbedder, MODELS } = await import("../pi-memory/src/embed.ts");
+			embedder = new WorkerEmbedder(MODELS.e5);
 			void embedder.start?.();
 		}
 		if (embedder.ready === false) return undefined;
