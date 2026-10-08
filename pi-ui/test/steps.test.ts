@@ -74,3 +74,21 @@ test("a running step shows 'in corso' with its seconds; a finished one its durat
 	assert.match(strip(renderTurn([timed(tests, 1000, 3100)], 120, { expanded: false, finished: false, frame: 0, now }).join("\n")), /13 pass · 2,1s/);
 	assert.doesNotMatch(strip(renderTurn([timed(read, 1000, 1100)], 120, { expanded: false, finished: false, frame: 0, now }).join("\n")), /0,1s/, "quick steps need no duration");
 });
+
+test("a long running command says what it is doing: activity on the right, slow-command note and last output below", () => {
+	const now = 1_000_000;
+	const step: Step = { id: "b", tool: "bash", args: { command: "find / -maxdepth 6 -name '*.json'" }, startedAt: now - 80_000, live: { activity: { text: "lavora · CPU 92% · find", level: "ok" }, lastLine: "/mnt/c/Users/x/AppData/file.json", hint: "scansiona tutto il disco (in WSL anche C:): può durare minuti" } };
+	const lines = renderTurn([step], 140, { expanded: false, finished: false, frame: 0, now }).map(strip);
+	assert.match(lines[0], /lavora · CPU 92% · find · 1m 20s\s*$/);
+	assert.ok(lines.some((line) => /scansiona tutto il disco/.test(line)));
+	assert.ok(lines.some((line) => line.includes("/mnt/c/Users/x/AppData/file.json")));
+	for (const line of renderTurn([step], 140, { expanded: false, finished: false, frame: 0, now })) assert.ok(visibleWidth(line) <= 140);
+});
+
+test("a silent, idle command is flagged as maybe stuck; a finished one shows no live lines", () => {
+	const now = 1_000_000;
+	const stuck: Step = { id: "s", tool: "bash", args: { command: "npm install" }, startedAt: now - 50_000, live: { activity: { text: "fermo da 45s · CPU 0% · npm · esc interrompe", level: "stuck" } } };
+	assert.match(strip(renderTurn([stuck], 140, { expanded: false, finished: false, frame: 0, now })[0]), /fermo da 45s · CPU 0% · npm · esc interrompe · 50s/);
+	const done: Step = { ...stuck, done: true, summary: { text: "3 righe", color: "" }, endedAt: now };
+	assert.equal(renderTurn([done], 140, { expanded: false, finished: true, frame: 0, now }).length, 1);
+});

@@ -25,6 +25,8 @@ export interface Step {
 	/** Wall-clock start and end (ms): running steps show "in corso · Ns", finished ones their duration. */
 	startedAt?: number;
 	endedAt?: number;
+	/** While a command runs: what it is doing (src/liveness.ts), its last output line, a note if it is known to be slow. */
+	live?: { activity?: { text: string; level: "ok" | "stuck" }; lastLine?: string; hint?: string };
 }
 
 /** 2100 → "2,1s", 72000 → "1m 12s". */
@@ -52,6 +54,15 @@ export function completeStep(step: Step, result: { output: string; isError: bool
 	return { ...step, done: true, error: outcome.failed, summary, output, details: result.details, pass: "pass" in outcome ? outcome.pass : undefined };
 }
 
+/** "in corso · 12s", or what a long command is doing: "lavora · CPU 92% · find · 1m 20s" (yellow when maybe stuck). */
+function runningLabel(step: Step, now: number): string {
+	const elapsed = step.startedAt ? Math.max(0, now - step.startedAt) : undefined;
+	const time = elapsed === undefined ? "" : elapsed >= 60_000 ? formatDuration(elapsed) : `${Math.round(elapsed / 1000)}s`;
+	const activity = step.live?.activity;
+	if (!activity) return fg(C.cyan, time ? `in corso · ${time}` : "in corso");
+	return fg(activity.level === "stuck" ? C.warn : C.cyan, time ? `${activity.text} · ${time}` : activity.text);
+}
+
 export function stepRow(step: Step, width: number, frame: number, running: boolean, now = Date.now(), index?: number): string {
 	const { text, arg } = phrase(step.tool, step.args);
 	const icon = step.done ? (step.error ? fg(C.err, "✗") : fg(C.ok, "✓")) : running ? fg(C.cyan, SPINNER[frame % SPINNER.length]) : fg(C.faint, "○");
@@ -61,7 +72,7 @@ export function stepRow(step: Step, width: number, frame: number, running: boole
 	const right = step.summary
 		? `${fg(step.summary.color, step.summary.text)}${duration}`
 		: running
-			? fg(C.cyan, step.startedAt ? `in corso · ${Math.max(0, Math.round((now - step.startedAt) / 1000))}s` : "in corso")
+			? runningLabel(step, now)
 			: "";
 	const nameWidth = Math.min(30, Math.max(18, Math.floor(width * 0.28)));
 	const narrow = width < 60;
@@ -113,5 +124,9 @@ export function renderTurn(turn: Step[], width: number, options: { expanded: boo
 		const parts = [`${turn.length} passi completati`, `${files} file`, ...(tests !== undefined ? [fg(C.ok, `${tests} test ok`)] : [])];
 		return [fit(`  ${fg(C.ok, "✓")} ${fg(C.text, parts.join(fg(C.faint, " · ")))}`, `${fg(C.faint, "▸ ctrl+o")} ${fg(C.dim, "dettagli")} `, width)];
 	}
-	return turn.flatMap((step, index) => [stepRow(step, width, options.frame, !step.done && !options.finished, options.now, index), ...stepDetails(step, width, options.expanded)]);
+	return turn.flatMap((step, index) => {
+		const running = !step.done && !options.finished;
+		const live = running && step.live ? [...(step.live.hint ? [detail(`⚠ ${step.live.hint}`, C.warn, width)] : []), ...(step.live.lastLine ? [detail(step.live.lastLine, C.dim, width)] : [])] : [];
+		return [stepRow(step, width, options.frame, running, options.now, index), ...live, ...stepDetails(step, width, options.expanded)];
+	});
 }
