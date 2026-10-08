@@ -22,7 +22,7 @@ import { subagentRows, teamRows, type AgentRow } from "./src/agents.ts";
 import { CHART_PROMPT, extractCharts, renderChart, type ChartSpec } from "./src/charts.ts";
 import { renderImageEntry, thumbnailColumns } from "./src/image-entry.ts";
 import { findImageRefs, thumbnailFor, type Thumbnail } from "./src/images.ts";
-import { C, bold, fg, fit, label, usePalette } from "./src/palette.ts";
+import { C, bold, fg, fit, hud, label, usePalette } from "./src/palette.ts";
 import { PANEL_KEY, PANEL_WIDTH, parseAheadBehind, parseNumstat, parsePorcelain, renderPanel, type ChangedFile, type PanelInfo } from "./src/panel.ts";
 import { shouldNotify, toastScript } from "./src/notify.ts";
 import { answerFor, dangerReason } from "./src/permission.ts";
@@ -227,7 +227,7 @@ export default function (pi: ExtensionAPI) {
 		ctx.ui.setWidget("pi-ui-status", (widgetTui) => {
 			tui = widgetTui;
 			return line((width) => {
-				// The palette follows Pi's theme (/settings → Theme: neon-night or lilla): on a switch, redraw everything once.
+				// The palette follows Pi's theme (/settings → Theme: neon-night, lilla or night-city): on a switch, redraw everything once.
 				if (usePalette(ctx.ui.theme.name)) widgetTui.requestRender();
 				return renderStatusBar(status, width, Date.now(), frame);
 			});
@@ -531,7 +531,7 @@ export default function (pi: ExtensionAPI) {
 		if (context.isStreaming && partial >= 0 && SUGGESTION_MARK.startsWith(out.slice(partial).trim())) out = out.slice(0, partial).trimEnd();
 		if (!out.trim()) return out;
 		if (!context.isStreaming && getCapabilities().hyperlinks) out = linkFileRefs(out, cwd, (path, line) => vscodeUrl(path, line, wslDistro()));
-		return /^\s*(#|[-*+] |\d+\.|```|>|\|)/.test(out) ? out : `⬢ ${out.trimStart()}`;
+		return /^\s*(#|[-*+] |\d+\.|```|>|\|)/.test(out) ? out : `${hud ? "◢" : "⬢"} ${out.trimStart()}`;
 	});
 
 	pi.on("session_shutdown", () => {

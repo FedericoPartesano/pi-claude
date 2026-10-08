@@ -6,7 +6,8 @@ import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { formatTokens } from "./status-bar.ts";
 import { formatDuration } from "./steps.ts";
 import { renderAgents, type AgentRow } from "./agents.ts";
-import { C, bg, bold, fg, fit, pad, underline } from "./palette.ts";
+import { I, withIcon, type IconName } from "./icons.ts";
+import { C, bg, bold, fg, fit, hud, pad, underline } from "./palette.ts";
 
 export interface ChangedFile {
 	status: string;
@@ -76,12 +77,19 @@ export const PANEL_KEY = "alt+s";
 
 export function renderPanel(info: PanelInfo, width: number, key = PANEL_KEY): string[] {
 	const inner = width - 2;
+	// Sections with their icon; the HUD style numbers them: `// 01 SESSIONE`.
+	let sections = 0;
+	const ICONS: Record<string, IconName> = { SESSIONE: "session", TURNO: "turn", "SUB-AGENTI": "agent", "ATTIVITÀ": "activity", FILE: "files", TEST: "test", MEMORIA: "memory", SUGGERIMENTI: "suggest", GIT: "branch", IMMAGINI: "image", USO: "usage" };
 	const section = (title: string, right = "") => {
-		const head = `${bold(fg(C.text, title))} `;
+		sections++;
+		const icon = I[ICONS[title] ?? "tool"];
+		const name = withIcon(icon ? fg(C.mag, icon) : "", bold(fg(C.text, hud && title === "USO" ? "NET" : title)));
+		const head = `${hud ? fg(C.faint, `// ${String(sections).padStart(2, "0")} `) : ""}${name} `;
 		const tail = right ? ` ${right}` : "";
 		return head + fg(C.border, "─".repeat(Math.max(1, inner - visibleWidth(head) - visibleWidth(tail)))) + tail;
 	};
-	const lines: string[] = [fit(bold(fg(C.mag, "PANNELLO")), `${fg(C.text, key)} ${fg(C.dim, "chiudi")}`, inner), section("SESSIONE")];
+	const title = hud ? `${fg(C.mag, "◢■")} ${bold(fg(C.mag, "SYS//PANNELLO"))}` : bold(fg(C.mag, "PANNELLO"));
+	const lines: string[] = [fit(title, `${fg(C.text, key)} ${fg(C.dim, "chiudi")}`, inner), section("SESSIONE")];
 
 	const session = [
 		["goal", "GOAL", C.mag],
@@ -133,7 +141,7 @@ export function renderPanel(info: PanelInfo, width: number, key = PANEL_KEY): st
 	const git = info.git;
 	if (git?.branch) {
 		lines.push("", section("GIT"));
-		lines.push(`${fg(C.cyan, `⎇ ${git.branch}`)}${git.ahead ? fg(C.ok, ` ↑${git.ahead}`) : ""}${git.behind ? fg(C.warn, ` ↓${git.behind}`) : ""}`);
+		lines.push(`${fg(C.cyan, withIcon(I.branch || "⎇", git.branch))}${git.ahead ? fg(C.ok, ` ↑${git.ahead}`) : ""}${git.behind ? fg(C.warn, ` ↓${git.behind}`) : ""}`);
 		if (git.lastCommit) lines.push(fg(C.dim, git.lastCommit));
 	}
 	if (info.image) {
@@ -149,6 +157,7 @@ export function renderPanel(info: PanelInfo, width: number, key = PANEL_KEY): st
 		`${bold(fg(C.text, "CTX"))} ${bar(usage.contextPercent === undefined ? undefined : usage.contextPercent / 100)} ${fg(C.text, percent(usage.contextPercent))}`,
 		fg(C.dim, `    ${usage.contextTokens !== undefined && usage.contextWindow ? `${formatTokens(usage.contextTokens).replace(",0k", "k")}/${formatTokens(usage.contextWindow).replace(",0k", "k")} · ` : ""}${usage.model}·${usage.thinking}`),
 	);
+	if (hud) lines.push("", fit(`${fg(C.mag, "◥■")}${fg(C.faint, "■".repeat(Math.max(0, inner - 22)))}`, fg(C.dim, `NODE ${process.pid.toString(16).slice(-4).toUpperCase()} · SYS OK`), inner));
 	// Panel background with a magenta edge, every line exactly `width` columns.
 	return lines.map((line) => `${fg(C.mag, "▌")}${bg(C.panel, ` ${pad(truncateToWidth(line, inner, "…"), inner)}`)}`);
 }

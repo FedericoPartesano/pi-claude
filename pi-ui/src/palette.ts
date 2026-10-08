@@ -1,4 +1,7 @@
-/** pi-ui palettes (Neon Night from the Claude Design review, lilla from the user's WezTerm) and ANSI helpers. */
+/**
+ * pi-ui palettes (Neon Night from the Claude Design review, lilla from the user's WezTerm, Night City cyberpunk) and
+ * ANSI helpers. Night City also turns on the HUD style: block tags, cut corners, numbered sections.
+ */
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
 const NEON_NIGHT = {
@@ -44,17 +47,42 @@ const LILLA: Palette = {
 	delBg: "#33242c",
 };
 
-export const PALETTES: Record<string, Palette> = { "neon-night": NEON_NIGHT, lilla: LILLA };
+/** Cyberpunk: acid yellow as the accent, cyan for actions, red for errors, magenta as the second highlight. */
+const NIGHT_CITY: Palette = {
+	bg: "#0a0b10",
+	panel: "#11131c",
+	userBg: "#1b1a0c",
+	text: "#d7dae0",
+	dim: "#7a8190",
+	faint: "#3a3f4b",
+	border: "#262a36",
+	mag: "#FCEE0A",
+	cyan: "#00F0FF",
+	yel: "#ff2bd6",
+	ok: "#00FF9C",
+	warn: "#ff9e00",
+	err: "#FF003C",
+	add: "#00FF9C",
+	addBg: "#0f2a1e",
+	del: "#ff4d6d",
+	delBg: "#2a0f17",
+};
+
+export const PALETTES: Record<string, Palette> = { "neon-night": NEON_NIGHT, lilla: LILLA, "night-city": NIGHT_CITY };
+
+/** HUD style (Night City): renderers read it at render time, like the colors. */
+export let hud = false;
 
 /** Current colors. Renderers read them at render time, so switching the palette recolors everything. */
 export const C: Palette = { ...NEON_NIGHT };
 let current = "neon-night";
 
-/** Uses the palette of Pi's theme (neon-night or lilla; neon for any other theme). Returns whether it changed. */
+/** Uses the palette of Pi's theme (neon-night, lilla or night-city; neon for any other theme). Returns whether it changed. */
 export function usePalette(themeName: string | undefined): boolean {
 	const name = themeName && PALETTES[themeName] ? themeName : "neon-night";
 	if (name === current) return false;
 	current = name;
+	hud = name === "night-city";
 	Object.assign(C, PALETTES[name]);
 	return true;
 }
@@ -66,6 +94,8 @@ export const bold = (text: string) => `\x1b[1m${text}\x1b[22m`;
 export const underline = (text: string) => `\x1b[4m${text}\x1b[24m`;
 /** Colored tag with dark text, e.g. ` AL LAVORO `. */
 export const label = (color: string, text: string) => bg(color, fg(C.bg, bold(text)));
+/** A tag; in the HUD style framed as a block: `▐█ AL LAVORO █▌`. */
+export const tag = (color: string, text: string) => (hud ? `${fg(color, "▐")}${label(color, text)}${fg(color, "▌")}` : label(color, text));
 export const pad = (text: string, width: number) => text + " ".repeat(Math.max(0, width - visibleWidth(text)));
 
 /** Left and right parts on one line of exactly `width` columns; the right part goes first when there is no room. */

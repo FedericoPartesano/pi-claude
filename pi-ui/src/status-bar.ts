@@ -1,7 +1,7 @@
 /** The status bar above the editor: one line, one color per state (Neon Night principle 1). */
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { shimmer, wave } from "./animations.ts";
-import { C, bold, fg, fit, label } from "./palette.ts";
+import { C, fg, fit, tag as stateTag } from "./palette.ts";
 import { elapsedSeconds, type TurnStatus } from "./status.ts";
 
 export const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -19,7 +19,7 @@ export function renderStatusBar(status: TurnStatus, width: number, now: number, 
 	const seconds = elapsedSeconds(status, now);
 	switch (status.mode) {
 		case "working": {
-			const tag = `${label(C.cyan, ` ${SPINNER[frame % SPINNER.length]} AL LAVORO `)}  `;
+			const tag = `${stateTag(C.cyan, ` ${SPINNER[frame % SPINNER.length]} AL LAVORO `)}  `;
 			const tail = fg(C.dim, `${status.step > 0 ? ` · passo ${status.step}` : ""} · ${seconds}s`);
 			const keys = hint("esc", "interrompi");
 			// Thinking: a moving wave and the latest thought; a tool: a light running over the action.
@@ -31,15 +31,15 @@ export function renderStatusBar(status: TurnStatus, width: number, now: number, 
 		}
 		case "waiting": {
 			// The answer keys must always stay visible: the question gives way.
-			const tag = label(C.yel, " ◆ TOCCA A TE ");
+			const tag = stateTag(C.yel, " ◆ TOCCA A TE ");
 			const answers = fg(C.yel, status.answers ?? "");
 			const room = Math.max(0, width - visibleWidth(tag) - visibleWidth(answers) - 4);
 			return fit(`${tag}  ${fg(C.text, truncateToWidth(status.question ?? "", room))}`, answers, width);
 		}
 		case "stopped":
-			return fit(`${label(C.err, " ✗ FERMO ")}  ${fg(C.text, status.activity)}`, hint("↵", "scrivi tu"), width);
+			return fit(`${stateTag(C.err, " ✗ FERMO ")}  ${fg(C.text, status.activity)}`, hint("↵", "scrivi tu"), width);
 		case "done": {
-			const head = `${label(C.ok, " ✓ FATTO ")}  ${fg(C.text, `${seconds}s · ↑${formatTokens(status.tokensIn)} ↓${formatTokens(status.tokensOut)} tok`)}`;
+			const head = `${stateTag(C.ok, " ✓ FATTO ")}  ${fg(C.text, `${seconds}s · ↑${formatTokens(status.tokensIn)} ↓${formatTokens(status.tokensOut)} tok`)}`;
 			const keys = status.suggestions ? `${fg(C.ok, `1-${status.suggestions}`)} ${fg(C.dim, "suggerimenti")}` : "";
 			// The warning gives way to the suggestion keys.
 			const room = width - visibleWidth(head) - visibleWidth(keys) - 4;
@@ -47,6 +47,6 @@ export function renderStatusBar(status: TurnStatus, width: number, now: number, 
 			return fit(head + warning, keys, width);
 		}
 		default:
-			return fit(label(C.faint, " PRONTO "), "", width);
+			return fit(stateTag(C.faint, " PRONTO "), "", width);
 	}
 }
