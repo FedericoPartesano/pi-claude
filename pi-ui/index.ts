@@ -596,8 +596,27 @@ export default function (pi: ExtensionAPI) {
 		};
 		Object.defineProperty(proto, "piUiColumn", { value: true });
 	};
+	/**
+	 * Frame cap for throttled redraws (streaming text, spinners): Pi redraws up to 60 times a second, and each frame with
+	 * the side column costs several ms on a long session. Keys use Pi's immediate redraw and are not affected.
+	 * PI_UI_FPS (default 30) sets it; found through the renderer's prototype chain (the class with the static field).
+	 */
+	let frameCapped = false;
+	const capFrameRate = () => {
+		if (frameCapped || !tui) return;
+		frameCapped = true;
+		const fps = Math.max(10, Math.min(60, Number(process.env.PI_UI_FPS) || 30));
+		for (let proto = Object.getPrototypeOf(tui); proto; proto = Object.getPrototypeOf(proto)) {
+			const owner = proto.constructor as { MIN_RENDER_INTERVAL_MS?: number } | undefined;
+			if (owner && Object.prototype.hasOwnProperty.call(owner, "MIN_RENDER_INTERVAL_MS")) {
+				owner.MIN_RENDER_INTERVAL_MS = Math.round(1000 / fps);
+				return;
+			}
+		}
+	};
 	/** Wraps or unwraps Pi's layout root to match sidebarOn (Pi may set its root again: checked on every frame). */
 	const syncSidebar = () => {
+		capFrameRate();
 		const host = layoutHost();
 		if (!host) return fullscreen() ? undefined : patchRegularRender();
 		const current = host.layoutRoot;

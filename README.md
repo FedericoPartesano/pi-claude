@@ -131,7 +131,7 @@ Attiva in `pi` e `pi-full`. Temi: `neon-night` (neon su nero), `lilla` (i pastel
 - Link `file:riga` → VS Code nelle risposte, solo dove il terminale mostra i link. In tmux:
   `set -as terminal-features ',*:hyperlinks'` nel `~/.tmux.conf`.
 
-`PI_UI=off` torna alla chat originale; `PI_UI_STEPS=0`, `PI_UI_IMAGES=0`, `PI_UI_PERMISSION=0` spengono i singoli pezzi.
+`PI_UI_FPS` (default 30) limita i ridisegni dello streaming, senza toccare la digitazione. `PI_UI=off` torna alla chat originale; `PI_UI_STEPS=0`, `PI_UI_IMAGES=0`, `PI_UI_PERMISSION=0` spengono i singoli pezzi.
 
 ## Rilasci
 
