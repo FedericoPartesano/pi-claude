@@ -47,6 +47,21 @@ function emptyTurn(prompt) {
 	return { prompt, answer: "", seconds: 0, requests: 0, inputTokens: 0, outputTokens: 0, tools: [], errors: [], denials: 0, timedOut: false };
 }
 
+/**
+ * End of a Claude Code turn. Streamed assistant messages carry partial usage (output_tokens 1 while streaming); the
+ * result record has the turn totals, so they replace the streamed counts when present.
+ */
+export function applyClaudeResult(turn, record) {
+	turn.answer = record.result ?? "";
+	if (record.is_error) turn.errors.push(`result error: ${record.subtype} ${String(record.result ?? "").slice(0, 200)}`);
+	turn.denials = record.permission_denials?.length ?? 0;
+	const usage = record.usage;
+	if (usage) {
+		turn.inputTokens = (usage.input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0);
+		turn.outputTokens = usage.output_tokens ?? 0;
+	}
+}
+
 export class ClaudeCodeHarness {
 	name = "claude-code";
 	constructor(cwd, model, { effort } = {}) {
@@ -93,9 +108,7 @@ export class ClaudeCodeHarness {
 					for (const block of record.message.content ?? []) if (block.type === "tool_use") turn.tools.push(block.name);
 				}
 				if (record.type === "result") {
-					turn.answer = record.result ?? "";
-					if (record.is_error) turn.errors.push(`result error: ${record.subtype} ${String(record.result ?? "").slice(0, 200)}`);
-					turn.denials = record.permission_denials?.length ?? 0;
+					applyClaudeResult(turn, record);
 					finish();
 				}
 			};
@@ -108,13 +121,18 @@ export class ClaudeCodeHarness {
 	}
 }
 
+/** Pi's RPC arguments; persistSession saves the session where Pi normally does (for /dream). */
+export function piArgs(model, { extraArgs = [], persistSession = false } = {}) {
+	return ["--mode", "rpc", ...(persistSession ? [] : ["--no-session"]), "--provider", "claude-code", "--model", model, ...(process.env.EVAL_PI_THINKING ? ["--thinking", process.env.EVAL_PI_THINKING] : []), ...extraArgs];
+}
+
 export class PiHarness {
 	name = "pi";
-	constructor(cwd, model, debugLogPath, { extraArgs = [], environment = {} } = {}) {
+	constructor(cwd, model, debugLogPath, { extraArgs = [], environment = {}, persistSession = false } = {}) {
 		this.dialogs = 0;
 		this.process = new JsonLineProcess(
 			"pi",
-			["--mode", "rpc", "--no-session", "--provider", "claude-code", "--model", model, ...(process.env.EVAL_PI_THINKING ? ["--thinking", process.env.EVAL_PI_THINKING] : []), ...extraArgs],
+			piArgs(model, { extraArgs, persistSession }),
 			cwd,
 			{ ...(debugLogPath ? { PI_CLAUDE_DEBUG: debugLogPath } : {}), ...environment },
 		);
