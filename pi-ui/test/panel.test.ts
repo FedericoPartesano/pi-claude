@@ -94,3 +94,33 @@ test("the panel shows sub-agents with how many are active", () => {
 	assert.match(text, /t1 implementer/);
 	assert.ok(text.indexOf("SUB-AGENTI") < text.indexOf("FILE"), "agents come before files");
 });
+
+test("plan, intent and savings sections", () => {
+	const text = renderPanel({
+		...info,
+		plan: [{ subject: "Scrivi i test", status: "completed" }, { subject: "Correggi totalValue", status: "in_progress" }, { subject: "Aggiorna il README", status: "pending" }],
+		intent: { file: "intents/2026-10-08-sconti.md", title: "Sconti nel carrello", outcomes: ["codice LIBRI10", "test verdi", "README"] },
+		saved: 12400,
+	}, 40, "alt+s").map(strip).join("\n");
+	assert.match(text, /PIANO ─+ 1\/3/);
+	assert.match(text, /▸ Correggi totalValue/);
+	assert.match(text, /○ Aggiorna il README/);
+	assert.match(text, /✓ Scrivi i test/);
+	assert.match(text, /INTENT/);
+	assert.match(text, /Sconti nel carrello/);
+	assert.match(text, /3 risultati attesi/);
+	assert.match(text, /RISPARMIO/);
+	assert.match(text, /12,4k token risparmiati/);
+});
+
+test("too many sections for the height: the least useful ones go first, usage and session always stay", () => {
+	const lines = renderPanel({ ...info, plan: Array.from({ length: 6 }, (_, i) => ({ subject: `passo ${i}`, status: "pending" })) }, 40, "alt+s", 22);
+	assert.ok(lines.length <= 22, `${lines.length} lines`);
+	const text = lines.map(strip).join("\n");
+	assert.match(text, /SESSIONE/);
+	assert.match(text, /USO/);
+	assert.match(text, /PIANO/);
+	assert.doesNotMatch(text, /IMMAGINI/);
+	assert.match(text, /sezion[ei] nascost[ae]/);
+	for (const line of lines) assert.equal(visibleWidth(line), 40);
+});
