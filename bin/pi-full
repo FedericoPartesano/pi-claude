@@ -36,6 +36,12 @@ if [ -t 1 ] && [ "${PI_UI_INTRO:-1}" != 0 ] && [ "${PI_UI:-}" != off ]; then
   branch="$(git branch --show-current 2>/dev/null)"
   node --disable-warning=ExperimentalWarning "$REPO/pi-ui/bin/intro.ts" "claude code · pi-full · $(basename "$PWD")${branch:+ ⎇ $branch}" || true
 fi
+# Images: WezTerm behind Windows ConPTY (WSL or native Windows) shows only iTerm2 images, which Pi draws in regular
+# mode (fullscreen draws kitty only): pick it there, unless the user chose a mode (--tui-mode or tuiMode in settings).
+if [[ " $* " != *" --tui-mode "* ]] && ! grep -q '"tuiMode"' "$A/settings.json" 2>/dev/null; then
+  mode="$(node --disable-warning=ExperimentalWarning "$REPO/pi-ui/bin/tui-mode.ts" 2>/dev/null)"
+  [ -n "$mode" ] && args+=(--tui-mode "$mode")
+fi
 PI_UI_LOOP=1 pi "${args[@]}" "$@"
 code=$?
 while [ -f "$RESTART" ]; do

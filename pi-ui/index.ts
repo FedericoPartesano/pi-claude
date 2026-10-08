@@ -24,6 +24,7 @@ import { renderImageEntry, thumbnailColumns } from "./src/image-entry.ts";
 import { findImageRefs, thumbnailFor, type Thumbnail } from "./src/images.ts";
 import { C, bg, bold, fg, fit, hud, label, usePalette } from "./src/palette.ts";
 import { PINNED_MIN_COLUMNS, sidebarRoot, type SidebarRoot } from "./src/sidebar.ts";
+import { imageProtocolFor } from "./src/terminal.ts";
 import { activeIntent, planFromBranch, planFromDetails, type PlanTask } from "./src/sources.ts";
 import { PANEL_KEY, PANEL_WIDTH, parseAheadBehind, parseNumstat, parsePorcelain, renderPanel, type ChangedFile, type PanelInfo } from "./src/panel.ts";
 import { shouldNotify, toastScript } from "./src/notify.ts";
@@ -91,7 +92,9 @@ export default function (pi: ExtensionAPI) {
 	if (process.env.PI_UI === "off") return;
 	// Real images need a terminal protocol; when detection misses it (e.g. WSL started from WezTerm without its variables),
 	// PI_UI_IMAGES=kitty or iterm2 forces it. Under tmux they stay off unless forced (tmux needs allow-passthrough).
-	if (process.env.PI_UI_IMAGES === "kitty" || process.env.PI_UI_IMAGES === "iterm2") setCapabilityOverrides({ images: process.env.PI_UI_IMAGES });
+	// WezTerm behind Windows ConPTY (WSL or native Windows) gets iTerm2 images; PI_UI_IMAGES=kitty|iterm2 forces one.
+	const forcedImages = imageProtocolFor(process.env, process.platform);
+	if (forcedImages) setCapabilityOverrides({ images: forcedImages });
 	const panelKey = (process.env.PI_UI_PANEL_KEY || PANEL_KEY).toLowerCase();
 
 	let status = initialStatus();
@@ -161,7 +164,7 @@ export default function (pi: ExtensionAPI) {
 			images.push(ref);
 			pi.appendEntry("pi-ui-image", { ref });
 			// A new image is shown at full width: the side column (which would hide it) steps aside; Alt+S brings it back.
-			if (sidebarOn && getCapabilities().images) {
+			if (sidebarOn && sidebar && getCapabilities().images) {
 				sidebarOn = false;
 				syncSidebar();
 			}
@@ -494,10 +497,27 @@ export default function (pi: ExtensionAPI) {
 		const host = tui as unknown as LayoutHost | undefined;
 		return host && typeof host.setLayoutRoot === "function" && (host.layoutRoot || sidebar) ? host : undefined;
 	};
+	/**
+	 * Regular mode (no layout root): the panel is an overlay and the chat renders narrower while it is open on a wide
+	 * terminal, patched on the renderer's class (reached through the proxy's prototype; Pi may swap the instance).
+	 */
+	const fullscreen = () => typeof (tui as unknown as LayoutHost | undefined)?.setLayoutRoot === "function";
+	const regularColumn = () => Boolean(closePanel) && !fullscreen() && wide();
+	const patchRegularRender = () => {
+		const proto = (tui ? Object.getPrototypeOf(tui) : null) as { render: (width: number) => string[] } | null;
+		if (!proto || Object.prototype.hasOwnProperty.call(proto, "piUiColumn")) return;
+		const original = proto.render;
+		proto.render = function (this: unknown, width: number) {
+			if (!regularColumn()) return original.call(this, width);
+			const inner = Math.max(20, width - PANEL_WIDTH - 1);
+			return original.call(this, inner).map((line: string) => line + " ".repeat(Math.max(0, width - visibleWidth(line))));
+		};
+		Object.defineProperty(proto, "piUiColumn", { value: true });
+	};
 	/** Wraps or unwraps Pi's layout root to match sidebarOn (Pi may set its root again: checked on every frame). */
 	const syncSidebar = () => {
 		const host = layoutHost();
-		if (!host) return;
+		if (!host) return fullscreen() ? undefined : patchRegularRender();
 		const current = host.layoutRoot;
 		const wanted = sidebarOn && wide();
 		if (wanted && current && current !== sidebar) {
@@ -531,13 +551,14 @@ export default function (pi: ExtensionAPI) {
 		}
 		if (closePanel) return closePanel();
 		void refreshChanges(ctx.cwd);
-		reservedRight = PANEL_WIDTH + 1;
+		// Regular mode on a wide terminal: the chat is narrower (patchRegularRender), the steps need no extra room.
+		reservedRight = wide() ? 0 : PANEL_WIDTH + 1;
 		await ctx.ui.custom<void>(
 			(_panelTui, _theme, _keybindings, done) => {
 				closePanel = () => done();
-				return { render: (width: number) => panelLines(ctx, width, false), invalidate() {} };
+				return { render: (width: number) => panelLines(ctx, width, wide()), invalidate() {} };
 			},
-			{ overlay: true, overlayOptions: { anchor: "top-right", width: PANEL_WIDTH, maxHeight: "95%", margin: { top: 1, right: 0 }, nonCapturing: true, visible: (width) => width >= 60 } },
+			{ overlay: true, overlayOptions: { anchor: "top-right", width: PANEL_WIDTH, maxHeight: wide() ? "100%" : "95%", margin: { top: wide() ? 0 : 1, right: 0 }, nonCapturing: true, visible: (width) => width >= 60 } },
 		);
 		closePanel = undefined;
 		reservedRight = 0;
@@ -547,9 +568,13 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_start", (_event, ctx) => {
 		if (ctx.mode !== "tui" || !pinned) return;
 		panelCtx = ctx;
-		// The side column only (fullscreen, wide): an overlay opened by itself would cover the chat.
+		// The side column only on wide terminals: fullscreen through the layout root, regular mode as an overlay next to
+		// a narrower chat. Narrow terminals: on demand (an overlay opened by itself would cover the chat).
 		sidebarOn = true;
 		void refreshChanges(ctx.cwd);
+		setTimeout(() => {
+			if (tui && !fullscreen() && wide() && !closePanel) void togglePanel(ctx);
+		}, 50);
 	});
 	pi.registerShortcut(panelKey as Parameters<typeof pi.registerShortcut>[0], { description: "Pannello della sessione: goal/loop/team, file, test, immagini, uso", handler: togglePanel });
 	pi.registerCommand("pannello", { description: `Apre o chiude il pannello della sessione (come ${panelKey})`, handler: async (_args, ctx) => togglePanel(ctx) });
