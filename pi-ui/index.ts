@@ -133,11 +133,13 @@ export default function (pi: ExtensionAPI) {
 	let goalState: PanelInfo["goal"];
 	pi.events.on("goal:state", (data) => {
 		goalState = data as PanelInfo["goal"];
+		panelDirty = true;
 		tui?.requestRender();
 	});
 	// lean-tools reports the tokens its compactions saved.
 	pi.events.on("lean:saved", (data) => {
 		saved += Number((data as { tokens?: number })?.tokens) || 0;
+		panelDirty = true;
 	});
 	let cwd = process.cwd();
 	let suggestions: string[] = [];
@@ -200,9 +202,20 @@ export default function (pi: ExtensionAPI) {
 		}
 	};
 
+	/** Something the panel shows changed: rebuild it on the next frame (otherwise it is kept, see cachedPanel). */
+	let panelDirty = true;
 	const update = (event: StatusEvent) => {
 		status = nextStatus(status, event);
+		panelDirty = true;
 		tui?.requestRender();
+	};
+	// The context size is estimated over the whole session (up to ~5 ms on a long one): at most once a second, not on
+	// every keystroke.
+	let contextCache: { at: number; value: ReturnType<ExtensionContext["getContextUsage"]> } | undefined;
+	const contextUsage = (ctx: ExtensionContext) => {
+		const now = Date.now();
+		if (!contextCache || now - contextCache.at > 1000) contextCache = { at: now, value: ctx.getContextUsage() };
+		return contextCache.value;
 	};
 	const refreshChanges = async (cwd: string) => {
 		const [status, numstat] = await Promise.all([
@@ -217,6 +230,7 @@ export default function (pi: ExtensionAPI) {
 			pi.exec("git", ["log", "-1", "--format=%s"], { cwd }).catch(() => undefined),
 		]);
 		git = branch?.code === 0 ? { branch: branch.stdout.trim() || undefined, ...parseAheadBehind(aheadBehind?.code === 0 ? aheadBehind.stdout : ""), lastCommit: last?.code === 0 ? last.stdout.trim() : undefined } : undefined;
+		panelDirty = true;
 		tui?.requestRender();
 	};
 	const line = (render: (width: number) => string): Component => ({ render: (width) => [render(width)], invalidate() {} });
@@ -297,7 +311,7 @@ export default function (pi: ExtensionAPI) {
 						changes: files.length,
 						fiveHour: usage?.fiveHour,
 						overage: usage?.overage,
-						contextPercent: timed("getContextUsage(footer)", () => ctx.getContextUsage())?.percent ?? undefined,
+						contextPercent: contextUsage(ctx)?.percent ?? undefined,
 						model: ctx.model?.id ?? "?",
 						thinking: pi.getThinkingLevel(),
 					}, width);
@@ -318,10 +332,12 @@ export default function (pi: ExtensionAPI) {
 		suggestions = [];
 		lastAnswer = "";
 		clearInterval(spinner);
+		// ~7 frames a second: smooth enough for the spinner and the shimmer, and each frame redraws the whole screen
+		// (measured: with the side column, 10 frames a second cost ~40% of a core while Pi writes).
 		spinner = setInterval(() => {
 			frame++;
 			tui?.requestRender();
-		}, 100);
+		}, 150);
 	});
 	pi.on("tool_execution_start", (event) => {
 		if (!active || event.parentToolCallId) return;
@@ -504,7 +520,7 @@ export default function (pi: ExtensionAPI) {
 	let panelCtx: ExtensionContext | undefined;
 	const panelLines = (ctx: ExtensionContext, width: number, column: boolean): string[] => {
 		const usage = timed("readUsage", () => readUsage());
-		const context = timed("getContextUsage(panel)", () => ctx.getContextUsage());
+		const context = contextUsage(ctx);
 		const last = images[images.length - 1];
 		const thumb = last ? thumbnail(last, width - 4) : undefined;
 		const rows = process.stdout.rows ?? 40;
@@ -543,11 +559,14 @@ export default function (pi: ExtensionAPI) {
 	type LayoutHost = { layoutRoot?: Component; setLayoutRoot?: (component: Component | undefined) => void; requestRender: () => void };
 	let sidebarOn = false;
 	let sidebar: SidebarRoot | undefined;
-	// The panel is rebuilt at most every 300 ms (it reads files and the context size): typing does not redo it each key.
+	// The panel is rebuilt when something it shows changed, every 300 ms while Pi works (timers, spinners) and every
+	// 2 s otherwise: typing does not rebuild it (it reads files and the context size).
 	let panelCache: { at: number; width: number; column: boolean; lines: string[] } | undefined;
 	const cachedPanel = (ctx: ExtensionContext, width: number, column: boolean) => {
 		const now = Date.now();
-		if (!panelCache || panelCache.width !== width || panelCache.column !== column || now - panelCache.at > 300) {
+		const age = panelCache ? now - panelCache.at : Infinity;
+		if (!panelCache || panelCache.width !== width || panelCache.column !== column || (panelDirty && age > 100) || age > (status.mode === "working" ? 300 : 2000)) {
+			panelDirty = false;
 			panelCache = { at: now, width, column, lines: timed("pannello", () => panelLines(ctx, width, column)) };
 		}
 		return panelCache.lines;
