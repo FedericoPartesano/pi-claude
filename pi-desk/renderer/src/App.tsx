@@ -3,6 +3,7 @@ import { makePersisted } from "@solid-primitives/storage";
 import { createResizeObserver } from "@solid-primitives/resize-observer";
 import { ArrowLeft, ArrowRight, Bug, Crosshair, FileText, Globe, Lock, Menu, Plus, RotateCw, TriangleAlert, X } from "lucide-solid";
 import { DocViewer } from "./components/DocViewer";
+import { WorkBar } from "./components/WorkBar";
 import { actions } from "./actions";
 import { onTableClick } from "./enhance";
 import type { DocFile } from "./bridge";
@@ -307,6 +308,7 @@ export function App() {
 				<Show when={unseen() && !stuck()}>
 					<button type="button" class="to-end" onClick={toEnd}>↓ nuovi messaggi</button>
 				</Show>
+				<Show when={!viewing()}><WorkBar work={chat.work} busy={state.busy} onStop={() => desk.abort()} /></Show>
 				<Composer busy={state.busy && !viewing()} readonly={Boolean(viewing()) && !viewing()!.writable} placeholder={viewing()?.writable ? "Scrivi al Pi nel terminale…" : "Chiedi a Pi…"} statuses={statuses()} onSend={send} onStop={() => desk.abort()} ref={(api) => (composer = api)} />
 				<ExtensionDialog request={state.dialog} mount={chatColumn} onAnswer={(fields) => {
 					const request = state.dialog;

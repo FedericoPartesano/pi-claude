@@ -372,3 +372,28 @@ svg.lucide { flex: none; }
 @keyframes caret { to { visibility: hidden; } }
 .to-end { position: absolute; left: 50%; transform: translateX(-50%); bottom: 118px; z-index: 5; border: 1px solid #2ee6ff66; background: var(--raised); color: var(--accent); border-radius: 999px; padding: 5px 14px; font: 600 12px var(--sans); box-shadow: 0 0 16px #2ee6ff33; }
 .to-end:hover { background: var(--accent-soft); }
+
+/* ---- Work bar: the terminal's AL LAVORO / FATTO line ---------------------------------------------------------- */
+.workbar { display: flex; align-items: center; gap: 10px; max-width: 780px; width: calc(100% - 44px); margin: 0 auto 6px; padding: 6px 10px; font-size: 12.5px; border: 1px solid #2ee6ff33; background: linear-gradient(90deg, #2ee6ff12, transparent 70%); border-radius: 10px; }
+.workbar .tag { flex: none; font: 700 11px var(--mono); letter-spacing: .08em; color: #0c0c0c; background: var(--accent); padding: 2px 8px; border-radius: 5px; box-shadow: 0 0 12px #2ee6ff66; }
+.workbar .tag.ok { background: var(--ok); box-shadow: 0 0 12px #3df2a055; }
+.workbar.done { border-color: #3df2a033; background: linear-gradient(90deg, #3df2a00f, transparent 70%); }
+.workbar .what { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+.workbar .what.thinking { color: var(--muted); }
+.workbar .thought { color: var(--text); }
+.workbar .meta { flex: none; font: 11.5px var(--mono); color: var(--faint); }
+.workbar .esc { flex: none; border: 1px solid var(--line); background: transparent; color: var(--muted); border-radius: 6px; padding: 1px 8px; font: 600 11px var(--mono); }
+.workbar .esc span { font-weight: 400; color: var(--faint); }
+.workbar .esc:hover { border-color: var(--danger); color: var(--danger); }
+/* A light running over the action (the terminal's shimmer), and three dots for thinking. */
+.workbar .shimmer { background: linear-gradient(90deg, var(--text) 0%, var(--text) 40%, #ffffff 50%, var(--text) 60%, var(--text) 100%); background-size: 220% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: shimmer 1.8s linear infinite; }
+@keyframes shimmer { from { background-position: 120% 0; } to { background-position: -20% 0; } }
+.workbar .wave { display: inline-flex; gap: 3px; vertical-align: middle; margin-right: 4px; }
+.workbar .wave i { width: 4px; height: 4px; border-radius: 50%; background: var(--violet); animation: wave 1s ease-in-out infinite; }
+.workbar .wave i:nth-child(2) { animation-delay: .15s; }
+.workbar .wave i:nth-child(3) { animation-delay: .3s; }
+@keyframes wave { 50% { transform: translateY(-4px); opacity: .5; } }
+.workbar.compacting { border-color: #ff3fd844; background: linear-gradient(90deg, #ff3fd814, transparent 70%); }
+.workbar .tag.compact { background: var(--violet); box-shadow: 0 0 12px #ff3fd866; }
+.workbar .retry { flex: none; font: 11px var(--mono); color: var(--warn); max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workbar .queued { flex: none; font: 600 11px var(--mono); color: var(--yellow); border: 1px solid #f5e14a55; border-radius: 5px; padding: 0 6px; }

@@ -3,6 +3,8 @@
 // part that changed; the markdown component re-renders only the block that changed).
 import { createStore, produce } from "solid-js/store";
 import type { Img, TranscriptItem, UiRequest } from "./bridge";
+// The same words the terminal uses for what a tool does ("legge src/app.ts", "esegue npm test").
+import { phrase } from "../../../pi-ui/src/phrases.ts";
 
 export type Step = { id: string; name: string; args: Record<string, unknown>; state: "run" | "ok" | "err"; ms?: number; output?: string; images?: Img[] };
 export type Part =
@@ -19,6 +21,11 @@ let nextId = 1;
 const id = () => nextId++;
 
 export function createChat() {
+	// What Pi is doing now (the terminal's "AL LAVORO" line) and the last turn's totals ("FATTO").
+	const [work, setWork] = createStore({ phase: "idle" as "idle" | "thinking" | "tool" | "writing" | "done" | "compacting", activity: "", thought: "", started: 0, steps: 0, tokensIn: 0, tokensOut: 0, seconds: 0, queued: 0, retry: "" });
+	let phaseBeforeCompaction: typeof work.phase = "idle";
+	const k = (count: number) => (count >= 1000 ? `${Math.round(count / 1000)}k` : String(count));
+	const REASONS: Record<string, string> = { threshold: "contesto oltre la soglia", overflow: "contesto pieno", manual: "richiesta manuale" };
 	const [state, set] = createStore({ typing: false, turns: [] as Turn[], busy: false, status: "pronto", statuses: {} as Record<string, string>, dialog: undefined as UiRequest | undefined, exited: undefined as string | undefined });
 	// Indices of what is being written now.
 	let turn = -1;
@@ -99,8 +106,30 @@ export function createChat() {
 
 	function onEvent(event: any) {
 		switch (event.type) {
+			case "compaction_start":
+				phaseBeforeCompaction = work.phase;
+				setWork({ phase: "compacting", activity: REASONS[event.reason] ?? "contesto", started: work.started || Date.now() });
+				break;
+			case "compaction_end": {
+				const result = event.result;
+				if (result) set("turns", (turns) => [...turns, { id: id(), role: "note", text: `◇ Contesto compattato: ${k(result.tokensBefore ?? 0)} → ~${k(result.estimatedTokensAfter ?? 0)} token (${REASONS[event.reason] ?? event.reason})` }]);
+				else if (!event.aborted) set("turns", (turns) => [...turns, { id: id(), role: "note", tone: "error", text: `Compattazione non riuscita: ${event.errorMessage ?? "errore"}` }]);
+				setWork({ phase: state.busy ? (phaseBeforeCompaction === "compacting" ? "thinking" : phaseBeforeCompaction) : "done" });
+				break;
+			}
+			case "auto_retry_start":
+				setWork({ retry: `riprovo ${event.attempt}/${event.maxAttempts} tra ${Math.round((event.delayMs ?? 0) / 1000)} s · ${String(event.errorMessage ?? "").slice(0, 60)}` });
+				break;
+			case "auto_retry_end":
+				setWork({ retry: "" });
+				if (!event.success) set("turns", (turns) => [...turns, { id: id(), role: "note", tone: "error", text: `Il provider non risponde: ${event.finalError ?? "errore"} (${event.attempt} tentativi)` }]);
+				break;
+			case "queue_update":
+				setWork({ queued: (event.steering?.length ?? 0) + (event.followUp?.length ?? 0) });
+				break;
 			case "agent_start":
 				set({ busy: true, status: "sta lavorando…", exited: undefined });
+				if (work.phase === "idle" || work.phase === "done") setWork({ phase: "thinking", activity: "", thought: "", started: Date.now(), steps: 0, tokensIn: 0, tokensOut: 0, seconds: 0 });
 				break;
 			case "message_start":
 				if (event.message?.role === "assistant") {
@@ -110,12 +139,20 @@ export function createChat() {
 				break;
 			case "message_update": {
 				const update = event.assistantMessageEvent;
-				if (update?.type === "thinking_delta") pendingThink += update.delta;
-				else if (update?.type === "text_delta") pendingText += update.delta;
+				if (update?.type === "thinking_delta") {
+					pendingThink += update.delta;
+					// The latest thought, one short line.
+					const last = (work.thought + update.delta).split(/\n|(?<=[.!?])\s/).filter((line) => line.trim()).pop() ?? "";
+					setWork({ phase: "thinking", thought: last.trim().slice(-90) });
+				} else if (update?.type === "text_delta") {
+					pendingText += update.delta;
+					if (work.phase !== "writing") setWork({ phase: "writing", activity: "scrivo la risposta" });
+				}
 				schedule();
 				break;
 			}
 			case "message_end":
+				if (event.message?.usage) setWork({ tokensIn: work.tokensIn + (event.message.usage.input ?? 0) + (event.message.usage.cacheRead ?? 0) + (event.message.usage.cacheWrite ?? 0), tokensOut: work.tokensOut + (event.message.usage.output ?? 0) });
 				flushNow();
 				closeThinking();
 				if (event.message?.errorMessage) {
@@ -137,6 +174,7 @@ export function createChat() {
 				set("turns", turn, produce((t: any) => t.parts[part].steps.push({ id: event.toolCallId, name: event.toolName, args: event.args ?? {}, state: "run" })));
 				tools.set(event.toolCallId, { part, index: (parts()[part] as any).steps.length - 1, start: Date.now() });
 				set("status", `${event.toolName} ${brief(event.toolName, event.args)}`.slice(0, 64));
+				setWork({ phase: "tool", activity: phrase(event.toolName, event.args ?? {}).text, steps: work.steps + 1 });
 				break;
 			}
 			case "tool_execution_end": {
@@ -154,6 +192,7 @@ export function createChat() {
 					if (images.length) step.images = images;
 				}));
 				set("status", "sta lavorando…");
+				setWork({ phase: "thinking", thought: "" });
 				break;
 			}
 			case "agent_settled":
@@ -164,6 +203,7 @@ export function createChat() {
 				text = -1;
 				steps = -1;
 				set({ busy: false, status: "pronto" });
+				setWork({ phase: "done", seconds: Math.round((Date.now() - work.started) / 1000) });
 				break;
 		}
 	}
@@ -179,6 +219,7 @@ export function createChat() {
 
 	return {
 		state,
+		work,
 		onEvent,
 		onUi,
 		closeDialog: () => set("dialog", undefined),

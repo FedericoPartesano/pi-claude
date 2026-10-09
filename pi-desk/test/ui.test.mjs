@@ -178,3 +178,26 @@ test("permission dialog: the command apart, buttons with keys, answered with S/N
 		close();
 	}
 });
+
+test("work bar: AL LAVORO with the activity in the terminal's words, COMPATTO during compaction, FATTO with totals", { skip, timeout: 60_000 }, async () => {
+	const { js, close } = await openPage();
+	try {
+		const bar = () => js(`document.querySelector(".workbar")?.innerText.replace(/\\s+/g, " ") ?? ""`);
+		await js(`emit("pi-event", { type: "agent_start" }); emit("pi-event", { type: "tool_execution_start", toolCallId: "t", toolName: "bash", args: { command: "npm test" } }); "ok"`);
+		await wait(150);
+		assert.match(await bar(), /AL LAVORO.*Eseguo i test.*passo 1/);
+		await js(`emit("pi-event", { type: "compaction_start", reason: "threshold" }); "ok"`);
+		await wait(150);
+		assert.match(await bar(), /COMPATTO.*soglia/);
+		await js(`emit("pi-event", { type: "compaction_end", reason: "threshold", result: { tokensBefore: 150000, estimatedTokensAfter: 32000 } }); "ok"`);
+		await wait(100);
+		assert.match(await js(`document.getElementById("scroll").textContent`), /Contesto compattato: 150k → ~32k token/);
+		await js(`emit("pi-event", { type: "tool_execution_end", toolCallId: "t", isError: false, result: { content: [] } });
+			emit("pi-event", { type: "message_end", message: { role: "assistant", usage: { input: 1200, output: 340 } } });
+			emit("pi-event", { type: "agent_settled" }); "ok"`);
+		await wait(150);
+		assert.match(await bar(), /FATTO.*↑1,2k ↓340 tok.*1 passi/);
+	} finally {
+		close();
+	}
+});
