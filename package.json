@@ -14,6 +14,7 @@
       "./pi-ui/index.ts",
       "./extensions/protected-paths.ts",
       "./extensions/guards.ts",
+      "./extensions/land.ts",
       "./extensions/intent.ts",
       "./extensions/lean-tools.ts",
       "./extensions/loop.ts",

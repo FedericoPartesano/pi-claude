@@ -72,6 +72,7 @@ caricata dal percorso reale (Pi non segue i symlink per gli import relativi).
 /goal --check "npm test" sistema i test che falliscono   # chiuso solo quando npm test passa
 /goal @intents/2026-10-06-sconti.md                     # obiettivo, vincoli e controlli (sezione Verifica) dall'intent
 /goal · /goal stop · /goal resume                        # stato, chiusura, ripresa (anche dell'intent in-progress dopo un riavvio)
+/goal --metric "npm run bench | tail -1" --target 50 rendi più veloce il parser   # esperimenti giudicati da un numero
 ```
 
 Se il modello si ferma senza aver chiuso il goal, un promemoria lo fa ripartire (`goal 3/20` nel footer). Lo chiude il tool
@@ -80,6 +81,32 @@ passa a `in-progress` all'avvio e a `done` a controlli superati; un goal grande 
 l'intent (`intents/<data>-<slug>.md`). Pausa automatica dopo `--max` continuazioni (default 20), due giri di fila senza
 tool, Esc, errori, o abbonamento al 90% della finestra di 5 ore / in extra usage. Costo fisso zero: `goal_done` esiste solo
 mentre un goal è attivo.
+
+Con `--metric` ogni giro è un esperimento: il comando stampa un numero (l'ultimo dell'output; meglio più basso, `--higher`
+per il contrario), il goal lavora su un branch suo (`goal/metric-…`, working tree pulito richiesto) e a fine giro misura:
+se migliora fa commit, altrimenti mette da parte la modifica con `git stash` (recuperabile). Il promemoria porta lo storico dei
+giri al modello; con `--target` il goal si chiude quando il numero ci arriva.
+
+## Integrazione (`/land`)
+
+Per più sessioni in parallelo, ognuna nella sua worktree: `/land` integra il branch corrente in `main` solo se i controlli
+passano. Fa il rebase su `main`, esegue i controlli (`--check "cmd"`, altrimenti `npm test` se c'è) e poi il fast-forward di
+`main`, aggiornando anche il checkout dove `main` è aperto. Le sessioni che integrano insieme si mettono in coda (lock
+nella cartella git condivisa). Con un conflitto o un controllo rosso non viene integrato nulla e il branch torna com'era.
+Un checkout di `main` con modifiche non committate non viene mai toccato.
+
+## Guardie
+
+Attive da sole, a costo zero finché non trovano qualcosa (`PI_GUARDS=0` le spegne, `PI_GUARD_UNICODE|PEERS|PACKAGES=0` una per
+volta):
+- **testo invisibile**: caratteri tag, bidi e a larghezza zero in AGENTS.md/CLAUDE.md/skill (avviso all'avvio) e nei risultati
+  dei tool, che vengono ripuliti prima che il modello li legga (prompt injection che a schermo non si vede);
+- **sessioni concorrenti**: un edit/write su un file modificato da poco da un'altra sessione o a mano, e non committato, si
+  ferma una volta perché il modello lo rilegga prima;
+- **pacchetti**: `npm/pnpm/yarn/bun add|i`, `pip/uv/poetry` di un nome che non esiste nel registry, pubblicato da meno di 30
+  giorni o simile a un pacchetto famoso si fermano una volta con il motivo (ripetuto, passa);
+- **comandi distruttivi** (nel permesso di pi-ui): `DROP TABLE`, `DELETE` senza `WHERE`, `git branch -D`, `docker volume
+  prune`, `kubectl delete --all`, `cat .env`, `printenv`… chiedono conferma.
 
 ## Loop
 
