@@ -46,6 +46,17 @@ export function summarize(path) {
 	return { path, id: header.id, cwd, project: basename(cwd) || cwd, created: header.timestamp, modified: statSync(path).mtimeMs, title: (name || title || "(senza messaggi)").replace(/\s+/g, " ").slice(0, 140) };
 }
 
+/** Summaries by file, reused while the file keeps its size and date (the sidebar refreshes every few seconds). */
+const summaries = new Map();
+
+function cachedSummary(path, stat) {
+	const cached = summaries.get(path);
+	if (cached && cached.size === stat.size && cached.mtime === stat.mtimeMs) return cached.summary;
+	const summary = summarize(path);
+	summaries.set(path, { size: stat.size, mtime: stat.mtimeMs, summary });
+	return summary;
+}
+
 /** Every session, most recently active first. */
 export function listSessions(root = SESSIONS_ROOT, limit = 300) {
 	if (!existsSync(root)) return [];
@@ -56,7 +67,8 @@ export function listSessions(root = SESSIONS_ROOT, limit = 300) {
 			if (!file.endsWith(".jsonl")) continue;
 			const path = join(root, dir.name, file);
 			try {
-				files.push({ path, modified: statSync(path).mtimeMs });
+				const stat = statSync(path);
+				files.push({ path, modified: stat.mtimeMs, stat });
 			} catch {
 				// Removed meanwhile.
 			}
@@ -65,9 +77,9 @@ export function listSessions(root = SESSIONS_ROOT, limit = 300) {
 	files.sort((a, b) => b.modified - a.modified);
 	return files
 		.slice(0, limit)
-		.map(({ path }) => {
+		.map(({ path, stat }) => {
 			try {
-				return summarize(path);
+				return cachedSummary(path, stat);
 			} catch {
 				return undefined;
 			}

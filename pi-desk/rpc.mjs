@@ -70,8 +70,9 @@ export class PiRpc extends EventEmitter {
 		});
 	}
 
-	prompt(message) {
-		return this.send("prompt", { message });
+	/** images: [{ type: "image", data: base64, mimeType }] */
+	prompt(message, images) {
+		return this.send("prompt", { message, ...(images?.length ? { images } : {}) });
 	}
 
 	abort() {

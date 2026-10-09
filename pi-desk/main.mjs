@@ -47,13 +47,37 @@ function extraExtensions() {
 
 let win;
 let view;
+let lastRect;
+
+/**
+ * The browser view (a whole Chromium renderer) exists only once it is wanted: the panel opened, an address typed, or
+ * Pi starting the browser tool. Until then nothing is spent on it.
+ */
+function ensureView() {
+	if (view) return view;
+	view = new WebContentsView({ webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true } });
+	win.contentView.addChildView(view);
+	view.setVisible(Boolean(lastRect && lastRect.width >= 10));
+	if (lastRect && lastRect.width >= 10) view.setBounds(lastRect);
+	view.webContents.loadURL("data:text/html;charset=utf-8," + encodeURIComponent("<title>pi-browser</title><body style='font:15px system-ui;background:#0c0c0c;color:#858ba0;display:grid;place-items:center;height:100vh;margin:0'><div>Il browser di Pi. Chiedi a Pi di aprire una pagina, oppure scrivi un indirizzo qui sopra.</div></body>"));
+	const navigated = () => sendToUi("browser-url", { url: view.webContents.getURL(), title: view.webContents.getTitle(), back: view.webContents.navigationHistory.canGoBack(), forward: view.webContents.navigationHistory.canGoForward() });
+	for (const name of ["did-navigate", "did-navigate-in-page", "page-title-updated"]) view.webContents.on(name, navigated);
+	// Links that want a new window open in the panel: Pi drives one page.
+	view.webContents.setWindowOpenHandler(({ url }) => {
+		view.webContents.loadURL(url);
+		return { action: "deny" };
+	});
+	return view;
+}
 let pi;
 
 /** The native browser view sits exactly over the page's #browser-slot (the page reports it on every resize). */
 function placeView(rect) {
-	if (!view || !rect) return;
+	if (!rect) return;
+	lastRect = rect;
 	// The page closed the panel: no native view on top of the chat.
-	if (rect.width < 10 || rect.height < 10) return void view.setVisible(false);
+	if (rect.width < 10 || rect.height < 10) return void view?.setVisible(false);
+	ensureView();
 	view.setVisible(true);
 	view.setBounds({ x: Math.max(0, rect.x), y: Math.max(0, rect.y), width: Math.max(0, rect.width), height: Math.max(0, rect.height) });
 }
@@ -69,9 +93,13 @@ function startPi(options = {}) {
 		command: process.env.PI_DESK_PI ?? "pi",
 		args: ["--mode", "rpc", ...extraExtensions(), ...(options.session ? ["--session", options.session] : [])],
 		cwd: project,
-		env: { PI_BROWSER_CDP: `http://127.0.0.1:${port}`, PI_BROWSER_SKIP: UI_MARK },
+		env: { PI_BROWSER_CDP: `http://127.0.0.1:${port}`, PI_BROWSER_SKIP: UI_MARK, PI_BROWSER_WAIT: "4000" },
 	});
-	pi.on("event", (event) => sendToUi("pi-event", event));
+	pi.on("event", (event) => {
+		// Pi is about to drive the browser: make the page it will attach to.
+		if (event.type === "tool_execution_start" && event.toolName === "browser") ensureView();
+		sendToUi("pi-event", event);
+	});
 	pi.on("ui", (request) => sendToUi("pi-ui", request));
 	pi.on("stderr", (text) => sendToUi("pi-stderr", text));
 	const own = pi;
@@ -110,24 +138,10 @@ app.whenReady().then(() => {
 	});
 	win.loadFile(join(here, "ui", "index.html"), { query: { [UI_MARK]: "1", project } });
 
-	view = new WebContentsView({ webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true } });
-	win.contentView.addChildView(view);
-	view.webContents.loadURL("data:text/html;charset=utf-8," + encodeURIComponent("<title>pi-browser</title><body style='font:15px system-ui;background:#0d1117;color:#8b949e;display:grid;place-items:center;height:100vh;margin:0'><div>Il browser di Pi. Chiedi a Pi di aprire una pagina, oppure scrivi un indirizzo qui sopra.</div></body>"));
-	const navigated = () => sendToUi("browser-url", { url: view.webContents.getURL(), title: view.webContents.getTitle(), back: view.webContents.navigationHistory.canGoBack(), forward: view.webContents.navigationHistory.canGoForward() });
-	for (const name of ["did-navigate", "did-navigate-in-page", "page-title-updated"]) view.webContents.on(name, navigated);
-	// Links that want a new window open in the panel: Pi drives one page.
-	view.webContents.setWindowOpenHandler(({ url }) => {
-		view.webContents.loadURL(url);
-		return { action: "deny" };
-	});
-
-	win.webContents.on("did-finish-load", () => {
-		navigated();
-		sendToUi("project", project);
-	});
+	win.webContents.on("did-finish-load", () => sendToUi("project", project));
 	startPi();
 
-	ipcMain.handle("prompt", (_event, text) => pi.prompt(text));
+	ipcMain.handle("prompt", (_event, text, images) => pi.prompt(text, images));
 	ipcMain.handle("abort", () => pi.abort().catch(() => undefined));
 	ipcMain.handle("ui-answer", (_event, id, fields) => pi.answer(id, fields));
 	ipcMain.on("browser-rect", (_event, rect) => placeView(rect));
@@ -158,7 +172,7 @@ app.whenReady().then(() => {
 		startPi();
 	});
 	ipcMain.handle("browser", (_event, action, value) => {
-		const contents = view.webContents;
+		const contents = ensureView().webContents;
 		if (action === "go") contents.loadURL(/^[a-z]+:/i.test(value) ? value : /^(localhost|127\.0\.0\.1)/.test(value) ? `http://${value}` : `https://${value}`);
 		else if (action === "back" && contents.navigationHistory.canGoBack()) contents.navigationHistory.goBack();
 		else if (action === "forward" && contents.navigationHistory.canGoForward()) contents.navigationHistory.goForward();

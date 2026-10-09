@@ -75,8 +75,14 @@ export class CdpPage {
  * whose URL contains one of PI_BROWSER_SKIP (comma-separated) are never driven: in Pi Desk, the chat page itself.
  */
 export async function pageTarget(endpoint: string, skip = (process.env.PI_BROWSER_SKIP ?? "").split(",").filter(Boolean)): Promise<{ webSocketDebuggerUrl: string; url: string }> {
-	const list = (await (await fetch(`${endpoint}/json/list`)).json()) as { type: string; url: string; webSocketDebuggerUrl: string }[];
-	const page = list.find((target) => target.type === "page" && !target.url.startsWith("devtools://") && !skip.some((part) => target.url.includes(part)));
-	if (page) return page;
+	// PI_BROWSER_WAIT (ms): the host creates the page lazily (Pi Desk); wait for it rather than open another window.
+	const deadline = Date.now() + Number(process.env.PI_BROWSER_WAIT ?? 0);
+	for (;;) {
+		const list = (await (await fetch(`${endpoint}/json/list`)).json()) as { type: string; url: string; webSocketDebuggerUrl: string }[];
+		const page = list.find((target) => target.type === "page" && !target.url.startsWith("devtools://") && !skip.some((part) => target.url.includes(part)));
+		if (page) return page;
+		if (Date.now() >= deadline) break;
+		await new Promise((resolve) => setTimeout(resolve, 150));
+	}
 	return (await (await fetch(`${endpoint}/json/new?about:blank`, { method: "PUT" })).json()) as { webSocketDebuggerUrl: string; url: string };
 }

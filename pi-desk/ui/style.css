@@ -81,6 +81,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 #scroll { flex: 1; min-height: 0; overflow-y: auto; }
 .thread { max-width: 780px; margin: 0 auto; padding: 22px 22px 8px; display: flex; flex-direction: column; gap: 18px; }
 
+/* Turns off screen are neither laid out nor painted (the browser's own virtualisation). */
+.turn-user, .turn-pi { content-visibility: auto; contain-intrinsic-size: auto 120px; }
+.md .block + .block { margin-top: .75em; }
 .turn-user { align-self: flex-end; max-width: 85%; background: var(--user); color: var(--strong); padding: 10px 14px; border-radius: 14px 14px 3px 14px; white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid #ff3fd833; box-shadow: inset 2px 0 0 #ff3fd8aa; }
 
 .turn-pi { display: flex; flex-direction: column; gap: 10px; min-width: 0; }

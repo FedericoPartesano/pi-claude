@@ -1,7 +1,7 @@
 // Pi Desk chat: Pi's RPC events in, prompts and dialog answers out (through window.desk, see preload.cjs).
 // Rendering (markdown, charts, suggestions) lives in render.js (window.PiRender).
 const $ = (id) => document.getElementById(id);
-const { escapeHtml, answer } = window.PiRender;
+const { escapeHtml, answer, answerBlocks } = window.PiRender;
 const app = $("app");
 const scroll = $("scroll");
 const log = $("log");
@@ -127,11 +127,27 @@ function closeThinking() {
 	live.think = undefined;
 }
 
+/**
+ * Streaming paint, once per frame: the answer as memoised blocks (render.js); only the blocks whose HTML changed are
+ * touched in the page (usually the last one), so a long answer costs the same per frame as a short one.
+ */
+function paintBlocks(container, text) {
+	const { blocks } = answerBlocks(text);
+	const nodes = container.children;
+	blocks.forEach((html, index) => {
+		const node = nodes[index];
+		if (!node) container.appendChild(el("div", "block", html));
+		else if (node.__html !== html) node.innerHTML = html;
+		(nodes[index]).__html = html;
+	});
+	while (nodes.length > blocks.length) container.lastChild.remove();
+}
+
 function paintText() {
 	live.frame = 0;
 	if (!live.textEl) return;
 	const near = nearEnd();
-	live.textEl.innerHTML = answer(live.text).html;
+	paintBlocks(live.textEl, live.text);
 	keepEnd(near);
 }
 
@@ -450,9 +466,9 @@ function renderItems(container, items) {
 			current.appendChild(el("div", "error-card")).textContent = clean(item.text);
 			steps = undefined;
 		} else {
-			const { html, suggestions } = answer(item.text);
-			current.appendChild(el("div", "md", html));
-			suggestionsBar(current, suggestions);
+			const block = current.appendChild(el("div", "md"));
+			paintBlocks(block, item.text);
+			suggestionsBar(current, answer(item.text).suggestions);
 			steps = undefined;
 		}
 	}
@@ -469,7 +485,19 @@ function bucket(session) {
 	return "Più vecchie";
 }
 
-async function refreshSessions() {
+let sessionsSignature = "";
+let sessionsIdle = 0;
+/** Deferred (like useDeferredValue): the list is rebuilt when the window is idle, and only if something changed. */
+function refreshSessions() {
+	if (sessionsIdle) return;
+	const schedule = window.requestIdleCallback ?? ((callback) => setTimeout(callback, 50));
+	sessionsIdle = schedule(() => {
+		sessionsIdle = 0;
+		refreshSessionsNow();
+	});
+}
+
+async function refreshSessionsNow() {
 	let all = [];
 	try {
 		all = await window.desk.sessions();
@@ -481,6 +509,10 @@ async function refreshSessions() {
 	const shown = all.filter((session) => !filter || `${session.title} ${session.project} ${session.cwd}`.toLowerCase().includes(filter));
 	const groups = new Map(["In corso", "Oggi", "Ieri", "Ultimi 7 giorni", "Più vecchie"].map((name) => [name, []]));
 	for (const session of shown) groups.get(bucket(session)).push(session);
+	// Memo: same sessions, same states, same filter, same selection, same minute → nothing to redraw.
+	const signature = JSON.stringify([filter, viewing?.path, Math.floor(Date.now() / 60000), shown.map((session) => [session.path, session.title, session.modified, session.running?.pid])]);
+	if (signature === sessionsSignature) return;
+	sessionsSignature = signature;
 	const list = $("session-list");
 	list.replaceChildren();
 	for (const [name, items] of groups) {

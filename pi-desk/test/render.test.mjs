@@ -46,3 +46,14 @@ test("charts: bars, horizontal bars and lines as SVG with title, axis values, le
 		assert.match(svg, /class="legend".*2025.*2026/s);
 	}
 });
+
+test("blocks: split at blank lines but never inside a fence or a list; same block → same cached HTML", () => {
+	const { splitBlocks, answerBlocks } = context.window.PiRender;
+	const text = "Titolo\n\n```js\nconst a = 1;\n\nconst b = 2;\n```\n\n1. uno\n\n2. due\n\nfine";
+	assert.deepEqual([...splitBlocks(text)], ["Titolo", "```js\nconst a = 1;\n\nconst b = 2;\n```", "1. uno\n\n2. due", "fine"]);
+	const first = answerBlocks(text).blocks;
+	const second = answerBlocks(`${text} e altro`).blocks;
+	assert.equal(second[0], first[0], "unchanged blocks are the cached strings");
+	assert.notEqual(second[3], first[3]);
+	assert.match(first[2], /<ol><li>uno<\/li><li>due<\/li><\/ol>/);
+});

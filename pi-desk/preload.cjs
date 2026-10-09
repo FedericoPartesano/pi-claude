@@ -2,7 +2,7 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("desk", {
-	prompt: (text) => ipcRenderer.invoke("prompt", text),
+	prompt: (text, images) => ipcRenderer.invoke("prompt", text, images),
 	abort: () => ipcRenderer.invoke("abort"),
 	answer: (id, fields) => ipcRenderer.invoke("ui-answer", id, fields),
 	restart: () => ipcRenderer.invoke("restart"),

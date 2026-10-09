@@ -125,7 +125,10 @@
 			if (LIST.test(line)) {
 				flush();
 				const items = [];
-				for (; i < lines.length && (LIST.test(lines[i]) || (lines[i].trim() && /^\s{2,}\S/.test(lines[i]))); i++) items.push(lines[i]);
+				// A blank line between two items does not end the list ("loose" lists: numbering goes on).
+				const kind = (text) => (/^\s*\d/.test(text) ? "ol" : "ul");
+				const sameKind = (next) => LIST.test(next) && /^\S/.test(next) === /^\S/.test(items.findLast((item) => LIST.test(item)) ?? "") && kind(next) === kind(items.findLast((item) => LIST.test(item) && /^\S/.test(item)) ?? next);
+				for (; i < lines.length && (LIST.test(lines[i]) || (lines[i].trim() && /^\s{2,}\S/.test(lines[i])) || (!lines[i].trim() && sameKind(lines[i + 1] ?? ""))); i++) if (lines[i].trim()) items.push(lines[i]);
 				i--;
 				html += list(items);
 				continue;
@@ -259,6 +262,59 @@
 		return { html, suggestions };
 	}
 
-	const api = { escapeHtml, markdown, extract, chartSvg, answer };
+	// ---- Memoised, block by block (what useMemo would do): an answer is split into top-level blocks at blank lines
+	// outside code fences; each block's HTML is cached by its text. While streaming only the last block changes, so
+	// only it is rendered again — and the page updates only its node.
+	const cache = new Map();
+	const CACHE_MAX = 600;
+	function memo(key, compute) {
+		const hit = cache.get(key);
+		if (hit !== undefined) {
+			cache.delete(key);
+			cache.set(key, hit); // most recently used last
+			return hit;
+		}
+		const value = compute();
+		cache.set(key, value);
+		if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);
+		return value;
+	}
+
+	/** Top-level blocks: split at blank lines, never inside a fence (``` or ~~~), a list or a table. */
+	function splitBlocks(text) {
+		const blocks = [];
+		let current = [];
+		let fence = "";
+		for (const line of text.split("\n")) {
+			const marker = /^\s*(```|~~~)/.exec(line)?.[1];
+			if (marker) fence = fence === marker ? "" : fence || marker;
+			if (!fence && !line.trim() && current.length) {
+				blocks.push(current.join("\n"));
+				current = [];
+				continue;
+			}
+			current.push(line);
+		}
+		if (current.length) blocks.push(current.join("\n"));
+		// A list or a table continues across a blank line: glue such blocks back (rendering them apart would restart numbering).
+		const glued = [];
+		for (const block of blocks) {
+			const previous = glued[glued.length - 1];
+			if (previous !== undefined && /^\s*([-*+•]|\d+[.)])\s/.test(block) && /(^|\n)\s*([-*+•]|\d+[.)])\s[^\n]*$/.test(previous)) glued[glued.length - 1] = `${previous}\n\n${block}`;
+			else glued.push(block);
+		}
+		return glued;
+	}
+
+	/** An answer as a list of block HTML strings (memoised) and its suggestions. */
+	function answerBlocks(source) {
+		const { marked, suggestions, charts } = extract(source);
+		const html = splitBlocks(marked).map((block) =>
+			memo(block, () => markdown(block.replace(/<!--chart:(\d+)-->/g, "@@CHART$1@@")).replace(/<p>@@CHART(\d+)@@<\/p>|@@CHART(\d+)@@/g, (_, a, b) => chartSvg(charts[Number(a ?? b)]))),
+		);
+		return { blocks: html, suggestions };
+	}
+
+	const api = { escapeHtml, markdown, extract, chartSvg, answer, answerBlocks, splitBlocks };
 	root.PiRender = api;
 })(typeof window !== "undefined" ? window : globalThis);
