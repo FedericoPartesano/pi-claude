@@ -27,7 +27,7 @@ async function toImage(file: File): Promise<Img | undefined> {
 	return { data: btoa(binary), mimeType: "image/jpeg" };
 }
 
-export function Composer(props: { busy: boolean; readonly: boolean; placeholder: string; statuses: string; onSend: (text: string, images: Img[]) => void; onStop: () => void; ref?: (api: { fill: (text: string) => void; attach: (text: string, image?: Img) => void }) => void }) {
+export function Composer(props: { busy: boolean; readonly: boolean; placeholder: string; statuses: string; onSend: (text: string, images: Img[]) => void; onStop: () => void; onText?: (text: string) => void; ref?: (api: { fill: (text: string) => void; attach: (text: string, image?: Img) => void }) => void }) {
 	const [text, setText] = createSignal("");
 	const [images, setImages] = createSignal<Img[]>([]);
 	const [dragging, setDragging] = createSignal(false);
@@ -84,7 +84,7 @@ export function Composer(props: { busy: boolean; readonly: boolean; placeholder:
 					</div>
 				</Show>
 				<textarea id="input" rows="1" ref={area} value={text()} placeholder={props.placeholder}
-					onInput={(event) => (setText(event.currentTarget.value), grow())}
+					onInput={(event) => (setText(event.currentTarget.value), props.onText?.(event.currentTarget.value), grow())}
 					onPaste={(event) => {
 						const files = [...(event.clipboardData?.files ?? [])].filter((file) => file.type.startsWith("image/"));
 						if (files.length) {

@@ -201,3 +201,21 @@ test("work bar: AL LAVORO with the activity in the terminal's words, COMPATTO du
 		close();
 	}
 });
+
+test("a terminal Pi's status line in the app: TOCCA A TE answered with a button or a key", { skip, timeout: 60_000 }, async () => {
+	const { js, close } = await openPage();
+	try {
+		await js(`window.remoteStatus = { mode: "waiting", question: "posso eseguire rm -rf build? cancella file ricorsivamente" }; document.getElementById("toggle-sessions").click(); "ok"`);
+		await wait(250);
+		await js(`[...document.querySelectorAll(".session")].find((b) => b.innerText.includes("carrello")).click(); "ok"`);
+		await wait(900);
+		assert.match(await js(`document.querySelector(".workbar.remote")?.innerText ?? ""`), /TOCCA A TE[\s\S]*rm -rf build[\s\S]*Sì/);
+		await js(`window.dispatchEvent(new KeyboardEvent("keydown", { key: "n", bubbles: true })); "ok"`);
+		await wait(100);
+		assert.match(await js(`JSON.stringify(calls)`), /"remote-answer",42,"no"/);
+		await wait(700);
+		assert.match(await js(`document.querySelector(".workbar.remote")?.innerText ?? ""`), /AL LAVORO/);
+	} finally {
+		close();
+	}
+});

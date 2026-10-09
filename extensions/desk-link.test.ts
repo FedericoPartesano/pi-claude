@@ -37,3 +37,15 @@ test("over a real socket, owner-only; stale sockets of dead Pis are removed", { 
 	link.server.close();
 	cleanStale(dir);
 });
+
+test("status and answers: Pi Desk reads the status line and answers the question it waits on", () => {
+	const answers: string[] = [];
+	let status: { mode: string; question?: string } | undefined = { mode: "working", activity: "eseguo i test" } as never;
+	const deps = { info: info(true), send: () => {}, status: () => status as never, answer: (value: "yes" | "no" | "always") => void answers.push(value) };
+	assert.deepEqual(handleLine(`{"type":"status"}`, deps), { type: "status", status, busy: true });
+	assert.equal((handleLine(`{"type":"answer","value":"yes"}`, deps) as { error: string }).error, "nessuna domanda in attesa");
+	status = { mode: "waiting", question: "posso eseguire rm -rf build?" };
+	assert.deepEqual(handleLine(`{"type":"answer","value":"no"}`, deps), { type: "ok" });
+	assert.equal((handleLine(`{"type":"answer","value":"forse"}`, deps) as { error: string }).error, "risposta non valida");
+	assert.deepEqual(answers, ["no"]);
+});

@@ -397,3 +397,14 @@ svg.lucide { flex: none; }
 .workbar .tag.compact { background: var(--violet); box-shadow: 0 0 12px #ff3fd866; }
 .workbar .retry { flex: none; font: 11px var(--mono); color: var(--warn); max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workbar .queued { flex: none; font: 600 11px var(--mono); color: var(--yellow); border: 1px solid #f5e14a55; border-radius: 5px; padding: 0 6px; }
+.workbar.waiting { border-color: #f5e14a66; background: linear-gradient(90deg, #f5e14a14, transparent 70%); }
+.workbar .tag.ask { background: var(--yellow); box-shadow: 0 0 12px #f5e14a66; }
+.workbar .tag.err { background: var(--danger); box-shadow: 0 0 12px #ff4d6d66; }
+.workbar.stopped { border-color: #ff4d6d55; }
+.workbar .question { color: var(--strong); white-space: normal; }
+.workbar .answers { display: flex; gap: 6px; flex: none; }
+.workbar .answers button { border: 1px solid var(--line); background: var(--surface); border-radius: 7px; padding: 3px 10px; font-size: 12px; }
+.workbar .answers button.yes { border-color: #3df2a088; color: var(--ok); }
+.workbar .answers button.no { border-color: #ff4d6d88; color: var(--danger); }
+.workbar .answers button:hover { background: var(--hover); }
+.workbar .answers kbd { margin-left: 5px; font: 600 10px var(--mono); padding: 0 4px; border: 1px solid currentColor; border-radius: 4px; opacity: .7; }

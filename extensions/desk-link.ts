@@ -16,6 +16,9 @@ export function socketPath(pid: number, dir = LINK_DIR): string {
 	return process.platform === "win32" ? `\\\\.\\pipe\\pi-desk-${pid}` : join(dir, `${pid}.sock`);
 }
 
+/** The terminal status line of this Pi (pi-ui): what it does now, or the question it is waiting on. */
+export type LinkStatus = { mode: string; activity?: string; step?: number; startedAt?: number; endedAt?: number; tokensIn?: number; tokensOut?: number; question?: string; answers?: string; phase?: string; thought?: string };
+
 export interface LinkInfo {
 	pid: number;
 	cwd: string;
@@ -23,8 +26,15 @@ export interface LinkInfo {
 	busy: boolean;
 }
 
+export interface LinkDeps {
+	info: () => LinkInfo;
+	send: (text: string, busy: boolean) => void;
+	status?: () => LinkStatus | undefined;
+	answer?: (answer: "yes" | "no" | "always") => void;
+}
+
 /** One request line → one reply. `send` delivers a user message (queued as a follow-up when Pi is busy). */
-export function handleLine(line: string, deps: { info: () => LinkInfo; send: (text: string, busy: boolean) => void }): object {
+export function handleLine(line: string, deps: LinkDeps): object {
 	let request: { type?: string; text?: unknown };
 	try {
 		request = JSON.parse(line);
@@ -32,6 +42,14 @@ export function handleLine(line: string, deps: { info: () => LinkInfo; send: (te
 		return { type: "error", error: "richiesta non valida" };
 	}
 	if (request.type === "hello") return { type: "hello", ...deps.info() };
+	if (request.type === "status") return { type: "status", status: deps.status?.() ?? null, busy: deps.info().busy };
+	if (request.type === "answer") {
+		const value = (request as { value?: unknown }).value;
+		if (value !== "yes" && value !== "no" && value !== "always") return { type: "error", error: "risposta non valida" };
+		if (deps.status?.()?.mode !== "waiting" || !deps.answer) return { type: "error", error: "nessuna domanda in attesa" };
+		deps.answer(value);
+		return { type: "ok" };
+	}
 	if (request.type === "prompt") {
 		const text = typeof request.text === "string" ? request.text.trim() : "";
 		if (!text) return { type: "error", error: "messaggio vuoto" };
@@ -60,7 +78,7 @@ export function cleanStale(dir = LINK_DIR): void {
 	}
 }
 
-export function startLink(deps: { info: () => LinkInfo; send: (text: string, busy: boolean) => void }, dir = LINK_DIR): { server: Server; path: string } {
+export function startLink(deps: LinkDeps, dir = LINK_DIR): { server: Server; path: string } {
 	const path = socketPath(process.pid, dir);
 	if (process.platform !== "win32") {
 		mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -93,6 +111,10 @@ export default function (pi: ExtensionAPI) {
 	let link: { server: Server; path: string } | undefined;
 	let current: ExtensionContext | undefined;
 	let busy = false;
+	let status: LinkStatus | undefined;
+	pi.events.on("pi-ui:status", (data) => {
+		status = data as LinkStatus;
+	});
 	pi.on("agent_start", () => {
 		busy = true;
 	});
@@ -113,6 +135,8 @@ export default function (pi: ExtensionAPI) {
 				}
 				return { pid: process.pid, cwd: current?.cwd ?? process.cwd(), session, busy };
 			},
+			status: () => status,
+			answer: (value) => pi.events.emit("pi-ui:answer", value),
 			send: (text, isBusy) => {
 				if (current?.hasUI) current.ui.notify("✉ messaggio da Pi Desk", "info");
 				pi.sendUserMessage(text, isBusy ? { deliverAs: "followUp" } : undefined);

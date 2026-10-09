@@ -189,6 +189,8 @@ app.whenReady().then(() => {
 		return hello;
 	});
 	ipcMain.handle("session-send", (_event, pid, text) => linkRequest(pid, { type: "prompt", text }));
+	ipcMain.handle("session-status", (_event, pid) => linkRequest(pid, { type: "status" }, { timeoutMs: 1500 }));
+	ipcMain.handle("session-answer", (_event, pid, value) => linkRequest(pid, { type: "answer", value }));
 	// Resume a closed session here: Pi restarts in that session's folder with it loaded.
 	ipcMain.handle("session-resume", (_event, path, cwd) => {
 		unwatch();

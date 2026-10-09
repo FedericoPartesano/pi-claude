@@ -24,5 +24,7 @@ window.desk = {
 	clipboardImage: () => Promise.resolve(undefined),
 	linkSession: (pid) => (pid === 42 ? Promise.resolve({ type: "hello", pid }) : Promise.reject(new Error("Error invoking remote method 'session-link': Error: questo Pi non ha desk-link: riavvialo per poterci scrivere"))),
 	sendToSession: (pid, text) => (calls.push(["send", pid, text]), Promise.resolve({ type: "ok", queued: true })),
+	sessionStatus: () => Promise.resolve({ status: window.remoteStatus ?? null, busy: true }),
+	answerSession: (pid, value) => (calls.push(["remote-answer", pid, value]), (window.remoteStatus = { mode: "working", activity: "ripreso" }), Promise.resolve({ type: "ok" })),
 };
 window.emit = (channel, payload) => listeners[channel]?.(payload);

@@ -4,6 +4,8 @@ import { createResizeObserver } from "@solid-primitives/resize-observer";
 import { ArrowLeft, ArrowRight, Bug, Crosshair, FileText, Globe, Lock, Menu, Plus, RotateCw, TriangleAlert, X } from "lucide-solid";
 import { DocViewer } from "./components/DocViewer";
 import { WorkBar } from "./components/WorkBar";
+import { RemoteBar } from "./components/RemoteBar";
+import type { RemoteStatus } from "./bridge";
 import { actions } from "./actions";
 import { onTableClick } from "./enhance";
 import type { DocFile } from "./bridge";
@@ -154,7 +156,34 @@ export function App() {
 	}
 
 	// ---- Sessions --------------------------------------------------------------------------------------------------
+	// A linked terminal Pi: its status line, read every 600 ms while its session is open here.
+	const [remote, setRemote] = createSignal<RemoteStatus>();
+	let remoteTimer: ReturnType<typeof setInterval> | undefined;
+	const stopRemote = () => {
+		clearInterval(remoteTimer);
+		remoteTimer = undefined;
+		setRemote(undefined);
+	};
+	const watchRemote = (pid: number) => {
+		stopRemote();
+		const read = () => desk.sessionStatus(pid).then((reply) => setRemote(reply.status ?? undefined), () => setRemote(undefined));
+		read();
+		remoteTimer = setInterval(read, 600);
+	};
+	const answerRemote = async (value: "yes" | "no" | "always") => {
+		const current = viewing();
+		if (!current?.session.running) return;
+		try {
+			await desk.answerSession(current.session.running.pid, value);
+			setRemote((status) => (status ? { ...status, mode: "working", activity: value === "no" ? "rifiutato" : "ripreso" } : status));
+		} catch (error) {
+			chat.addNote(clean((error as Error).message), "error");
+		}
+	};
+	let composerText = () => "";
+
 	async function openSession(session: Session) {
+		stopRemote();
 		if (session.running?.own) return setViewing(undefined);
 		const turns = transcriptTurns(await desk.openSession(session.path));
 		const where = `${session.project}`;
@@ -164,13 +193,17 @@ export function App() {
 		try {
 			await desk.linkSession(session.running.pid, session.path);
 			const current = viewing();
-			if (current?.session.path === session.path) setViewing({ ...current, writable: true, label: `In corso nel terminale · ${where} · scrivi qui: arriva a quel Pi` });
+			if (current?.session.path === session.path) {
+				setViewing({ ...current, writable: true, label: `In corso nel terminale · ${where} · scrivi qui: arriva a quel Pi` });
+				watchRemote(session.running.pid);
+			}
 		} catch (error) {
 			const current = viewing();
 			if (current?.session.path === session.path) setViewing({ ...current, label: `In corso nel terminale · ${where} · sola lettura: ${clean((error as Error).message)}` });
 		}
 	}
 	function backToChat() {
+		stopRemote();
 		setViewing(undefined);
 		desk.closeSession();
 	}
@@ -308,8 +341,10 @@ export function App() {
 				<Show when={unseen() && !stuck()}>
 					<button type="button" class="to-end" onClick={toEnd}>↓ nuovi messaggi</button>
 				</Show>
-				<Show when={!viewing()}><WorkBar work={chat.work} busy={state.busy} onStop={() => desk.abort()} /></Show>
-				<Composer busy={state.busy && !viewing()} readonly={Boolean(viewing()) && !viewing()!.writable} placeholder={viewing()?.writable ? "Scrivi al Pi nel terminale…" : "Chiedi a Pi…"} statuses={statuses()} onSend={send} onStop={() => desk.abort()} ref={(api) => (composer = api)} />
+				<Show when={!viewing()} fallback={<RemoteBar status={remote()} onAnswer={answerRemote} composerEmpty={() => !composerText().trim()} />}>
+					<WorkBar work={chat.work} busy={state.busy} onStop={() => desk.abort()} />
+				</Show>
+				<Composer busy={state.busy && !viewing()} readonly={Boolean(viewing()) && !viewing()!.writable} placeholder={viewing()?.writable ? "Scrivi al Pi nel terminale…" : "Chiedi a Pi…"} statuses={statuses()} onSend={send} onStop={() => desk.abort()} ref={(api) => (composer = api)} onText={(value) => (composerText = () => value)} />
 				<ExtensionDialog request={state.dialog} mount={chatColumn} onAnswer={(fields) => {
 					const request = state.dialog;
 					if (!request) return;
