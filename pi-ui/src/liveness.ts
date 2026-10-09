@@ -3,7 +3,7 @@
  * idle (maybe stuck). Linux/WSL read /proc once a second, only while a command runs; elsewhere only "no output for Ns".
  * Also a note before a command known to be very slow (a scan of the whole disk). Nothing is ever changed or blocked.
  */
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, readlinkSync } from "node:fs";
 
 export interface Stat {
 	pid: number;
@@ -51,12 +51,28 @@ function descendants(pid: number, depth = 0): { pid: number; depth: number }[] {
  * Pi has other long-lived children (MCP servers) that must not be mistaken for it. The shallowest match wins.
  */
 export function findCommandProcess(root: number, command: string): number | undefined {
-	const needle = command.trim().slice(0, 80);
+	// bash often exec's a single command: the process is then python3/node with its own argv, quotes and escapes gone.
+	const plain = (text: string) => text.replace(/["'\\]/g, "").replace(/\s+/g, " ").trim();
+	const needle = plain(command).slice(0, 80);
 	if (!needle) return undefined;
 	const matches = descendants(root)
-		.filter(({ pid }) => (read(`/proc/${pid}/cmdline`) ?? "").replaceAll("\0", " ").includes(needle))
+		.filter(({ pid }) => plain((read(`/proc/${pid}/cmdline`) ?? "").replaceAll("\0", " ")).includes(needle))
 		.sort((a, b) => a.depth - b.depth);
 	return matches[0]?.pid;
+}
+
+export type Wait = "keyboard" | "network" | "pipe" | "timer";
+
+/**
+ * What a sleeping process waits for, from its kernel wait channel (/proc/<pid>/wchan) and its open file descriptors:
+ * a terminal read, a socket (or an event loop with sockets open), a pipe from another process, a timer.
+ */
+export function waitReason(wchan: string, hasSocket: boolean, readsTty = false): Wait | undefined {
+	if (/n_tty_read|tty_read/.test(wchan) || (readsTty && /wait_woken/.test(wchan))) return "keyboard";
+	if (/sk_wait|tcp_|inet_|udp_|unix_stream|sock/.test(wchan) || (hasSocket && /ep_poll|epoll|poll|select|wait_woken|futex/.test(wchan))) return "network";
+	if (/pipe_read|pipe_wait/.test(wchan)) return "pipe";
+	if (/nanosleep|hrtimer|schedule_timeout/.test(wchan)) return "timer";
+	return undefined;
 }
 
 export interface Sample {
@@ -64,6 +80,7 @@ export interface Sample {
 	ticks: number;
 	state: string;
 	comm: string;
+	wait?: Wait;
 	/** CPU % of the whole process tree since the previous sample. */
 	cpu?: number;
 }
@@ -79,18 +96,46 @@ export function sampleActivity(pid: number, previous?: Sample): Sample | undefin
 	const leaf = [...stats].sort((a, b) => b.depth - a.depth)[0].stat;
 	const at = Date.now();
 	const cpu = previous && at > previous.at ? Math.max(0, Math.round(((ticks - previous.ticks) * 1000) / (at - previous.at))) : undefined;
-	return { at, ticks, state, comm: leaf.comm, cpu };
+	// The program's own name (python3, node, mongosh), not a thread name such as "MainThread".
+	const argv0 = (read(`/proc/${leaf.pid}/cmdline`) ?? "").split("\0")[0];
+	const name = argv0 ? (argv0.split("/").pop() ?? leaf.comm) : leaf.comm;
+	return { at, ticks, state, comm: name, cpu, wait: leaf.state === "S" ? waitOf(leaf.pid) : undefined };
+}
+
+function waitOf(pid: number): Wait | undefined {
+	const wchan = (read(`/proc/${pid}/wchan`) ?? "").trim();
+	let hasSocket = false;
+	let readsTty = false;
+	try {
+		for (const fd of readdirSync(`/proc/${pid}/fd`).slice(0, 64)) {
+			let target = "";
+			try {
+				target = readlinkSync(`/proc/${pid}/fd/${fd}`);
+			} catch {
+				continue;
+			}
+			if (target.startsWith("socket:")) hasSocket = true;
+			if (fd === "0" && /^\/dev\/(pts|tty)/.test(target)) readsTty = true;
+		}
+	} catch {
+		// Not ours to read: only the wait channel then.
+	}
+	return waitReason(wchan, hasSocket, readsTty);
 }
 
 const SILENT_MS = 30_000;
 
 /** The right column of a running command, or undefined while there is nothing worth saying. */
-export function describeActivity(input: { cpu?: number; state?: string; comm?: string; silentMs: number }): { text: string; level: "ok" | "stuck" } | undefined {
+export function describeActivity(input: { cpu?: number; state?: string; comm?: string; wait?: Wait; silentMs: number }): { text: string; level: "ok" | "stuck" } | undefined {
 	const seconds = Math.round(input.silentMs / 1000);
 	if (input.state === undefined) return input.silentMs >= SILENT_MS ? { text: `nessun output da ${seconds}s · esc interrompe`, level: "stuck" } : undefined;
 	const name = input.comm ? ` · ${input.comm}` : "";
 	if (input.state === "R" || (input.cpu ?? 0) >= 5) return { text: `lavora · CPU ${input.cpu ?? 0}%${name}`, level: "ok" };
 	if (input.state === "D") return { text: `aspetta il disco${name}`, level: "ok" };
+	if (input.wait === "keyboard") return { text: `aspetta input da tastiera (non arriverà)${name} · esc interrompe`, level: "stuck" };
+	if (input.wait === "network") return input.silentMs >= SILENT_MS ? { text: `aspetta la rete da ${seconds}s${name} · esc interrompe`, level: "stuck" } : { text: `aspetta la rete${name}`, level: "ok" };
+	if (input.wait === "pipe") return { text: `aspetta un altro processo${name}`, level: "ok" };
+	if (input.wait === "timer") return { text: `in pausa (timer)${name}`, level: "ok" };
 	if (input.silentMs >= SILENT_MS) return { text: `fermo da ${seconds}s · CPU ${input.cpu ?? 0}%${name} · esc interrompe`, level: "stuck" };
 	return { text: `in attesa${name}`, level: "ok" };
 }
