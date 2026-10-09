@@ -7,6 +7,9 @@
  * memory.ts (e.g. main's) for comparison. Results in eval/results/memory-depth-<date>.json.
  *
  * --filler N (N > 100): a realistic store instead — N memories of the bench corpus (24 domains, links, two years) plus
+ * --corpus-chains K (with --filler): the scenarios become the first K chains planted in that corpus (questions that share
+ * words only with the first memory; the answer is the third), each judged on the fact it ends with.
+ *
  * near-tie decoys for every chain (another export, another portal's login, another file layout), with real e5 vectors
  * computed once and copied into each scenario. This is where the deep cues must pick the right chain among many.
  */
@@ -83,6 +86,11 @@ const SCENARIOS = [
 	{ name: "small talk", question: "ok", memories: [], must: /./, noRecall: true },
 ];
 
+const chainsArg = process.argv.indexOf("--corpus-chains");
+const corpusChains = chainsArg !== -1 ? Number(process.argv[chainsArg + 1]) : 0;
+// The fact each corpus chain template ends with (test/corpus.ts CHAIN_TEMPLATES, in order).
+const CHAIN_FACTS = [/512|OOM|concorrenza\s*1/i, /15\s*minuti|requisito di sicurezza/i, /Bianchi|ticket\s*MC/i, /300\s*secondi|backup/i];
+
 // A big store: corpus memories renamed f… (no clash with the scenarios' r1–r3), decoys, e5 vectors computed once.
 let baseStore;
 let embedder;
@@ -92,7 +100,12 @@ if (fillerSize > 100) {
 	const { BackgroundEmbedder, MODELS } = await import(join(repo, "pi-memory/src/embed.ts"));
 	({ fillVectors: fill } = await import(join(repo, "pi-memory/src/engine.ts")));
 	const rename = (id) => `f${id}`;
-	const corpus = buildCorpus(fillerSize).records.map((record) => ({ ...record, id: rename(record.id), ...(record.links ? { links: record.links.map(rename) } : {}) }));
+	const built = buildCorpus(fillerSize);
+	if (corpusChains > 0) {
+		SCENARIOS.length = 0;
+		built.chains.slice(0, corpusChains).forEach((chain, i) => SCENARIOS.push({ name: `corpus ${i} (${chain.via})`, question: `${chain.query} rispondi in una riga senza leggere il codice`, memories: [], must: CHAIN_FACTS[i % 4] }));
+	}
+	const corpus = built.records.map((record) => ({ ...record, id: rename(record.id), ...(record.links ? { links: record.links.map(rename) } : {}) }));
 	baseStore = mkdtempSync(join(tmpdir(), "memdepth-base-"));
 	writeFileSync(join(baseStore, "memories.jsonl"), [...corpus, ...DECOYS].map((record) => JSON.stringify(record)).join("\n") + "\n");
 	embedder = new BackgroundEmbedder(MODELS.e5);
@@ -134,8 +147,8 @@ for (const scenario of SCENARIOS) {
 		console.log(`${result.ok ? "✓" : "✗"} ${variant.name.padEnd(3)} ${scenario.name.padEnd(34)} injected [${result.injected.join(",")}] ${result.seconds}s :: ${result.answer.replace(/\s+/g, " ").slice(0, 110)}`);
 	}
 }
-const out = join(repo, "eval/results", `memory-depth-${new Date().toISOString().slice(0, 10)}${fillerSize > 100 ? `-${fillerSize}` : ""}.json`);
+const out = join(repo, "eval/results", `memory-depth-${new Date().toISOString().slice(0, 10)}${fillerSize > 100 ? `-${fillerSize}` : ""}${corpusChains ? `-chains${corpusChains}` : ""}.json`);
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, JSON.stringify(results, null, 2));
-if (fillerSize > 100) console.log(`archivio: ${fillerSize} ricordi + ${DECOYS.length} esche`);
+if (fillerSize > 100) console.log(`archivio: ${fillerSize} ricordi + ${DECOYS.length} esche${corpusChains ? ` · ${corpusChains} catene del corpus` : ""}`);
 for (const variant of variants) console.log(`${variant.name}: ${results.filter((r) => r.variant === variant.name && r.ok).length}/${SCENARIOS.length}`);

@@ -142,6 +142,21 @@ portale, un altro tracciato). Vettori e5 calcolati una volta (~1 minuto).
 | memoria nuova (`perHit`) | 3/3 | ✓ | ✓ | ✓ | **6/6** |
 | memoria di main | 2/3: sull'export arriva solo il primo anello, e il modello consiglia più worker | ✓ | ✓ | ✓ | 5/6 |
 
+### 20 catene su 5.000 ricordi (`live.mjs --filler 5000 --corpus-chains 20 --old <memory.ts>`)
+
+Le prime 20 catene del corpus, poste a Pi e Claude veri, giudicate sul fatto in fondo alla catena (512MB, 15 minuti,
+Bianchi, 300 secondi):
+
+| | Risposte giuste |
+|---|---|
+| memoria attuale | **19/20** |
+| prima del lavoro sulla scala (`7e91820`) | 17/20 |
+
+Il caso perso da entrambe (catena 19): il colpo migliore è un episodio simile ma di un'altra sincronizzazione, e i suoi
+vicini deboli (quota 0,14) occupano gli spunti profondi. La catena giusta parte dal secondo colpo, e il suo terzo anello ha
+la stessa quota. Le quote della camminata non distinguono i due casi, e le regole provate per separarli peggiorano casi già
+vinti (esche, 1M ricordi). Resta un limite noto.
+
 ## 5. Costi fissi
 
 | | Token per richiesta |
