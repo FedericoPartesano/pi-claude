@@ -7,7 +7,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { CdpPage, pageTarget } from "./cdp.ts";
 import { startChrome, type RunningChrome } from "./chrome.ts";
-import { compactSnapshot, diffSnapshot, RefTable, type AXNode } from "./snapshot.ts";
+import { compactSnapshot, diffSnapshot, nameOf, RefTable, type AXNode } from "./snapshot.ts";
 
 const KEYS: Record<string, { key: string; code: string; keyCode: number; text?: string }> = {
 	Enter: { key: "Enter", code: "Enter", keyCode: 13, text: "\r" },
@@ -160,7 +160,8 @@ export class BrowserSession {
 		const backendNodeId = this.refs.backendId(ref);
 		if (backendNodeId === undefined) throw new Error(`Riferimento ${ref} sconosciuto: rileggi la pagina con snapshot.`);
 		const before = this.url;
-		await this.show(backendNodeId);
+		const name = nameOf(this.last, ref);
+		await this.show(backendNodeId, `◆ ${kind}${name ? ` «${name.slice(0, 40)}»` : ""}`);
 		const navigated = page.once("Page.frameNavigated", 1200);
 		if (kind === "click" || kind === "hover") {
 			await page.send("DOM.scrollIntoViewIfNeeded", { backendNodeId }).catch(() => undefined);
@@ -215,7 +216,7 @@ export class BrowserSession {
 	 * The element Pi is about to act on, lit up for a moment so whoever watches the window sees it (cyan, Neon Night).
 	 * Only with a visible window; PI_BROWSER_SHOW=0 turns it off. Never fails the action.
 	 */
-	private async show(backendNodeId: number): Promise<void> {
+	private async show(backendNodeId: number, label = ""): Promise<void> {
 		if (process.env.PI_BROWSER_HEADLESS === "1" || process.env.PI_BROWSER_SHOW === "0") return;
 		const page = this.page!;
 		try {
@@ -225,7 +226,14 @@ export class BrowserSession {
 				backendNodeId,
 				highlightConfig: { contentColor: { r: 46, g: 230, b: 255, a: 0.22 }, borderColor: { r: 46, g: 230, b: 255, a: 0.95 }, paddingColor: { r: 255, g: 63, b: 216, a: 0.12 }, showInfo: false },
 			});
-			await new Promise((resolve) => setTimeout(resolve, Number(process.env.PI_BROWSER_SHOW_MS ?? 450)));
+			const ms = Number(process.env.PI_BROWSER_SHOW_MS ?? 450);
+			// What Pi is doing, written above the element ("◆ click «Aggiungi»"). aria-hidden and in a shadow root: it is
+			// not in the accessibility tree Pi reads, nor in the page's styles; it goes away by itself.
+			if (label) {
+				const { object } = await page.send<{ object: { objectId: string } }>("DOM.resolveNode", { backendNodeId });
+				await page.send("Runtime.callFunctionOn", { objectId: object.objectId, arguments: [{ value: label }, { value: ms + 700 }], functionDeclaration: SHOW_LABEL });
+			}
+			await new Promise((resolve) => setTimeout(resolve, ms));
 			await page.send("Overlay.hideHighlight");
 		} catch {
 			// No overlay domain (some embedders): act anyway.
@@ -269,3 +277,16 @@ export class BrowserSession {
 		this.chrome = undefined;
 	}
 }
+
+/** Runs on the element: a small cyan label just above it, gone after `ms`. */
+const SHOW_LABEL = `function (label, ms) {
+	const r = this.getBoundingClientRect();
+	const host = document.createElement("div");
+	host.setAttribute("aria-hidden", "true");
+	host.style.cssText = "position:fixed;z-index:2147483647;pointer-events:none;left:" + Math.max(4, r.left) + "px;top:" + Math.max(4, r.top - 26) + "px";
+	const tag = host.attachShadow({ mode: "closed" }).appendChild(document.createElement("span"));
+	tag.textContent = label;
+	tag.style.cssText = "display:block;padding:3px 7px;border:1px solid #2ee6ff;background:#0c0c0f;color:#2ee6ff;font:11px/1.3 'JetBrains Mono',ui-monospace,monospace;white-space:nowrap";
+	document.documentElement.appendChild(host);
+	setTimeout(() => host.remove(), ms);
+}`;

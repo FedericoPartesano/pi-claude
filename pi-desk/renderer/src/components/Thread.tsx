@@ -148,7 +148,7 @@ function PiTurnView(props: { turn: PiTurn; last: boolean; userText?: string; use
 	const hasSteps = () => blocks().some((b) => b.kind === "steps");
 	return (
 		<div class="turn-pi">
-			<div class="who"><span class="logo">π</span><Show when={head()}><Thinking part={head()!} /></Show></div>
+			<div class="who"><span class="hex" aria-hidden="true">⬢</span><Show when={head()}><Thinking part={head()!} /></Show></div>
 			<Index each={blocks()}>
 				{(block) => (
 					<Switch>

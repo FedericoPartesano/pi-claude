@@ -1,7 +1,7 @@
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { desk, type Info, type RemoteStatus, type Session } from "../bridge";
-import { SPINNER } from "./Steps";
+import { cells, SPINNER } from "./Steps";
 
 /** "20m", "7h", "1g": how long ago, as short as the row allows. */
 export const ago = (ms: number) => {
@@ -154,7 +154,7 @@ export function Sidebar(props: { active?: string; current?: RowState; info?: Inf
 						{([key, value]) => (
 							<div class="meter" classList={{ warn: (value ?? 0) >= 75, err: (value ?? 0) >= 90 }}>
 								<span>{key}</span>
-								<div class="bar"><div style={{ width: `${Math.min(100, value ?? 0)}%` }} /></div>
+								<span class="cells"><b>{cells(value).full}</b>{cells(value).empty}</span>
 								<span class="pct">{value === undefined ? "–" : `${value}%`}</span>
 							</div>
 						)}

@@ -506,3 +506,139 @@ svg.lucide { flex: none; }
 #composer .placeholder { position: absolute; inset: 0 0 auto 0; pointer-events: none; font: 14.5px/24px var(--sans); color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #composer .placeholder span { margin-left: 8px; font: 12px var(--mono); }
 #composer #input { min-height: 24px; line-height: 24px; display: block; }
+
+/* ======================================================================================================================
+   Neon TUI: the terminal's graphic style (Pi TUI Definitivo) on the desktop layout. Mono everywhere, solid tags,
+   ❯ for the user, ⬢ for Pi, ⟦n⟧ suggestions, the PROMPT frame with cut corners, ▰▱ meters, titles with a rule.
+   ==================================================================================================================== */
+:root {
+	--bg: #0c0c0c;
+	--panel: #13121a;
+	--field: #13121a;
+	--line: #2e3140;
+	--control: #2e3140;
+	--sans: "JetBrains Mono", "Cascadia Code", ui-monospace, Menlo, Consolas, monospace;
+	--cut-tl: polygon(10px 0, 100% 0, 100% 100%, 0 100%, 0 10px);
+	--cut-2: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+}
+html, body { font: 13.5px/1.6 var(--mono); }
+#sidebar, #viewer { background: #0f0e14; }
+#sidebar { border-right-color: var(--line); }
+#top { border-bottom-color: var(--line); background: #13121a; }
+
+/* Header: project bold, branch cyan, changes yellow; GOAL/LOOP/TEAM as HUD chips with cells */
+#top .title { font: 600 13.5px var(--mono); }
+#top .sub .proj { color: var(--text); font-weight: 700; }
+#top .sub .dir { color: var(--faint); }
+#top .sub .branch { color: var(--cyan); }
+.chip { border-radius: 0; clip-path: var(--cut-tl); background: #16151e; border-color: transparent; }
+.chip b { letter-spacing: .04em; }
+.cells { letter-spacing: -1px; color: #3a3d4e; }
+.chip.goal .cells b { color: var(--mag); }
+.chip.loop .cells b { color: var(--cyan); }
+.chip.team .cells b { color: var(--yel); }
+
+/* Sidebar: titles with a rule, ▰▱ meters, brand as a solid tag */
+.side-head .logo { display: none; }
+.side-head .brand { background: var(--mag); color: #0c0c0c; padding: 1px 8px; font-weight: 700; letter-spacing: .02em; clip-path: polygon(0 0, 100% 0, calc(100% - 6px) 100%, 0 100%); padding-right: 12px; }
+.project-pick, .search, .square { border-radius: 0; clip-path: var(--cut-tl); }
+.group { font-weight: 700; letter-spacing: .1em; }
+.group span:first-child { flex: none; }
+.group::after { content: ""; flex: 1; height: 1px; background: var(--line); order: 1; margin-left: 2px; }
+.group span:last-child { order: 2; }
+.session { border-radius: 0; }
+.session.active { background: #1c1326; }
+.meter { grid-template-columns: 30px 1fr 38px; font-weight: 700; color: var(--muted); }
+.meter .cells { font-size: 15px; line-height: 1; letter-spacing: 0; white-space: nowrap; overflow: hidden; }
+.meter .cells b { color: var(--cyan); font-weight: 400; }
+.meter.warn .cells b { color: var(--warn); }
+.meter.err .cells b { color: var(--err); }
+.meter .pct { color: var(--text); font-weight: 400; }
+.avatar { border-radius: 0; clip-path: var(--cut-tl); }
+
+/* Thread: ❯ user rows, ⬢ Pi */
+.thread { gap: 20px; }
+.user { align-self: stretch; max-width: none; align-items: stretch; }
+.turn-user { position: relative; border: 0; border-radius: 0; background: #1c1326; padding: 6px 12px 6px 30px; font: 700 13.5px/1.6 var(--mono); color: var(--text); }
+.turn-user::before { content: "❯"; position: absolute; left: 12px; color: var(--mag); font-weight: 700; }
+.user .thumbs { justify-content: flex-start; padding-left: 30px; }
+.user-meta { align-self: flex-end; }
+.turn-pi > .who { gap: 8px; }
+.turn-pi > .who .hex { width: 22px; flex: none; color: var(--cyan); font-size: 15px; line-height: 1; text-align: center; }
+.turn-pi > :not(.who) { margin-left: 30px; }
+.thinking-head { font: italic 12.5px var(--mono); }
+.folded { border: 0; border-radius: 0; padding: 4px 0; font: 13px var(--mono); color: var(--faint); }
+.folded .ic { order: 3; color: var(--faint); }
+.folded .text::before { content: "▸  "; color: var(--faint); }
+.folded:hover { color: var(--muted); }
+
+/* Steps: the terminal list, no box */
+.steps { border: 0; border-radius: 0; background: transparent; }
+.steps-head { padding: 2px 0; }
+.steps-head:hover { background: transparent; }
+.steps-head .count { font-weight: 700; }
+.steps-head .meta { color: var(--muted); }
+.steps.open .steps-head { border-bottom: 0; }
+.steps-body { border-left: 1px solid var(--line); margin: 6px 0 0 6px; padding: 2px 0; }
+.step > .head { padding: 4px 10px; }
+.step.run > .head, .step.err > .head { background: #13121a; }
+.step .out, .diff, .ask { margin-left: 34px; }
+.diff { border-radius: 0; border-color: var(--line); }
+.ask { border-radius: 0; clip-path: var(--cut-2); }
+.dialog-actions button { border-radius: 0; font-family: var(--mono); }
+.error-card { border-radius: 0; }
+
+/* Answer: TUI marks */
+.md { font: 13.5px/1.7 var(--mono); }
+.md code { font-size: 13px; padding: 0 4px; border-radius: 0; }
+.md a, .md code.file { border-bottom: 0; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--cyan); font-size: 13px; }
+.md h2::before { content: "▍"; color: var(--mag); }
+.md .code, .md .table, .chart, .md .kpi, .md .mermaid, .md .callout { border-radius: 0; clip-path: var(--cut-2); }
+
+/* Results, changes, suggestions */
+.result { border-radius: 0; }
+.changes { border: 0; border-radius: 0; background: transparent; }
+.changes-head { border-bottom: 0; padding: 0 0 4px; }
+.changes-head .title { font-weight: 700; letter-spacing: .1em; text-transform: uppercase; font-size: 12px; color: var(--muted); }
+.changes-head .title::after { content: ""; }
+.changes-head button { border-radius: 0; clip-path: var(--cut-tl); }
+.change { padding: 3px 0; }
+.change:hover { background: transparent; }
+.change .path { color: var(--cyan); text-decoration: underline; text-underline-offset: 3px; }
+.suggestions { gap: 8px 22px; }
+.suggestions button { height: auto; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--text); font: 13.5px var(--mono); gap: 8px; }
+.suggestions button:hover { color: #fff; border: 0; }
+.suggestions .k { font: 700 13.5px var(--mono); }
+.suggestions .k::before { content: "⟦"; color: var(--faint); font-weight: 400; }
+.suggestions .k::after { content: "⟧"; color: var(--faint); font-weight: 400; }
+.turn-map button.current { background: var(--mag); }
+
+/* Status line: solid tag, no box; the PROMPT frame below with cut corners in magenta */
+#dock { padding-bottom: 14px; }
+.workbar { height: 28px; padding: 0 2px; border: 0; background: transparent; font: 13px var(--mono); }
+.workbar .tag { font-size: 12px; letter-spacing: .06em; padding: 1px 8px; border-radius: 0; }
+.workbar .what { font-weight: 400; }
+#composer {
+	--frame: var(--mag);
+	position: relative; margin-top: 10px; padding: 14px 14px 10px; border: 1px solid var(--frame); border-radius: 0; background: #0c0c0c;
+}
+/* The cut corners of the terminal frame (╱─┐ … └─╱): the corner hidden, a diagonal drawn. No clip-path: it would
+   also cut the "@" menu that opens above. */
+#composer::before, #composer::after { content: ""; position: absolute; width: 13px; height: 13px; pointer-events: none; }
+#composer::before { top: -1px; left: -1px; background: linear-gradient(135deg, #0c0c0c calc(50% - 1px), var(--frame) calc(50% - 1px) calc(50% + .5px), transparent calc(50% + .5px)); }
+#composer::after { bottom: -1px; right: -1px; background: linear-gradient(-45deg, #0c0c0c calc(50% - 1px), var(--frame) calc(50% - 1px) calc(50% + .5px), transparent calc(50% + .5px)); }
+#dock.run #composer { --frame: var(--cyan); }
+#dock.wait #composer { --frame: var(--yel); }
+#dock.err #composer { --frame: var(--err); }
+#composer .frame-label { position: absolute; top: -9px; left: 22px; padding: 0 6px; background: #0c0c0c; color: var(--frame); font: 700 12px var(--mono); letter-spacing: .06em; }
+#composer .input-wrap { padding-left: 20px; }
+#composer .placeholder { left: 20px; }
+#composer .input-wrap::before { content: "❯"; position: absolute; left: 0; top: 0; line-height: 24px; color: var(--mag); font-weight: 700; }
+#input, #composer .placeholder { font: 13.5px/24px var(--mono); }
+#composer .attach, #composer .model, #composer .modes { border-radius: 0; }
+#composer .chip { border-radius: 0; }
+.send { border-radius: 0; clip-path: var(--cut-tl); }
+
+/* Viewer */
+.tab.active { background: #0c0c0c; }
+#url, .driving, .acting, .seg { border-radius: 0; }

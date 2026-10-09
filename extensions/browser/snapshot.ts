@@ -128,3 +128,9 @@ export function diffSnapshot(before: string, after: string, maxLines = 80): stri
 	if (all.length === 0) return "(stesso contenuto, ordine diverso)";
 	return all.length > maxLines ? `${all.slice(0, maxLines).join("\n")}\n… altre ${all.length - maxLines} differenze` : all.join("\n");
 }
+
+/** The accessible name of `ref` in a compact snapshot ("- [e12] button "Aggiungi""), "" when it has none. */
+export function nameOf(snapshot: string, ref: string): string {
+	const line = snapshot.split("\n").find((l) => l.includes(`[${ref}] `));
+	return line ? (/\] \S+ "(.*)"(?: \[[^\]]*\])*$/.exec(line)?.[1] ?? "") : "";
+}

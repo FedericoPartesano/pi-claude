@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { compactSnapshot, diffSnapshot, RefTable, type AXNode } from "./browser/snapshot.ts";
+import { compactSnapshot, diffSnapshot, nameOf, RefTable, type AXNode } from "./browser/snapshot.ts";
 
 const node = (nodeId: string, role: string, name: string, childIds: string[] = [], extra: Partial<AXNode> = {}): AXNode => ({ nodeId, role: { value: role }, name: { value: name }, childIds, ...extra });
 
@@ -45,4 +45,12 @@ test("long pages are cut at a budget with a note", () => {
 	const text = compactSnapshot(many, new RefTable(), { maxChars: 2000 });
 	assert.ok(text.length <= 2100);
 	assert.match(text, /altri \d+ elementi/);
+});
+
+test("nameOf: the accessible name of a ref in the last snapshot, for the label shown on the page", () => {
+	const snap = '- heading "Carrello"\n- [e1] button "Svuota"\n- [e12] button "Aggiungi «pro»" [disabled]\n- [e3] textbox';
+	assert.equal(nameOf(snap, "e1"), "Svuota");
+	assert.equal(nameOf(snap, "e12"), "Aggiungi «pro»");
+	assert.equal(nameOf(snap, "e3"), "");
+	assert.equal(nameOf(snap, "e9"), "");
 });

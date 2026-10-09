@@ -138,6 +138,7 @@ export function Composer(props: {
 					<For each={props.chips}>{(chip) => <span class="chip status">{chip}</span>}</For>
 				</div>
 			</Show>
+			<span class="frame-label" aria-hidden="true">PROMPT</span>
 			<div class="input-wrap">
 			<Show when={!text()}>
 				{/* The placeholder of the design: the words in the UI font, the hints in mono. */}

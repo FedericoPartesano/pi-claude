@@ -5,6 +5,12 @@ import { brief } from "../state";
 import { editsOf, stepResult, stepsSummary } from "../turns";
 import { actions, VIEWABLE } from "../actions";
 
+/** "▰▰▰▱▱▱▱▱▱▱": a percentage in ten cells, as the terminal draws it. */
+export const cells = (percent = 0, n = 10) => {
+	const full = Math.max(0, Math.min(n, Math.round((percent / 100) * n)));
+	return { full: "▰".repeat(full), empty: "▱".repeat(n - full) };
+};
+
 export const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 /** The only animation besides the intro: the braille spinner, 80 ms a frame. */
 export function useSpinner() {

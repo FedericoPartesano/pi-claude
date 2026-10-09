@@ -12,7 +12,7 @@ import { localQuestion, remoteQuestion } from "./components/Ask";
 import { type Bar, StatusBar } from "./components/StatusBar";
 import { Viewer } from "./components/Viewer";
 import { Lightbox, lightboxOpen } from "./components/Lightbox";
-import { SPINNER } from "./components/Steps";
+import { cells, SPINNER } from "./components/Steps";
 import { showImage, tail, viewer } from "./viewer";
 import { duration, tokens } from "./turns";
 import type { Edit } from "./turns";
@@ -446,8 +446,8 @@ export function App() {
 					<div class="where">
 						<span class="title" id="session-title">{title()}</span>
 						<span class="sub" id="project-path" title={viewing()?.session.cwd ?? project()}>
-							{place()}
-							<Show when={!viewing() && info()?.branch}>{"  "}⎇ {info()!.branch}</Show>
+							<b class="proj">{place().split("/").pop()}</b> <span class="dir">{place().split("/").slice(0, -1).join("/")}</span>
+							<Show when={!viewing() && info()?.branch}><span class="branch">  ⎇ {info()!.branch}</span></Show>
 							<Show when={!viewing() && info()?.changes}> <span class="changed">✚{info()!.changes}</span></Show>
 						</span>
 					</div>
@@ -456,7 +456,7 @@ export function App() {
 							{chips().map((chip) => (
 								<span class={`chip ${chip.key}`} title={chip.text}>
 									<b>{chip.name}</b>{chip.text}
-									<Show when={chip.progress !== undefined}><span class="progress"><span style={{ width: `${chip.progress}%` }} /></span></Show>
+									<Show when={chip.progress !== undefined}><span class="cells"><b>{cells(chip.progress, 5).full}</b>{cells(chip.progress, 5).empty}</span></Show>
 								</span>
 							))}
 						</Show>
