@@ -49,3 +49,28 @@ export function lifecycle(records: MemoryRecord[], today: string, options: { fil
 	}
 	return result;
 }
+
+/**
+ * Usage from the recall log: a memory that reached the cues of a request was useful that day. lastUsed is idempotent;
+ * uses counts only events after `since` (the last event already counted), so running it at every /dream does not
+ * count the same request twice.
+ */
+export function applyUsage(records: MemoryRecord[], events: { at: string; hits: { id: string }[] }[], prefix: string, since = ""): MemoryRecord[] {
+	const last = new Map<string, string>();
+	const counts = new Map<string, number>();
+	for (const event of events) {
+		const day = event.at.slice(0, 10);
+		for (const hit of event.hits) {
+			if (prefix ? !hit.id.startsWith(prefix) : hit.id.includes(":")) continue;
+			const id = hit.id.slice(prefix.length);
+			if ((last.get(id) ?? "") < day) last.set(id, day);
+			if (event.at > since) counts.set(id, (counts.get(id) ?? 0) + 1);
+		}
+	}
+	return records.map((record) => {
+		const day = last.get(record.id);
+		const count = counts.get(record.id) ?? 0;
+		if (!day && !count) return record;
+		return { ...record, uses: (record.uses ?? 0) + count, lastUsed: day && day > (record.lastUsed ?? "") ? day : record.lastUsed };
+	});
+}

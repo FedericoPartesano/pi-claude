@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { lifecycle } from "../src/forget.ts";
+import { applyUsage, lifecycle } from "../src/forget.ts";
 import type { MemoryRecord } from "../src/store.ts";
 
 const rec = (id: string, extra: Partial<MemoryRecord> = {}): MemoryRecord => ({ id, type: "fatto", text: `ricordo ${id}`, pinned: false, confirmations: 1, created: "2026-01-01", last: "2026-01-01", status: "active", entities: [], ...extra });
@@ -42,4 +42,19 @@ test("superseded memories are left alone (history), and nothing changes twice in
 	assert.deepEqual(lifecycle(records, today).records, records);
 	const once = lifecycle([rec("old", { last: "2026-06-01" })], today).records;
 	assert.deepEqual(lifecycle(once, today).dormant, []);
+});
+
+test("applyUsage: a memory recalled into the cues counts as used that day (once per event), global ids by prefix", () => {
+	const records = [rec("r1"), rec("r2", { uses: 2, lastUsed: "2026-09-01" })];
+	const events = [
+		{ at: "2026-10-01T10:00:00Z", query: "a", hits: [{ id: "r1", score: 1 }], ms: 1 },
+		{ at: "2026-10-03T10:00:00Z", query: "b", hits: [{ id: "r1", score: 1 }, { id: "g:r2", score: 1 }], ms: 1 },
+		{ at: "2026-08-01T10:00:00Z", query: "c", hits: [{ id: "r2", score: 1 }], ms: 1 },
+	];
+	const project = applyUsage(records, events, "");
+	assert.equal(project[0].uses, 2);
+	assert.equal(project[0].lastUsed, "2026-10-03");
+	assert.equal(project[1].lastUsed, "2026-09-01", "an older event does not move lastUsed back");
+	const global = applyUsage(records, events, "g:");
+	assert.equal(global[1].lastUsed, "2026-10-03");
 });

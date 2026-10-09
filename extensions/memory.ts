@@ -11,7 +11,7 @@
  *   PI_MEMORY_RECALL_LOG=1  append one JSON line per request to <cwd>/.pi/memory/recall-log.jsonl (evaluation)
  *   PI_MEMORY_MODEL         embedding model: e5 (default, deeper recall at scale) | minilm
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { BeforeAgentStartEvent, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -38,6 +38,7 @@ import { appendRecallLog, type StoreDirs } from "../pi-memory/src/engine.ts";
 import { isSmallTalk, recallMessage } from "../pi-memory/src/recall.ts";
 import { entriesToRecords, recordsToEntries } from "../pi-memory/src/reconcile.ts";
 import { loadStore, migrateLegacy, pruneVectors, saveStore, storeExists, type MemoryRecord } from "../pi-memory/src/store.ts";
+import { applyUsage, lifecycle } from "../pi-memory/src/forget.ts";
 import { applyAction, dreamEntry, memoryStatus, recordLabel, recordPreview, summarize, type DreamEntry, type MemoryAction } from "../pi-memory/src/dashboard.ts";
 import type { DashboardResult, View } from "../pi-memory/src/dashboard-tui.ts";
 import { answerPrompt, appendDreamRun, appendRecallEvent, readDreamRuns, readRecallEvents, type MemoryDashboardSource, type SearchHit } from "../pi-memory/src/dashboard-data.ts";
@@ -475,8 +476,20 @@ export default function (pi: ExtensionAPI) {
 		const capped = deep ? { memory: applied.memory, archive: applied.archive, moved: 0 } : enforceCap(applied.memory, applied.archive, CONTEXT_BUDGET_CHARS, date);
 		const result = { ...applied, memory: capped.memory, archive: capped.archive };
 		let deepRecords: ReturnType<typeof entriesToRecords> | undefined;
+		let lifecycleNote = "";
 		if (deep && previous) {
 			deepRecords = entriesToRecords(result.memory, result.archive, previous.records, date);
+			// Long term: what was recalled counts as used; unused memories go dormant, then are forgotten (kept aside).
+			if (process.env.PI_MEMORY_FORGET !== "0") {
+				const sinceFile = join(storeDir, "usage-since");
+				const events = readRecallEvents(dirs.project);
+				deepRecords = applyUsage(deepRecords, events, global ? "g:" : "", existsSync(sinceFile) ? readFileSync(sinceFile, "utf8").trim() : "");
+				if (events.length) write(sinceFile, `${events[events.length - 1].at}\n`);
+				const cycle = lifecycle(deepRecords, date, { fileExists: global ? undefined : (path) => existsSync(join(ctx.cwd, path)) });
+				deepRecords = cycle.records;
+				if (cycle.forgotten.length) appendFileSync(join(storeDir, "forgotten.jsonl"), cycle.forgotten.map((record) => `${JSON.stringify({ ...record, forgottenAt: date })}\n`).join(""));
+				lifecycleNote = [cycle.dormant.length ? `${cycle.dormant.length} addormentati` : "", cycle.woken.length ? `${cycle.woken.length} risvegliati` : "", cycle.forgotten.length ? `${cycle.forgotten.length} dimenticati (recuperabili)` : ""].filter(Boolean).join(" · ");
+			}
 			saveStore(storeDir, { records: deepRecords, vectors: pruneVectors(previous.records, deepRecords, previous.vectors), model: previous.model });
 		} else {
 			write(target.memory, renderMemory(result.memory));
@@ -502,7 +515,7 @@ export default function (pi: ExtensionAPI) {
 			if (await memoryWorker.start()) await memoryWorker.fillVectors(storeDir).catch(() => 0);
 			// The result stays in the chat (a notification disappears and leaves the user unsure it was saved).
 			const active = deepRecords?.filter((record) => record.status === "active") ?? [];
-			pi.appendEntry("memory-dream", dreamEntry(result.counts, describe(memory, approved), { active: active.length, pinned: active.filter((record) => record.pinned).length, pending: batch.pending }));
+			pi.appendEntry("memory-dream", dreamEntry(result.counts, [...describe(memory, approved), ...(lifecycleNote ? [`… ${lifecycleNote}`] : [])], { active: active.length, pinned: active.filter((record) => record.pinned).length, pending: batch.pending }));
 			return ctx.ui.notify(`${options.auto ? "Memoria aggiornata in automatico (/memory per vederla)" : "Memoria aggiornata"}: +${added} nuovi, ${reinforced} rinforzati, ${merged} uniti, ${updated} aggiornati (superati), ${forgotten} dimenticati · ${deepRecords?.filter((record) => record.status === "active").length ?? 0} ricordi attivi, nessun tetto${batch.pending ? ` · restano ${batch.pending} sessioni: rilancia /dream` : ""}`, "info");
 		}
 		pi.appendEntry("memory-dream", dreamEntry(result.counts, describe(memory, approved), { active: result.memory.length, pinned: result.memory.filter((entry) => entry.pinned).length, pending: batch.pending }));
