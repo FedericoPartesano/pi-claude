@@ -5,9 +5,13 @@
  * filler memories, one question, and what the answer must (and must not) say. The question never shares words with the
  * memory holding the answer: only following the graph gets there. With --old, the same scenarios with another
  * memory.ts (e.g. main's) for comparison. Results in eval/results/memory-depth-<date>.json.
+ *
+ * --filler N (N > 100): a realistic store instead — N memories of the bench corpus (24 domains, links, two years) plus
+ * near-tie decoys for every chain (another export, another portal's login, another file layout), with real e5 vectors
+ * computed once and copied into each scenario. This is where the deep cues must pick the right chain among many.
  */
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,7 +22,21 @@ const variants = [{ name: "new", memory: join(repo, "extensions/memory.ts") }, .
 const bridge = join(repo, "pi-claude-code/index.ts");
 
 const base = { pinned: false, confirmations: 2, created: "2026-09-01", last: "2026-10-01", status: "active" };
-const filler = Array.from({ length: 100 }, (_, i) => ({ ...base, id: `f${i}`, type: "fatto", text: `Il servizio ${["clienti", "ordini", "listini", "magazzino", "resi"][i % 5]}${i} legge i dati da PostgreSQL e li espone via API REST`, entities: [`servizio${i}`] }));
+const fillerArg = process.argv.indexOf("--filler");
+const fillerSize = fillerArg !== -1 ? Number(process.argv[fillerArg + 1]) : 100;
+const DECOYS = [
+	["L'export degli ordini usa CsvWriter (src/export/csv.ts)", ["csv.ts", "export ordini"]],
+	["CsvWriter scrive i file sul bucket S3 exports", ["csv.ts", "bucket exports"]],
+	["L'export dei listini è lento con file grandi per le query N+1 su PostgreSQL", ["export listini"]],
+	["La coda BullMQ mail ha concorrenza 5", ["coda mail"]],
+	["Il portale ordini autentica con il provider OIDC tenant-beta", ["portale ordini", "tenant-beta"]],
+	["Gli utenti del portale resi rifanno l'accesso dopo ogni cambio password", ["portale resi"]],
+	["tenant-beta emette refresh token validi 30 giorni", ["tenant-beta"]],
+	["Il tracciato del file degli ordini è prodotto dal job orders-export", ["tracciato ordini", "orders-export"]],
+	["Le modifiche al tracciato fatture vanno validate con lo schema XSD", ["tracciato fatture"]],
+	["L'output di orders-export viene caricato su SFTP del corriere", ["orders-export", "sftp corriere"]],
+].map(([text, entities], i) => ({ ...base, id: `d${i}`, type: "fatto", text, entities }));
+const filler = fillerSize > 100 ? [] : Array.from({ length: 100 }, (_, i) => ({ ...base, id: `f${i}`, type: "fatto", text: `Il servizio ${["clienti", "ordini", "listini", "magazzino", "resi"][i % 5]}${i} legge i dati da PostgreSQL e li espone via API REST`, entities: [`servizio${i}`] }));
 
 const SCENARIOS = [
 	{
@@ -65,12 +83,36 @@ const SCENARIOS = [
 	{ name: "small talk", question: "ok", memories: [], must: /./, noRecall: true },
 ];
 
-const run = (variant, scenario) => {
+// A big store: corpus memories renamed f… (no clash with the scenarios' r1–r3), decoys, e5 vectors computed once.
+let baseStore;
+let embedder;
+let fill;
+if (fillerSize > 100) {
+	const { buildCorpus } = await import(join(repo, "pi-memory/test/corpus.ts"));
+	const { BackgroundEmbedder, MODELS } = await import(join(repo, "pi-memory/src/embed.ts"));
+	({ fillVectors: fill } = await import(join(repo, "pi-memory/src/engine.ts")));
+	const rename = (id) => `f${id}`;
+	const corpus = buildCorpus(fillerSize).records.map((record) => ({ ...record, id: rename(record.id), ...(record.links ? { links: record.links.map(rename) } : {}) }));
+	baseStore = mkdtempSync(join(tmpdir(), "memdepth-base-"));
+	writeFileSync(join(baseStore, "memories.jsonl"), [...corpus, ...DECOYS].map((record) => JSON.stringify(record)).join("\n") + "\n");
+	embedder = new BackgroundEmbedder(MODELS.e5);
+	if (!(await embedder.start())) throw new Error("e5 non caricato");
+	const started = Date.now();
+	const count = await fill(baseStore, embedder);
+	console.log(`archivio di base: ${corpus.length + DECOYS.length} ricordi, ${count} vettori e5 in ${Math.round((Date.now() - started) / 1000)}s`);
+}
+
+const run = async (variant, scenario) => {
 	const dir = mkdtempSync(join(tmpdir(), "memdepth-"));
 	mkdirSync(join(dir, ".pi/memory"), { recursive: true });
 	execFileSync("git", ["init", "-q"], { cwd: dir });
 	const records = [...scenario.memories.map((memory) => ({ ...base, ...memory })), ...filler];
-	writeFileSync(join(dir, ".pi/memory/memories.jsonl"), records.map((record) => JSON.stringify(record)).join("\n") + "\n");
+	if (baseStore) {
+		for (const name of readdirSync(baseStore)) copyFileSync(join(baseStore, name), join(dir, ".pi/memory", name));
+		const existing = readFileSync(join(dir, ".pi/memory/memories.jsonl"), "utf8");
+		writeFileSync(join(dir, ".pi/memory/memories.jsonl"), existing + (records.length ? records.map((record) => JSON.stringify(record)).join("\n") + "\n" : ""));
+		await fill(join(dir, ".pi/memory"), embedder);
+	} else writeFileSync(join(dir, ".pi/memory/memories.jsonl"), records.map((record) => JSON.stringify(record)).join("\n") + "\n");
 	const started = Date.now();
 	let answer = "";
 	try {
@@ -87,12 +129,13 @@ const run = (variant, scenario) => {
 const results = [];
 for (const scenario of SCENARIOS) {
 	for (const variant of variants) {
-		const result = run(variant, scenario);
+		const result = await run(variant, scenario);
 		results.push(result);
 		console.log(`${result.ok ? "✓" : "✗"} ${variant.name.padEnd(3)} ${scenario.name.padEnd(34)} injected [${result.injected.join(",")}] ${result.seconds}s :: ${result.answer.replace(/\s+/g, " ").slice(0, 110)}`);
 	}
 }
-const out = join(repo, "eval/results", `memory-depth-${new Date().toISOString().slice(0, 10)}.json`);
+const out = join(repo, "eval/results", `memory-depth-${new Date().toISOString().slice(0, 10)}${fillerSize > 100 ? `-${fillerSize}` : ""}.json`);
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, JSON.stringify(results, null, 2));
+if (fillerSize > 100) console.log(`archivio: ${fillerSize} ricordi + ${DECOYS.length} esche`);
 for (const variant of variants) console.log(`${variant.name}: ${results.filter((r) => r.variant === variant.name && r.ok).length}/${SCENARIOS.length}`);

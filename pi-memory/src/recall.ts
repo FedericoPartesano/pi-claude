@@ -70,6 +70,12 @@ export const DEPTH = {
 	 * answer fell out (75% → see MISURE.md).
 	 */
 	bestFirst: true,
+	/**
+	 * Generalises bestFirst: each chosen direct hit's own walk in turn, best hit first, until the deep cues are full.
+	 * Measured live with 5k memories: the best hit was a decoy without links, the right memory came second (outside the
+	 * 90% seed share), and the deep cues went to weak direct hits instead of its chain.
+	 */
+	perHit: true,
 };
 
 /**
@@ -511,12 +517,20 @@ export function recall(index: RecallIndex, query: string, options: RecallOptions
 		const taken = new Set(chosen.map((item) => item.position));
 		const reached: { position: number; share: number }[] = [];
 		const seen = new Set<number>();
-		for (const item of [...(DEPTH.bestFirst && seeds.length > 1 ? walk(seeds.slice(0, 1)) : []), ...walk(seeds)]) {
+		const take = (items: { position: number; share: number }[]) => {
+			for (const item of items) {
+				if (reached.length >= slots) return;
+				if (seen.has(item.position)) continue;
+				seen.add(item.position);
+				reached.push(item);
+			}
+		};
+		if (DEPTH.perHit) for (const hit of chosen) {
 			if (reached.length >= slots) break;
-			if (seen.has(item.position)) continue;
-			seen.add(item.position);
-			reached.push(item);
+			take(walk([hit]));
 		}
+		else if (DEPTH.bestFirst && seeds.length > 1) take(walk(seeds.slice(0, 1)));
+		take(walk(seeds));
 		for (const item of reached) hits.push({ record: index.records[item.position], score: top * Math.min(1, item.share), via: "deep" });
 		// Unused deep slots go back to direct hits.
 		for (const item of directHits.slice(chosen.length, chosen.length + slots - reached.length)) hits.push({ record: index.records[item.position], score: item.score });

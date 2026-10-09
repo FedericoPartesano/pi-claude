@@ -11,7 +11,7 @@ import { buildCorpus } from "../test/corpus.ts";
 
 const size = Number(process.argv[2] ?? 100000);
 const embedder = createFakeEmbedder();
-const corpus = buildCorpus(size);
+const corpus = buildCorpus(size, { decoys: process.argv.includes("--decoys") });
 const vectors = new Map<string, Float32Array>();
 for (let i = 0; i < corpus.records.length; i += 256) {
 	const batch = corpus.records.slice(i, i + 256);

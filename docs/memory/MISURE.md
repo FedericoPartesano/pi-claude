@@ -61,6 +61,18 @@ Resta lineare la scansione Hamming dei vettori: 25 ms a 1M, nel worker, quindi m
 passata su meno bit la ridurrebbe, ma la qualità a 1M si può verificare solo con vettori reali a quella scala. Non è fatto:
 l'affidabilità prima del risparmio.
 
+### Esche: un colpo migliore che non porta da nessuna parte
+
+Dal vivo con 5.000 ricordi (`live.mjs --filler 5000`, sotto) il colpo migliore della richiesta sull'export era un'esca
+senza link ("l'export dei listini è lento con file grandi"). Il primo anello della catena era secondo, fuori dal 90% dei
+semi, e gli spunti profondi andavano a colpi diretti deboli. `DEPTH.perHit`: una camminata per ogni colpo scelto, in
+ordine, finché gli spunti profondi sono pieni. Bench sintetico invariato (100% a 10k–1M, +~7 token per richiesta), anno
+simulato identico giorno per giorno.
+
+`deep-bench.ts --decoys` pianta per ogni catena un'esca che ripete la domanda. È più dura del caso reale: il salto 2
+arriva all'88–90%, e i mancati sono catene il cui primo anello non entra tra i colpi diretti (rango 10 in BM25). Far
+partire camminate da colpi così deboli riempirebbe gli spunti di rumore, quindi non viene fatto.
+
 ## 2. Un anno simulato (`test/longterm.ts`, `bench/longterm-sim.ts`)
 
 60 argomenti che nascono e muoiono (~60 giorni ciascuno), ricordi nuovi ogni giorno con link, 8 richieste al giorno
@@ -111,6 +123,16 @@ con la decisione #r1 sull'OOM", senza che la richiesta nominasse la memoria.
 con la lezione salvati; il quadro del progetto scritto; le due preferenze personali ("rispondere in italiano",
 "aggiornare i todo man mano") spostate nella memoria globale; link tra ricordi nuovi della stessa risposta (dopo aver
 aggiunto i riferimenti n<k>: prima nessun link, perché si poteva puntare solo a ricordi già esistenti).
+
+### Con 5.000 ricordi ed esche (`live.mjs --filler 5000`)
+
+Archivio realistico: il corpus del bench, con 10 esche quasi uguali alle domande (un altro export, il login di un altro
+portale, un altro tracciato). Vettori e5 calcolati una volta (~1 minuto).
+
+| | Catene | Superato | Estranea | "ok" | Totale |
+|---|---|---|---|---|---|
+| memoria nuova (`perHit`) | 3/3 | ✓ | ✓ | ✓ | **6/6** |
+| memoria di main | 2/3: sull'export arriva solo il primo anello, e il modello consiglia più worker | ✓ | ✓ | ✓ | 5/6 |
 
 ## 5. Costi fissi
 
