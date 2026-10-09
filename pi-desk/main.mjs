@@ -20,8 +20,11 @@ const port = Number(process.env.PI_DESK_CDP_PORT ?? 9339);
 // Only on loopback (Chromium's default for this switch): the page Pi drives is reachable from this machine only.
 app.commandLine.appendSwitch("remote-debugging-port", String(port));
 // WSLg: under Wayland the mouse pointer is not drawn in Chromium windows; X11 (XWayland) draws it. PI_DESK_OZONE overrides.
+const wsl = process.platform === "linux" && (Boolean(process.env.WSL_DISTRO_NAME) || existsSync("/mnt/wslg") || /microsoft/i.test(readFileSync("/proc/version", "utf8")));
 if (process.env.PI_DESK_OZONE) app.commandLine.appendSwitch("ozone-platform", process.env.PI_DESK_OZONE);
-else if (process.env.WSL_DISTRO_NAME) app.commandLine.appendSwitch("ozone-platform", "x11");
+else if (wsl) app.commandLine.appendSwitch("ozone-platform", "x11");
+// WSLg has no GPU for Chromium: accelerated compositing paints a white window. Software rendering draws it.
+if (wsl && process.env.PI_DESK_GPU !== "1") app.disableHardwareAcceleration();
 
 const UI_MARK = "pi-desk-ui";
 const HEADER = 44;
