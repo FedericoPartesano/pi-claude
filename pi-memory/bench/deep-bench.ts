@@ -12,12 +12,12 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const writeVectors = (file: string, list: Float32Array<ArrayBuffer>[]) => {
+const writeVectors = (file: string, list: Float32Array[]) => {
 	const all = new Float32Array(list.length * list[0].length);
 	list.forEach((vector, i) => all.set(vector, i * vector.length));
 	writeFileSync(file, Buffer.from(all.buffer));
 };
-const readVectors = (file: string, ids: string[]) => {
+const readVectors = (file: string, ids: string[]): Map<string, Float32Array> | undefined => {
 	const bytes = readFileSync(file);
 	const all = new Float32Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
 	const dim = all.length / ids.length;
@@ -43,14 +43,14 @@ for (const size of sizes) {
 	let started = performance.now();
 	// Real embeddings take minutes: kept on disk per corpus (same seed and size → same texts).
 	const cacheFile = real ? join(tmpdir(), `pi-memory-bench-${modelKey}-${size}.bin`) : undefined;
-	let vectors = cacheFile && existsSync(cacheFile) ? readVectors(cacheFile, corpus.records.map((record) => record.id)) : undefined;
+	let vectors: Map<string, Float32Array> | undefined = cacheFile && existsSync(cacheFile) ? readVectors(cacheFile, corpus.records.map((record) => record.id)) : undefined;
 	if (!vectors) {
 		vectors = new Map<string, Float32Array>();
 		for (let i = 0; i < corpus.records.length; i += 64) {
 			const batch = corpus.records.slice(i, i + 64);
 			(await embedder.embed(batch.map(embedText), "passage")).forEach((vector, j) => vectors!.set(batch[j].id, vector));
 		}
-		if (cacheFile) writeVectors(cacheFile, corpus.records.map((record) => Float32Array.from(vectors!.get(record.id)!)));
+		if (cacheFile) writeVectors(cacheFile, corpus.records.map((record) => vectors!.get(record.id)!));
 	}
 	const embedMs = performance.now() - started;
 	global.gc?.();
