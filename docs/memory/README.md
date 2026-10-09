@@ -37,6 +37,11 @@ sessioni ──/dream (LLM, 1×/giorno)──▶ ricordi (JSONL) + link + entit�
 - **Velocità.** Vettori come bit di segno (Hamming su tutti, coseno esatto sui 256 migliori), indici invertiti in
   forma compatta (CSR), candidati potati prima del punteggio completo, forza e recenza in cache. Tutto nel worker:
   l'interfaccia manda la domanda e riceve gli spunti.
+- **Scritture sicure.** Un solo scrittore per archivio (`lock.ts`, lucchetto con scadenza): `/dream` ribasa il suo
+  risultato sull'archivio com'è al momento di salvare (le modifiche e le cancellazioni fatte nel frattempo vincono, i
+  ricordi aggiunti da un'altra sessione restano); il calcolo dei vettori scrive solo i vettori. Gli id non tornano mai in
+  uso (`ids.json`): un ricordo unito o dimenticato non passa il suo numero, con i suoi link, a uno nuovo. Unire o
+  aggiornare un ricordo conserva link e utilizzi, e i link che puntavano a lui lo seguono.
 - **Nel tempo.** Recenza (le ultime settimane prima della storia), forza (conferme), oblio: 90 giorni senza conferme
   né richiami → dormiente (fuori dagli spunti), altri 90 → dimenticato (fuori dall'archivio, in `forgotten.jsonl`, ancora
   trovato da una ricerca profonda). Mai dimenticati: fissati, correzioni confermate 2 volte, ricordi confermati 3 volte.
@@ -56,13 +61,15 @@ sessioni ──/dream (LLM, 1×/giorno)──▶ ricordi (JSONL) + link + entit�
 | `memory-handlers.ts` | Il lavoro della memoria (modello + `Recaller`) per il worker e per il ripiego in thread. |
 | `memory-worker.ts` | Il worker thread: riceve i messaggi e chiama gli handler. |
 | `memory-worker-client.ts` | `MemoryWorker` (lato Pi): `recall`, `open`, `core`, `warm`, `fillVectors`, `embed`; scarica il modello dopo 10 minuti di inattività (l'indice resta); riferito solo con richieste in volo; se il worker muore le richieste in sospeso sono rifatte in thread. |
-| `forget.ts` | `lifecycle` (dormiente, risveglio, dimenticato, esenzioni, file scomparsi) e `applyUsage` (utilizzi dal registro dei richiami). |
-| `reconcile.ts` | Ponte tra archivio e consolidamento: `recordsToEntries`, `entriesToRecords` (conserva link, gist, stato, livello, utilizzi), `movePersonal` (preferenze personali all'archivio globale). |
+| `forget.ts` | `lifecycle` (dormiente, risveglio, dimenticato, esenzioni, file scomparsi), `applyUsage` (utilizzi dal registro dei richiami, ciascuno una volta), `newestEvent`. |
+| `reconcile.ts` | Ponte tra archivio e consolidamento: `recordsToEntries`, `entriesToRecords` (conserva link, gist, stato, livello, utilizzi; eredità e reindirizzamento dei link per unioni e aggiornamenti; link `n<k>` tra ricordi nuovi; link potati), `movePersonal` (preferenze personali all'archivio globale), `rebaseOnCurrent` (il risultato di `/dream` sopra le scritture avvenute nel frattempo). |
+| `lock.ts` | `withStoreLock`: un solo scrittore per archivio (cartella `.lock`, scaduta dopo 30 s). |
+| `vault.ts` | `renderVault`: la memoria come vault Obsidian (`/memory export`). |
 | `request.ts` | `classifyRequest` (modifica, domanda, altro), ambito delle regole. |
 | `entities.ts` | Entità estratte dal testo (percorsi, identificatori). |
 | `strength.ts` | Forza di un ricordo: conferme e sbiadire lento. |
 | `embed.ts`, `embed-worker.ts` | Modelli (`e5` predefinito, `minilm`), embedder in thread, in worker, finto per i test. |
-| `dashboard*.ts` | Dashboard `/memory`: ricordi, cronologia dei `/dream`, registro dei richiami, domande. |
+| `dashboard*.ts` | Dashboard `/memory`: ricordi, cronologia dei `/dream`, registro dei richiami, domande; `logUsage` (gli utilizzi dei ricordi personali anche nel registro globale). |
 
 ### `extensions/` (integrazione con Pi)
 
@@ -94,6 +101,7 @@ Nel codice: `DEPTH` (semi, quota degli spunti per i collegati, restart), `RECENC
 
 ## File su disco (`.pi/memory/` del progetto, `~/.pi/agent/memory/` personale)
 
-`memories.jsonl` (i ricordi), `vectors.bin` + `vectors.idx.json` (embedding), `forgotten.jsonl` (dimenticati,
-recuperabili), `recall-events.jsonl` (ultimi 500 richiami: utilizzi), `dream-log.jsonl` (cronologia dei `/dream`),
-`usage-since` (fin dove gli utilizzi sono già contati). `.pi/` è escluso da git localmente (`.git/info/exclude`).
+`memories.jsonl` (i ricordi), `vectors.bin` + `vectors.idx.json` (embedding), `gist.md` (il quadro del progetto),
+`forgotten.jsonl` (dimenticati, recuperabili), `ids.json` (l'ultimo id dato), `recall-events.jsonl` (ultimi richiami:
+utilizzi), `dream-log.jsonl` (cronologia dei `/dream`), `usage-since` (fin dove gli utilizzi sono già contati), `vault/`
+(dopo `/memory export`), `.lock` (solo durante una scrittura). `.pi/` è escluso da git localmente (`.git/info/exclude`).
