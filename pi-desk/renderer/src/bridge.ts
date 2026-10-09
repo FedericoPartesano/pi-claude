@@ -1,6 +1,6 @@
 // The bridge to the Electron main process (preload.cjs → window.desk).
 export type Img = { data: string; mimeType: string };
-export type TranscriptItem = { role: "user" | "assistant" | "tool" | "error"; text: string; images?: Img[] };
+export type TranscriptItem = { role: "user" | "assistant" | "tool" | "error"; text: string; id?: string; images?: Img[] };
 export type Session = { path: string; cwd: string; project: string; title: string; modified: number; created?: string; running?: { pid: number; own: boolean } };
 export type UiRequest = { type: "extension_ui_request"; id: string; method: string; title?: string; message?: string; options?: string[]; prefill?: string; statusKey?: string; statusText?: string };
 

@@ -210,7 +210,7 @@ export function transcriptTurns(items: TranscriptItem[]): Turn[] {
 				pi.parts.push(steps);
 			}
 			const [name, ...rest] = item.text.split(" ");
-			steps.steps.push({ id: `t${id()}`, name, args: { path: rest.join(" ") }, state: "ok" });
+			steps.steps.push({ id: `t${id()}`, name, args: { path: rest.join(" ") }, state: "ok", images: item.images });
 		} else {
 			pi.parts.push(item.role === "error" ? { kind: "error", text: item.text } : { kind: "text", text: item.text });
 			steps = undefined;

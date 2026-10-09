@@ -356,5 +356,5 @@ function answerBlocks(source) {
 }
 
 
-export { escapeHtml, markdown, extract, chartSvg, answer, answerBlocks, splitBlocks, setImageBase };
+export { escapeHtml, markdown, extract, chartSvg, answer, answerBlocks, splitBlocks, setImageBase, resolveImage };
 export type ChartSpec = { type: "bar" | "hbar" | "line"; title: string; labels: string[]; series: { name: string; values: number[] }[]; unit: string };

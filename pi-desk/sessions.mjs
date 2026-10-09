@@ -153,10 +153,15 @@ export function readTranscript(path, offset = 0) {
 		if (message.role === "user") {
 			const said = textOf(message.content).trim();
 			if (said) items.push({ role: "user", text: said });
+		} else if (message.role === "toolResult") {
+			// Images a tool returned (read of a picture, a browser screenshot): on the tool's line, at most 3.
+			const images = (Array.isArray(message.content) ? message.content : []).filter((block) => block?.type === "image" && block.data).slice(0, 3).map((block) => ({ data: block.data, mimeType: block.mimeType ?? "image/png" }));
+			const tool = images.length ? items.findLast((item) => item.role === "tool" && (!message.toolCallId || item.id === message.toolCallId)) : undefined;
+			if (tool) tool.images = images;
 		} else if (message.role === "assistant") {
 			const said = textOf(message.content).trim();
 			if (said) items.push({ role: "assistant", text: said });
-			for (const block of Array.isArray(message.content) ? message.content : []) if (block?.type === "toolCall") items.push({ role: "tool", text: `${block.name} ${briefArgs(block.arguments)}`.trim() });
+			for (const block of Array.isArray(message.content) ? message.content : []) if (block?.type === "toolCall") items.push({ role: "tool", id: block.id, text: `${block.name} ${briefArgs(block.arguments)}`.trim() });
 			if (message.errorMessage) items.push({ role: "error", text: message.errorMessage });
 		}
 	}

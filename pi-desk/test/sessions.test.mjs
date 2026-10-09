@@ -57,3 +57,21 @@ test("transcript: user and assistant text, tool calls in brief, and only what wa
 	const next = readTranscript(path, first.offset);
 	assert.deepEqual(next.items.map((item) => item.text), ["Fatto."]);
 });
+
+test("transcript: images a tool returned (read of a PNG, a browser screenshot) stay attached to that tool", () => {
+	const root = mkdtempSync(join(tmpdir(), "sessions-"));
+	const png = "iVBORw0KGgo=";
+	const path = session(root, "--p--", "img.jsonl", {
+		cwd: "/p",
+		created: "2026-10-01T10:00:00Z",
+		title: "guarda lo screenshot",
+		extra: [
+			{ type: "message", id: "a", message: { role: "assistant", content: [{ type: "toolCall", id: "call1", name: "read", arguments: { path: "/tmp/t12.png" } }] } },
+			{ type: "message", id: "r", message: { role: "toolResult", toolCallId: "call1", toolName: "read", content: [{ type: "text", text: "Read image file [image/png]" }, { type: "image", data: png, mimeType: "image/png" }] } },
+		],
+	});
+	const { items } = readTranscript(path);
+	const tool = items.find((item) => item.role === "tool");
+	assert.equal(tool.text, "read /tmp/t12.png");
+	assert.deepEqual(tool.images, [{ data: png, mimeType: "image/png" }]);
+});
