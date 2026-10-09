@@ -40,3 +40,10 @@ test("a git install pinned to a ref (pi install git:...@v0.3.0) keeps its ref", 
 	const after = migrateSettings({ packages: [pinned] }, { source: "git:github.com/FedericoPartesano/pi-claude" });
 	assert.deepEqual(after.packages, [pinned]);
 });
+
+test("an install by https URL is recognised as this package (no second entry, which loaded every extension twice)", () => {
+	for (const form of ["https://github.com/FedericoPartesano/pi-claude.git", "https://github.com/FedericoPartesano/pi-claude", "git:github.com/FedericoPartesano/pi-claude@v0.3.0"]) {
+		const after = migrateSettings({ packages: [form] }, { source: "git:github.com/FedericoPartesano/pi-claude" });
+		assert.deepEqual(after.packages, [form], form);
+	}
+});
