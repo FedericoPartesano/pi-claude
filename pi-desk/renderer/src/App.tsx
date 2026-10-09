@@ -4,6 +4,7 @@ import { createResizeObserver } from "@solid-primitives/resize-observer";
 import { ArrowLeft, ArrowRight, Bug, Crosshair, FileText, Globe, Lock, Menu, Plus, RotateCw, TriangleAlert, X } from "lucide-solid";
 import { DocViewer } from "./components/DocViewer";
 import { actions } from "./actions";
+import { onTableClick } from "./enhance";
 import type { DocFile } from "./bridge";
 import { clean, desk, type Img, type Session } from "./bridge";
 import { createChat, transcriptTurns, type Turn } from "./state";
@@ -206,6 +207,7 @@ export function App() {
 	// Links in answers open in the browser panel; code blocks copy.
 	const onClick = (event: MouseEvent) => {
 		const target = event.target as HTMLElement;
+		if (onTableClick(target)) return;
 		const link = target.closest?.(".md a[href]");
 		if (link) {
 			event.preventDefault();

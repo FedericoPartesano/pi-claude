@@ -6,10 +6,10 @@
   "type": "module",
   "main": "main.mjs",
   "scripts": {
-    "build": "vite build",
-    "start": "vite build && electron .",
-    "dev": "vite build --watch",
-    "test": "vite build && node --test test/*.test.mjs"
+    "build": "node scripts/vendor.mjs && vite build",
+    "start": "npm run build && electron .",
+    "dev": "node scripts/vendor.mjs && vite build --watch",
+    "test": "npm run build && node --test test/*.test.mjs"
   },
   "devDependencies": {
     "electron": "44.4.5",
@@ -23,7 +23,10 @@
     "@solid-primitives/scheduled": "1.5.3",
     "@solid-primitives/storage": "4.4.0",
     "@tanstack/solid-virtual": "3.13.40",
+    "highlight.js": "11.12.0",
+    "katex": "0.18.9",
     "lucide-solid": "1.48.0",
+    "mermaid": "12.0.0",
     "photoswipe": "5.4.4",
     "solid-js": "1.9.15"
   }

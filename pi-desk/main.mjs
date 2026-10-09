@@ -8,6 +8,7 @@
 import { app, BrowserWindow, WebContentsView, clipboard, ipcMain, session as electronSession } from "electron";
 import { PICKER_SCRIPT } from "./picker.mjs";
 import { readForPanel } from "./files.mjs";
+import { DESK_PROMPT } from "./prompt.mjs";
 import { clipboardImage } from "./clipboard.mjs";
 import { existsSync, mkdirSync, readFileSync, unwatchFile, watchFile } from "node:fs";
 import { homedir } from "node:os";
@@ -95,7 +96,7 @@ function startPi(options = {}) {
 	if (options.cwd) project = options.cwd;
 	pi = new PiRpc({
 		command: process.env.PI_DESK_PI ?? "pi",
-		args: ["--mode", "rpc", ...extraExtensions(), ...(options.session ? ["--session", options.session] : [])],
+		args: ["--mode", "rpc", "--append-system-prompt", DESK_PROMPT, ...extraExtensions(), ...(options.session ? ["--session", options.session] : [])],
 		cwd: project,
 		env: { PI_BROWSER_CDP: `http://127.0.0.1:${port}`, PI_BROWSER_SKIP: UI_MARK, PI_BROWSER_WAIT: "4000" },
 	});

@@ -9,7 +9,7 @@ test("markdown: headings, nested lists, ordered lists, tables, quotes, code with
 	assert.match(html, /<ul><li>uno<ul><li>due<\/li><\/ul><\/li><\/ul>/);
 	assert.match(html, /<table>.*<th>a<\/th><th class="right">b<\/th>.*<td>1<\/td><td class="right">2<\/td>/s);
 	assert.match(html, /<blockquote>.*nota.*<\/blockquote>/s);
-	assert.match(html, /class="code".*data-lang="ts".*const x = 1 &lt; 2;/s);
+	assert.match(html, /class="code".*data-lang="ts".*hljs-keyword">const<\/span> x = .*&lt;/s);
 	assert.match(html, /<a href="https:\/\/example.com"[^>]*>docs<\/a>/);
 	assert.match(html, /<code>code<\/code>/);
 	assert.match(html, /<hr>/);
