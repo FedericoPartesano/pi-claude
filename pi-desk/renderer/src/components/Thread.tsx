@@ -59,7 +59,7 @@ export function Thread(props: { turns: Turn[]; onSuggestion: (text: string) => v
 							<div class="turn-user">
 								<Show when={(turn as Extract<Turn, { role: "user" }>).images?.length}>
 									<div class="thumbs">
-										<For each={(turn as Extract<Turn, { role: "user" }>).images}>{(image) => <img src={`data:${image.mimeType};base64,${image.data}`} alt="allegato" onClick={(event) => openImage(event.currentTarget.src)} />}</For>
+										<For each={(turn as Extract<Turn, { role: "user" }>).images}>{(image) => <img src={`data:${image.mimeType};base64,${image.data}`} alt="allegato" onClick={(event) => openImage(event.currentTarget.src, event.currentTarget)} />}</For>
 									</div>
 								</Show>
 								{(turn as Extract<Turn, { role: "user" }>).text}

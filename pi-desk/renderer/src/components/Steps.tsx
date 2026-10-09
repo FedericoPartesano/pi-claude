@@ -32,7 +32,7 @@ function StepRow(props: { step: Step }) {
 			</button>
 			<Show when={sources().length}>
 				<div class="thumbs">
-					<For each={sources()}>{(src) => <img src={src} alt="risultato del tool" onClick={(event) => openImage(event.currentTarget.src)} onError={(event) => event.currentTarget.remove()} />}</For>
+					<For each={sources()}>{(src) => <img src={src} alt="risultato del tool" onClick={(event) => openImage(event.currentTarget.src, event.currentTarget)} onError={(event) => event.currentTarget.remove()} />}</For>
 				</div>
 			</Show>
 			<Show when={open()}>

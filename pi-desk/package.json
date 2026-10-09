@@ -24,6 +24,7 @@
     "@solid-primitives/storage": "4.4.0",
     "@tanstack/solid-virtual": "3.13.40",
     "lucide-solid": "1.48.0",
+    "photoswipe": "5.4.4",
     "solid-js": "1.9.15"
   }
 }

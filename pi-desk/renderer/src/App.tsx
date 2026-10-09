@@ -9,7 +9,7 @@ import { setImageBase } from "./render";
 import { Composer } from "./components/Composer";
 import { Sidebar } from "./components/Sidebar";
 import { ExtensionDialog } from "./components/ExtensionDialog";
-import { Lightbox, lightboxOpen } from "./components/Lightbox";
+import { Lightbox, lightboxOpen, openImage } from "./components/Lightbox";
 
 const EXAMPLES = ["Riassumi lo stato del progetto", "Trova i test che falliscono e sistemali", "Apri nel browser localhost:3000 e prova il login", "Cosa ricordi di questo progetto?"];
 
@@ -179,7 +179,7 @@ export function App() {
 			setTimeout(() => (copy.textContent = "Copia"), 1400);
 		});
 		const image = target.closest?.(".md img") as HTMLImageElement | null;
-		if (image) import("./components/Lightbox").then(({ openImage }) => openImage(image.src));
+		if (image) openImage(image.src, image);
 	};
 	const onKey = (event: KeyboardEvent) => {
 		if (event.key === "Escape" && state.busy && !state.dialog && !lightboxOpen()) desk.abort();

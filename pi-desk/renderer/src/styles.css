@@ -248,12 +248,12 @@ svg.lucide { flex: none; }
 .turn-user .thumbs { padding: 0 0 8px; }
 .thumbs img { max-width: 220px; max-height: 150px; border-radius: 8px; border: 1px solid var(--line); cursor: zoom-in; object-fit: cover; }
 .md img { max-width: 100%; border-radius: 8px; border: 1px solid var(--line); cursor: zoom-in; }
-.lightbox { position: absolute; inset: 0; z-index: 30; background: #050507ee; display: grid; place-items: center; cursor: zoom-out; outline: none; }
-.lightbox img { max-width: 94%; max-height: 90%; border-radius: 10px; box-shadow: 0 0 40px #2ee6ff22; }
-.lightbox .close { position: absolute; top: 12px; right: 12px; background: var(--raised); }
 #browserbar .lock { color: var(--ok); }
 .error-card button { margin-left: 8px; border: 1px solid #ff4d6d66; background: transparent; color: inherit; border-radius: 7px; padding: 1px 8px; }
 .error-card svg { vertical-align: -2px; }
 .md .md-img { display: block; margin: .5em 0; max-height: 420px; }
 .md .thumbs { padding: 6px 0 2px; }
 .md img.broken { display: none; }
+/* PhotoSwipe in Neon Night */
+.pswp { --pswp-bg: #050507; --pswp-icon-color: #dcdfe8; --pswp-icon-color-secondary: #0c0c0c; --pswp-icon-stroke-color: #2ee6ff; }
+.pswp__counter { font: 12px var(--mono); color: var(--accent); }
