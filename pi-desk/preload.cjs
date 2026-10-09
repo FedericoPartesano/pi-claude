@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld("desk", {
 	restart: () => ipcRenderer.invoke("restart"),
 	browser: (action, value) => ipcRenderer.invoke("browser", action, value),
 	browserRect: (rect) => ipcRenderer.send("browser-rect", rect),
+	clipboardImage: () => ipcRenderer.invoke("clipboard-image"),
 	sessions: () => ipcRenderer.invoke("sessions"),
 	openSession: (path) => ipcRenderer.invoke("session-open", path),
 	closeSession: () => ipcRenderer.invoke("session-close"),

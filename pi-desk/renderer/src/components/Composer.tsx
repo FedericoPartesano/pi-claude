@@ -1,6 +1,6 @@
 import { createSignal, For, Show } from "solid-js";
 import { ArrowUp, ImagePlus, Square, X } from "lucide-solid";
-import type { Img } from "../bridge";
+import { desk, type Img } from "../bridge";
 
 const MAX_BYTES = 4 * 1024 * 1024;
 const MAX_SIDE = 2000;
@@ -81,6 +81,12 @@ export function Composer(props: { busy: boolean; readonly: boolean; placeholder:
 						if (files.length) {
 							event.preventDefault();
 							add(files);
+							return;
+						}
+						// No image and no text: the picture may be on a clipboard the page cannot see (Windows, under WSL).
+						if (!event.clipboardData?.getData("text/plain")) {
+							event.preventDefault();
+							desk.clipboardImage?.().then((image) => image && setImages([...images(), image].slice(0, 6)));
 						}
 					}}
 					onKeyDown={(event) => {

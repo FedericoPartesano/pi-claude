@@ -5,7 +5,8 @@
  *
  *   npm start [-- <project folder>]      PI_DESK_PI=<pi command>   PI_DESK_CDP_PORT=9339
  */
-import { app, BrowserWindow, WebContentsView, ipcMain } from "electron";
+import { app, BrowserWindow, WebContentsView, clipboard, ipcMain } from "electron";
+import { clipboardImage } from "./clipboard.mjs";
 import { existsSync, readFileSync, unwatchFile, watchFile } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -148,6 +149,7 @@ app.whenReady().then(() => {
 	ipcMain.handle("abort", () => pi.abort().catch(() => undefined));
 	ipcMain.handle("ui-answer", (_event, id, fields) => pi.answer(id, fields));
 	ipcMain.on("browser-rect", (_event, rect) => placeView(rect));
+	ipcMain.handle("clipboard-image", () => clipboardImage(clipboard, wsl));
 	ipcMain.handle("restart", () => {
 		pi.stop();
 		startPi();

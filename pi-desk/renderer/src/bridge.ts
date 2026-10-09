@@ -11,6 +11,7 @@ export interface Desk {
 	restart(): Promise<void>;
 	browser(action: "go" | "back" | "forward" | "reload", value?: string): void;
 	browserRect(rect: { x: number; y: number; width: number; height: number }): void;
+	clipboardImage(): Promise<Img | undefined>;
 	sessions(): Promise<Session[]>;
 	openSession(path: string): Promise<TranscriptItem[]>;
 	closeSession(): void;
