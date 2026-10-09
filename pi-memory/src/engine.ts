@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { Embedder } from "./embed.ts";
 import { CORE_BUDGET_CHARS, RecallIndex, coreIds, coreSection, cueLimit, recall, renderCues, type Scored } from "./recall.ts";
 import { withStoreLock } from "./lock.ts";
-import { embedText, loadStore, missingVectors, saveVectors, type MemoryRecord } from "./store.ts";
+import { embedText, loadRecords, loadStore, missingVectors, saveVectors, type MemoryRecord } from "./store.ts";
 
 export interface StoreDirs {
 	project: string;
@@ -20,26 +20,27 @@ export async function fillVectors(dir: string, embedder: Embedder): Promise<numb
 	if (store.model !== embedder.model) store.vectors.clear();
 	const todo = missingVectors(store);
 	if (todo.length === 0) return 0;
-	const fresh = new Map<string, { text: string; vector: Float32Array }>();
+	const embedded = new Map<string, string>(store.records.map((record) => [record.id, embedText(record)]));
+	const vectors = new Map(store.vectors);
 	for (let start = 0; start < todo.length; start += 32) {
 		const batch = todo.slice(start, start + 32);
-		const vectors = await embedder.embed(batch.map(embedText), "passage");
-		batch.forEach((record, i) => fresh.set(record.id, { text: embedText(record), vector: vectors[i] }));
+		const computed = await embedder.embed(batch.map(embedText), "passage");
+		batch.forEach((record, i) => vectors.set(record.id, computed[i]));
 	}
-	// Embedding takes a while and the store may have been saved meanwhile (an edit, a /dream): re-read it and write only
-	// the vectors, for records whose text is still the one embedded. The memories themselves are never rewritten here.
+	// The store may have been saved meanwhile (an edit, a /dream): under the lock, re-read the memories only (not the
+	// vectors: seconds on a big store, and the UI may be waiting for this lock) and write only the vectors, for records
+	// whose text is still the one these vectors were computed from. The memories themselves are never rewritten here.
 	return withStoreLock(dir, () => {
-		const current = loadStore(dir);
-		const vectors = current.model === embedder.model ? current.vectors : new Map<string, Float32Array>();
+		const current = loadRecords(dir);
+		const kept = new Map<string, Float32Array>();
 		let added = 0;
-		for (const record of current.records) {
-			const computed = fresh.get(record.id);
-			if (computed && computed.text === embedText(record)) {
-				vectors.set(record.id, computed.vector);
-				added++;
-			}
+		for (const record of current) {
+			const vector = vectors.get(record.id);
+			if (!vector || embedded.get(record.id) !== embedText(record)) continue;
+			kept.set(record.id, vector);
+			if (!store.vectors.has(record.id)) added++;
 		}
-		saveVectors(dir, current.records, vectors, embedder.model);
+		saveVectors(dir, current, kept, embedder.model);
 		return added;
 	});
 }

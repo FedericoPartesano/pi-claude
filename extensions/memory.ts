@@ -38,7 +38,7 @@ import { MemoryWorker } from "../pi-memory/src/memory-worker-client.ts";
 import { appendRecallLog, type StoreDirs } from "../pi-memory/src/engine.ts";
 import { isSmallTalk, recallMessage } from "../pi-memory/src/recall.ts";
 import { entriesToRecords, movePersonal, rebaseOnCurrent, recordsToEntries } from "../pi-memory/src/reconcile.ts";
-import { withStoreLock } from "../pi-memory/src/lock.ts";
+import { withStoreLockAsync } from "../pi-memory/src/lock.ts";
 import { renderVault } from "../pi-memory/src/vault.ts";
 import { lastId, loadStore, migrateLegacy, pruneVectors, saveStore, storeExists, type MemoryRecord } from "../pi-memory/src/store.ts";
 import { applyUsage, lifecycle, newestEvent } from "../pi-memory/src/forget.ts";
@@ -206,7 +206,7 @@ export function dashboardSource(ctx: ExtensionContext): MemoryDashboardSource {
 			const global = id.startsWith("g:");
 			const dir = global ? dirs.global : dirs.project;
 			if (!dir || !storeExists(dir)) return;
-			withStoreLock(dir, () => {
+			await withStoreLockAsync(dir, () => {
 				const store = loadStore(dir);
 				const next = applyAction(store.records, global ? id.slice(2) : id, action, today());
 				saveStore(dir, { records: next, vectors: pruneVectors(store.records, next, store.vectors), model: store.model });
@@ -336,13 +336,24 @@ export default function (pi: ExtensionAPI) {
 		pi.registerTool({
 			name: "ricorda",
 			label: "Ricorda",
-			description: "Project memory. id: open #r12 with linked ones; query: deep search.",
-			parameters: { type: "object", properties: { id: { type: "string" }, query: { type: "string" } } } as never,
+			description: "Project memory. id: open #r12 with linked ones; query: deep search; episodio: search past sessions.",
+			parameters: { type: "object", properties: { id: { type: "string" }, query: { type: "string" }, episodio: { type: "string" } } } as never,
 			// Off until the project has a memory (~90 tokens per request otherwise for nothing): see activateRecallTool.
 			defaultActive: false,
 			async execute(_id, raw, _signal, _update, ctx) {
-				const params = raw as { id?: string; query?: string };
+				const params = raw as { id?: string; query?: string; episodio?: string };
 				const dirs = deepDirs(ctx.cwd);
+				if (params.episodio?.trim()) {
+					// Past conversations of the project (not only what /dream kept): the passage that answers.
+					let current: string | undefined;
+					try {
+						current = ctx.sessionManager.getSessionFile();
+					} catch {}
+					const files = sessionFiles(ctx).filter((file) => file !== current);
+					const hits = await memoryWorker.episodes(files, params.episodio, today());
+					if (hits.length === 0) return { content: [{ type: "text" as const, text: "Nessuna sessione passata ne parla." }], details: {} };
+					return { content: [{ type: "text" as const, text: hits.map((hit) => `Sessione del ${hit.date}:\n${hit.text}`).join("\n\n") }], details: {} };
+				}
 				const reply = (text: string, isError = false) => ({ content: [{ type: "text" as const, text }], details: {}, ...(isError ? { isError: true } : {}) });
 				if (!hasStore(dirs)) return reply("Nessun ricordo per questo progetto.");
 				const used = (ids: string[], query: string) => {
@@ -565,6 +576,8 @@ export default function (pi: ExtensionAPI) {
 		let deepRecords: ReturnType<typeof entriesToRecords> | undefined;
 		let lifecycleNote = "";
 		let movedToGlobal = false;
+		/** Side effects of the lifecycle, done only once the store is saved (under its lock). */
+		const afterSave: (() => void)[] = [];
 		if (deep && previous) {
 			deepRecords = entriesToRecords(result.memory, result.archive, previous.records, date, lastId(storeDir));
 			// Long term: what was recalled counts as used; unused memories go dormant, then are forgotten (kept aside).
@@ -573,10 +586,11 @@ export default function (pi: ExtensionAPI) {
 				// The global store has its own log (logUsage writes personal hits there from every project).
 				const events = readRecallEvents(global && dirs.global ? dirs.global : dirs.project);
 				deepRecords = applyUsage(deepRecords, events, global ? "g:" : "", existsSync(sinceFile) ? readFileSync(sinceFile, "utf8").trim() : "");
-				if (events.length) write(sinceFile, `${newestEvent(events)}\n`);
+				if (events.length) afterSave.push(() => write(sinceFile, `${newestEvent(events)}\n`));
 				const cycle = lifecycle(deepRecords, date, { fileExists: global ? undefined : (path) => existsSync(join(ctx.cwd, path)) });
 				deepRecords = cycle.records;
-				if (cycle.forgotten.length) appendFileSync(join(storeDir, "forgotten.jsonl"), cycle.forgotten.map((record) => `${JSON.stringify({ ...record, forgottenAt: date })}\n`).join(""));
+				// Written with the store, under its lock: never a forgotten.jsonl entry for a save that did not happen.
+				if (cycle.forgotten.length) afterSave.push(() => appendFileSync(join(storeDir, "forgotten.jsonl"), cycle.forgotten.map((record) => `${JSON.stringify({ ...record, forgottenAt: date })}\n`).join("")));
 				lifecycleNote = [cycle.dormant.length ? `${cycle.dormant.length} addormentati` : "", cycle.woken.length ? `${cycle.woken.length} risvegliati` : "", cycle.forgotten.length ? `${cycle.forgotten.length} dimenticati (recuperabili)` : ""].filter(Boolean).join(" · ");
 			}
 			// Personal preferences found in a project's sessions hold everywhere: to the global store (re-read under its lock).
@@ -586,7 +600,7 @@ export default function (pi: ExtensionAPI) {
 				if (split.moved) {
 					const personal = deepRecords.filter((record) => !split.project.includes(record));
 					deepRecords = split.project;
-					withStoreLock(globalDir, () => {
+					await withStoreLockAsync(globalDir, () => {
 						const current = storeExists(globalDir) ? loadStore(globalDir) : { records: [], vectors: new Map<string, Float32Array>(), model: undefined };
 						saveStore(globalDir, { ...current, records: movePersonal(personal, current.records, lastId(globalDir)).global });
 					});
@@ -596,10 +610,12 @@ export default function (pi: ExtensionAPI) {
 			}
 			// The model took minutes: rebase on what was saved meanwhile (an edit in /memory, another session's /dream),
 			// one writer at a time.
-			deepRecords = withStoreLock(storeDir, () => {
+			const proposed = deepRecords;
+			deepRecords = await withStoreLockAsync(storeDir, () => {
 				const current = storeExists(storeDir) ? loadStore(storeDir) : { records: [], vectors: new Map<string, Float32Array>(), model: previous.model };
-				const rebased = rebaseOnCurrent(previous.records, current.records, deepRecords!, lastId(storeDir));
+				const rebased = rebaseOnCurrent(previous.records, current.records, proposed, lastId(storeDir));
 				saveStore(storeDir, { records: rebased, vectors: pruneVectors(current.records, rebased, current.vectors), model: current.model ?? previous.model });
+				for (const effect of afterSave) effect();
 				return rebased;
 			});
 			// The overview in the system prompt: rewritten only when the model proposes a new one.

@@ -4,6 +4,7 @@
  */
 import { BackgroundEmbedder, createFakeEmbedder, type EmbedKind, type Embedder, type ModelProfile } from "./embed.ts";
 import { Recaller, fillVectors, type StoreDirs } from "./engine.ts";
+import { EpisodeSearch } from "./episodes.ts";
 import type { RecallOptions } from "./recall.ts";
 
 export interface HandlerOptions {
@@ -19,6 +20,7 @@ export type RunOptions = Pick<RecallOptions, "includeSuperseded" | "threshold" |
 
 export function createHandlers(options: HandlerOptions) {
 	const recaller = new Recaller();
+	const episodes = new EpisodeSearch();
 	let model: Embedder | undefined;
 	let loading: Promise<boolean> | undefined;
 	const start = (): Promise<boolean> => {
@@ -59,6 +61,10 @@ export function createHandlers(options: HandlerOptions) {
 				clearTimeout(timer);
 			}
 			return recaller.run(query, dirs, today, model, runOptions);
+		},
+		/** Past sessions of the project: the passage that answers (`ricorda` with `episodio`). */
+		async episodes(files: string[], query: string, today: string) {
+			return episodes.search(files, query, today);
 		},
 		async forFile(dirs: StoreDirs, path: string, today: string) {
 			return recaller.forFile(dirs, path, today);

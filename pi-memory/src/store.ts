@@ -50,6 +50,23 @@ const paths = (dir: string) => ({ jsonl: join(dir, "memories.jsonl"), vectors: j
 
 export const storeExists = (dir: string) => existsSync(paths(dir).jsonl);
 
+/** The memories only (no vectors): what a writer must re-read under the lock, fast. */
+export function loadRecords(dir: string): MemoryRecord[] {
+	const { jsonl } = paths(dir);
+	if (!existsSync(jsonl)) return [];
+	const records: MemoryRecord[] = [];
+	for (const line of readFileSync(jsonl, "utf8").split("\n")) {
+		if (!line.trim()) continue;
+		try {
+			const record = JSON.parse(line) as MemoryRecord;
+			records.push({ ...record, entities: record.entities ?? [] });
+		} catch {
+			// A corrupt line must not lose the others.
+		}
+	}
+	return records;
+}
+
 export function loadStore(dir: string, idPrefix = ""): Store {
 	const { jsonl, vectors: vectorsFile } = paths(dir);
 	const records: MemoryRecord[] = [];

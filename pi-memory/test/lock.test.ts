@@ -1,10 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtempSync, utimesSync, mkdirSync } from "node:fs";
+import { existsSync, mkdtempSync, utimesSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { withStoreLock } from "../src/lock.ts";
+import { withStoreLock, withStoreLockAsync } from "../src/lock.ts";
 
 test("withStoreLock waits for another process holding the store, then runs", async () => {
 	const dir = mkdtempSync(join(tmpdir(), "lock-"));
@@ -37,4 +37,28 @@ test("a stale lock (its holder died) is taken over", () => {
 	const started = Date.now();
 	assert.equal(withStoreLock(dir, () => 1), 1);
 	assert.ok(Date.now() - started < 1000);
+});
+
+test("withStoreLockAsync waits without blocking the event loop", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "lock-"));
+	const lockFile = new URL("../src/lock.ts", import.meta.url).href;
+	const child = spawn(process.execPath, ["--input-type=module", "-e", `import { withStoreLock } from ${JSON.stringify(lockFile)}; withStoreLock(${JSON.stringify(dir)}, () => { console.log("in"); const end = Date.now() + 500; while (Date.now() < end); });`], { stdio: ["ignore", "pipe", "inherit"] });
+	await new Promise((resolve) => child.stdout.once("data", resolve));
+	let ticks = 0;
+	const timer = setInterval(() => ticks++, 10);
+	await withStoreLockAsync(dir, () => undefined);
+	clearInterval(timer);
+	assert.ok(ticks >= 10, `event loop blocked while waiting (${ticks} ticks)`);
+	await new Promise((resolve) => child.once("close", resolve));
+});
+
+test("a holder whose lock was taken over does not release the new holder's lock", () => {
+	const dir = mkdtempSync(join(tmpdir(), "lock-"));
+	withStoreLock(dir, () => {
+		// Someone forces the lock away (it looked stale) and takes it.
+		rmSync(join(dir, ".lock"), { recursive: true, force: true });
+		mkdirSync(join(dir, ".lock"));
+		writeFileSync(join(dir, ".lock", "token"), "other");
+	});
+	assert.ok(existsSync(join(dir, ".lock")), "the other holder's lock is still there");
 });

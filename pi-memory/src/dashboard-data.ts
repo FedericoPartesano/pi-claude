@@ -55,15 +55,23 @@ export function appendDreamRun(dir: string, run: DreamRun): void {
 export const readDreamRuns = (dir: string): DreamRun[] => readLines<DreamRun>(join(dir, DREAM_LOG));
 
 /** One line per request; only the last `max` are kept (the file is rewritten when it grows past the cap). */
+/** Lines of each recall log, counted once per process: the log is read back only when it must be trimmed. */
+const logLines = new Map<string, number>();
+
 export function appendRecallEvent(dir: string, event: RecallEvent, max = 2000): void {
 	mkdirSync(dir, { recursive: true });
 	const file = join(dir, RECALL_LOG);
+	let lines = logLines.get(file);
+	if (lines === undefined) lines = existsSync(file) ? readFileSync(file, "utf8").split("\n").filter((line) => line.trim()).length : 0;
 	appendFileSync(file, `${JSON.stringify(event)}\n`);
-	// Trimmed only when it may hold twice the cap (it was read and rewritten on every request past the cap): the file
-	// is read only once it is big enough for that (events are at least ~60 bytes).
-	if (statSync(file).size < max * 2 * 60) return;
-	const lines = readFileSync(file, "utf8").split("\n").filter((line) => line.trim());
-	if (lines.length > max * 2) writeFileSync(file, `${lines.slice(-max).join("\n")}\n`);
+	lines++;
+	// Trimmed to the newest `max` once it holds twice as many (reading it on every request cost the UI thread).
+	if (lines > max * 2) {
+		const kept = readFileSync(file, "utf8").split("\n").filter((line) => line.trim()).slice(-max);
+		writeFileSync(file, `${kept.join("\n")}\n`);
+		lines = kept.length;
+	}
+	logLines.set(file, lines);
 }
 
 /**

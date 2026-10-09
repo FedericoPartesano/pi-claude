@@ -70,3 +70,31 @@ test("the recall log keeps the last events without rewriting the file on every r
 	assert.equal(events[0].query, "q29", "newest first");
 	assert.ok(statSync(join(dir, "recall-events.jsonl")).size > 0);
 });
+
+test("appending a recall event does not read the log back (only when it is trimmed)", async () => {
+	const fs = await import("node:fs");
+	const { tmpdir } = await import("node:os");
+	const { join } = await import("node:path");
+	const dir = fs.mkdtempSync(join(tmpdir(), "use-"));
+	for (let i = 0; i < 500; i++) appendRecallEvent(dir, { at: `2026-10-09T10:00:${String(i % 60).padStart(2, "0")}Z`, query: `domanda abbastanza lunga numero ${i} ${"x".repeat(200)}`, hits: [{ id: "r1", score: 1 }], ms: 0 }, 1000);
+	const file = join(dir, "recall-events.jsonl");
+	const before = fs.statSync(file).atimeMs;
+	const { syncBuiltinESMExports } = await import("node:module");
+	const cjs = fs.default as unknown as { readFileSync: typeof fs.readFileSync };
+	const original = cjs.readFileSync;
+	let reads = 0;
+	// The official way to spy on a builtin seen through ESM named imports: patch the CommonJS object, then sync.
+	cjs.readFileSync = ((...args: Parameters<typeof fs.readFileSync>) => {
+		if (String(args[0]).endsWith("recall-events.jsonl")) reads++;
+		return original(...args);
+	}) as typeof fs.readFileSync;
+	syncBuiltinESMExports();
+	try {
+		for (let i = 0; i < 20; i++) appendRecallEvent(dir, { at: "2026-10-09T11:00:00Z", query: "q", hits: [], ms: 0 }, 1000);
+	} finally {
+		cjs.readFileSync = original;
+		syncBuiltinESMExports();
+	}
+	assert.equal(reads, 0);
+	assert.ok(before >= 0);
+});
