@@ -70,10 +70,13 @@ export class CdpPage {
 	}
 }
 
-/** The first page target of a Chrome debugging endpoint (http://127.0.0.1:<port>), created if there is none. */
-export async function pageTarget(endpoint: string): Promise<{ webSocketDebuggerUrl: string; url: string }> {
+/**
+ * The first page target of a Chrome debugging endpoint (http://127.0.0.1:<port>), created if there is none. Targets
+ * whose URL contains one of PI_BROWSER_SKIP (comma-separated) are never driven: in Pi Desk, the chat page itself.
+ */
+export async function pageTarget(endpoint: string, skip = (process.env.PI_BROWSER_SKIP ?? "").split(",").filter(Boolean)): Promise<{ webSocketDebuggerUrl: string; url: string }> {
 	const list = (await (await fetch(`${endpoint}/json/list`)).json()) as { type: string; url: string; webSocketDebuggerUrl: string }[];
-	const page = list.find((target) => target.type === "page" && !target.url.startsWith("devtools://"));
+	const page = list.find((target) => target.type === "page" && !target.url.startsWith("devtools://") && !skip.some((part) => target.url.includes(part)));
 	if (page) return page;
 	return (await (await fetch(`${endpoint}/json/new?about:blank`, { method: "PUT" })).json()) as { webSocketDebuggerUrl: string; url: string };
 }

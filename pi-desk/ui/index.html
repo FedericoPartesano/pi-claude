@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:">
+<title>Pi Desk</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<section id="chat">
+	<header id="top"><span class="brand">π Desk</span><span id="project"></span><span id="status" class="status">avvio di Pi…</span></header>
+	<main id="log" aria-live="polite"></main>
+	<form id="composer">
+		<textarea id="input" rows="3" placeholder="Scrivi a Pi… (Invio invia · Maiusc+Invio a capo · Esc interrompe)"></textarea>
+		<div class="row"><span id="chips"></span><button type="button" id="stop" hidden>■ Interrompi</button><button type="submit" id="send">Invia</button></div>
+	</form>
+</section>
+<nav id="browserbar">
+	<button id="back" title="Indietro">←</button><button id="forward" title="Avanti">→</button><button id="reload" title="Ricarica">⟳</button>
+	<input id="url" spellcheck="false" placeholder="indirizzo">
+	<span id="title"></span>
+</nav>
+<div id="dialog" hidden><div class="box"><h3 id="dialog-title"></h3><p id="dialog-message"></p><div id="dialog-actions"></div></div></div>
+<script src="app.js"></script>
+</body>
+</html>

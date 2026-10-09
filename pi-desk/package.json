@@ -1,0 +1,15 @@
+{
+  "name": "pi-desk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pi in a window: chat with Pi (RPC mode) and a browser panel Pi drives with pi-browser",
+  "type": "module",
+  "main": "main.mjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "electron": "44.4.5"
+  }
+}
