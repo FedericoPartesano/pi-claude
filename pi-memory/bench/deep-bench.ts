@@ -30,7 +30,9 @@ const real = process.argv.includes("--real");
 // --depth='{"seedShare":0.9}' overrides the walk's parameters (tuning sweeps).
 const depthArg = process.argv.find((arg) => arg.startsWith("--depth="));
 if (depthArg) Object.assign(DEPTH, JSON.parse(depthArg.slice("--depth=".length)));
-const embedder: Embedder = real ? new BackgroundEmbedder(MODELS.e5) : createFakeEmbedder(384);
+// --model=minilm|e5 (default e5) with --real.
+const modelKey = process.argv.find((arg) => arg.startsWith("--model="))?.slice("--model=".length) ?? "e5";
+const embedder: Embedder = real ? new BackgroundEmbedder(MODELS[modelKey]) : createFakeEmbedder(384);
 if (real && !(await (embedder as BackgroundEmbedder).start())) throw new Error("model failed to load");
 const today = "2026-10-08";
 const pct = (values: number[], p: number) => [...values].sort((a, b) => a - b)[Math.min(values.length - 1, Math.floor(values.length * p))];
@@ -40,7 +42,7 @@ for (const size of sizes) {
 	const corpus = buildCorpus(size);
 	let started = performance.now();
 	// Real embeddings take minutes: kept on disk per corpus (same seed and size → same texts).
-	const cacheFile = real ? join(tmpdir(), `pi-memory-bench-e5-${size}.bin`) : undefined;
+	const cacheFile = real ? join(tmpdir(), `pi-memory-bench-${modelKey}-${size}.bin`) : undefined;
 	let vectors = cacheFile && existsSync(cacheFile) ? readVectors(cacheFile, corpus.records.map((record) => record.id)) : undefined;
 	if (!vectors) {
 		vectors = new Map<string, Float32Array>();
@@ -94,7 +96,7 @@ for (const size of sizes) {
 	const r = (value: number, of: number) => `${Math.round((value / of) * 100)}%`;
 	console.log(
 		[
-			`N=${size}${real ? " (e5)" : ""}`,
+			`N=${size}${real ? ` (${modelKey})` : ""}`,
 			`embed ${Math.round(embedMs)}ms · index ${Math.round(buildMs)}ms · heap +${mb(heap)}`,
 			`hop0 ${r(hop[0], n)} hop1 ${r(hop[1], n)} hop2 ${r(hop[2], n)} (linked ${r(hopBy.linked[2], half)} · entity ${r(hopBy.entity[2], half)})`,
 			`superseded: new ${r(fresh, corpus.supersedes.length)} old ${stale} · FP ${falsePositives}/${corpus.unrelated.length}`,

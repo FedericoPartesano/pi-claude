@@ -9,7 +9,7 @@
  *   PI_MEMORY_GLOBAL_PATH   global memory file (default ~/.pi/agent/memory.md; "" = no global memory)
  *   PI_MEMORY_MODE          deep (default: everything on disk, recalled per request) | capped (memory.md within a cap)
  *   PI_MEMORY_RECALL_LOG=1  append one JSON line per request to <cwd>/.pi/memory/recall-log.jsonl (evaluation)
- *   PI_MEMORY_MODEL         embedding model: minilm (default) | e5
+ *   PI_MEMORY_MODEL         embedding model: e5 (default, deeper recall at scale) | minilm
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";

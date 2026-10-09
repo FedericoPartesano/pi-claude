@@ -39,6 +39,15 @@ export function entriesToRecords(memory: MemoryEntry[], archive: MemoryEntry[], 
 			status: "active",
 			entities: [...new Set([...(entry.entities ?? old?.entities ?? []).map((value) => value.toLowerCase()), ...extractEntities(entry.text)])],
 			...(old?.source ? { source: old.source } : {}),
+			// Graph, lifecycle and usage survive consolidation (they were dropped: every /dream erased the links). The
+			// gist only while the text is the same.
+			...(old?.links?.length ? { links: old.links } : {}),
+			...(old?.gist && old.text === entry.text ? { gist: old.gist } : {}),
+			...(old?.state ? { state: old.state, dormantSince: old.dormantSince } : {}),
+			...(old?.level ? { level: old.level } : {}),
+			...(old?.uses ? { uses: old.uses } : {}),
+			...(old?.lastUsed ? { lastUsed: old.lastUsed } : {}),
+			...(old?.scope ? { scope: old.scope } : {}),
 		};
 	};
 	const records: MemoryRecord[] = [];
