@@ -40,13 +40,16 @@ export function applyKeybindings(keybindings) {
 }
 
 const sourceOf = (entry) => (typeof entry === "string" ? entry : entry?.source);
+/** "git:github.com/x/y@v1", "https://github.com/x/y.git", "github.com/x/y" → "github.com/x/y". */
+const repoOf = (value) => value.replace(/^git:/, "").replace(/^https?:\/\//, "").replace(/^git@github\.com:/, "github.com/").replace(/@[^/]*$/, "").replace(/\.git$/, "").replace(/\/+$/, "").toLowerCase();
+const sameRepo = (value) => repoOf(value) === repoOf(GIT_SOURCE);
 const lastSegment = (path) => path.replace(/[\\/]+$/, "").split(/[\\/]/).pop();
 
 /** Drops this repo's old registrations (sub-packages, single extensions) and adds the package entry once. */
 export function migrateSettings(settings, { source: wanted }) {
 	const s = structuredClone(settings);
-	// Installed from git with a ref (a tag, a branch): that entry is the package, ref included.
-	const pinned = wanted === GIT_SOURCE ? (s.packages ?? []).map(sourceOf).find((value) => typeof value === "string" && value.startsWith(`${GIT_SOURCE}@`)) : undefined;
+	// Installed from git in any form (git:…, https://….git, with a ref): that entry is the package, as written.
+	const pinned = wanted === GIT_SOURCE ? (s.packages ?? []).map(sourceOf).find((value) => typeof value === "string" && sameRepo(value)) : undefined;
 	const source = pinned ?? wanted;
 	const isOldSubpackage = (entry) => {
 		const value = sourceOf(entry);
@@ -57,7 +60,7 @@ export function migrateSettings(settings, { source: wanted }) {
 	const packages = (s.packages ?? []).filter((entry) => !isOldSubpackage(entry));
 	const isThis = (entry) => {
 		const value = sourceOf(entry);
-		return value === source || value === GIT_SOURCE || (typeof value === "string" && value.startsWith(`${GIT_SOURCE}@`));
+		return value === source || (typeof value === "string" && /^(git:|https?:|git@)/.test(value) && sameRepo(value));
 	};
 	s.packages = [...packages.filter((entry) => !isThis(entry) || sourceOf(entry) === source)];
 	if (!s.packages.some((entry) => sourceOf(entry) === source)) s.packages.push(source);
