@@ -40,7 +40,7 @@ import { isSmallTalk, recallMessage } from "../pi-memory/src/recall.ts";
 import { entriesToRecords, movePersonal, rebaseOnCurrent, recordsToEntries } from "../pi-memory/src/reconcile.ts";
 import { withStoreLock } from "../pi-memory/src/lock.ts";
 import { renderVault } from "../pi-memory/src/vault.ts";
-import { loadStore, migrateLegacy, pruneVectors, saveStore, storeExists, type MemoryRecord } from "../pi-memory/src/store.ts";
+import { lastId, loadStore, migrateLegacy, pruneVectors, saveStore, storeExists, type MemoryRecord } from "../pi-memory/src/store.ts";
 import { applyUsage, lifecycle } from "../pi-memory/src/forget.ts";
 import { applyAction, dreamEntry, memoryStatus, recordLabel, recordPreview, summarize, type DreamEntry, type MemoryAction } from "../pi-memory/src/dashboard.ts";
 import type { DashboardResult, View } from "../pi-memory/src/dashboard-tui.ts";
@@ -561,7 +561,7 @@ export default function (pi: ExtensionAPI) {
 		let lifecycleNote = "";
 		let movedToGlobal = false;
 		if (deep && previous) {
-			deepRecords = entriesToRecords(result.memory, result.archive, previous.records, date);
+			deepRecords = entriesToRecords(result.memory, result.archive, previous.records, date, lastId(storeDir));
 			// Long term: what was recalled counts as used; unused memories go dormant, then are forgotten (kept aside).
 			if (process.env.PI_MEMORY_FORGET !== "0") {
 				const sinceFile = join(storeDir, "usage-since");
@@ -582,7 +582,7 @@ export default function (pi: ExtensionAPI) {
 					deepRecords = split.project;
 					withStoreLock(globalDir, () => {
 						const current = storeExists(globalDir) ? loadStore(globalDir) : { records: [], vectors: new Map<string, Float32Array>(), model: undefined };
-						saveStore(globalDir, { ...current, records: movePersonal(personal, current.records).global });
+						saveStore(globalDir, { ...current, records: movePersonal(personal, current.records, lastId(globalDir)).global });
 					});
 					movedToGlobal = true;
 					lifecycleNote = [lifecycleNote, `${split.moved} nella memoria personale`].filter(Boolean).join(" · ");
@@ -592,7 +592,7 @@ export default function (pi: ExtensionAPI) {
 			// one writer at a time.
 			deepRecords = withStoreLock(storeDir, () => {
 				const current = storeExists(storeDir) ? loadStore(storeDir) : { records: [], vectors: new Map<string, Float32Array>(), model: previous.model };
-				const rebased = rebaseOnCurrent(previous.records, current.records, deepRecords!);
+				const rebased = rebaseOnCurrent(previous.records, current.records, deepRecords!, lastId(storeDir));
 				saveStore(storeDir, { records: rebased, vectors: pruneVectors(current.records, rebased, current.vectors), model: current.model ?? previous.model });
 				return rebased;
 			});

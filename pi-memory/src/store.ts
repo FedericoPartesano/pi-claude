@@ -58,7 +58,7 @@ export function loadStore(dir: string, idPrefix = ""): Store {
 			if (!line.trim()) continue;
 			try {
 				const record = JSON.parse(line) as MemoryRecord;
-				records.push({ ...record, id: idPrefix + record.id, entities: record.entities ?? [], scope: record.scope ?? inferScope(record.type, record.text) });
+				records.push({ ...record, id: idPrefix + record.id, entities: record.entities ?? [], scope: record.scope ?? inferScope(record.type, record.text), ...(idPrefix && record.links ? { links: record.links.map((link) => idPrefix + link) } : {}) });
 			} catch {
 				// A corrupt line must not lose the others.
 			}
@@ -105,6 +105,9 @@ const writeAtomic = (path: string, text: string) => {
 
 export function saveStore(dir: string, store: Store) {
 	mkdirSync(dir, { recursive: true });
+	// The last id ever given, kept apart: a memory merged away or forgotten must not hand its number to a new one.
+	const last = Math.max(lastId(dir), highestId(store.records.map((record) => record.id)));
+	writeAtomic(join(dir, "ids.json"), JSON.stringify({ last }));
 	writeAtomic(paths(dir).jsonl, store.records.map((record) => `${JSON.stringify(record)}\n`).join(""));
 	saveVectors(dir, store.records, store.vectors, store.model);
 }
@@ -172,4 +175,37 @@ export function migrateLegacy(storeDir: string, memoryFile: string, archiveFile:
 	const records = [...memory.map((entry) => make(entry, true)), ...archive.map((entry) => make(entry, !entry.reason || STILL_ACTIVE_REASON.test(entry.reason)))];
 	saveStore(storeDir, { records, vectors: new Map() });
 	return true;
+}
+
+/** The highest "r<n>" number among ids (a loop: Math.max(...ids) overflows the stack on very large stores). */
+export function highestId(ids: Iterable<string>): number {
+	let highest = 0;
+	for (const id of ids) {
+		const number = Number(/^r(\d+)$/.exec(id)?.[1] ?? 0);
+		if (number > highest) highest = number;
+	}
+	return highest;
+}
+
+/** The last "r<n>" number given in this store: ids.json, and forgotten.jsonl for stores saved before it existed. */
+export function lastId(dir: string): number {
+	let last = 0;
+	try {
+		last = Number((JSON.parse(readFileSync(join(dir, "ids.json"), "utf8")) as { last?: number }).last ?? 0) || 0;
+	} catch {
+		// No ids.json yet.
+	}
+	const forgotten = join(dir, "forgotten.jsonl");
+	if (existsSync(forgotten)) {
+		const ids: string[] = [];
+		for (const line of readFileSync(forgotten, "utf8").split("\n")) {
+			try {
+				if (line.trim()) ids.push((JSON.parse(line) as { id: string }).id);
+			} catch {
+				// A corrupt line.
+			}
+		}
+		last = Math.max(last, highestId(ids));
+	}
+	return last;
 }

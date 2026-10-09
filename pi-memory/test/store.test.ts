@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadStore, saveStore, type MemoryRecord } from "../src/store.ts";
+import { lastId, loadStore, saveStore, type MemoryRecord } from "../src/store.ts";
 
 const rec = (id: string, extra: Partial<MemoryRecord> = {}): MemoryRecord => ({ id, type: "fatto", text: `ricordo ${id}`, pinned: false, confirmations: 1, created: "2026-10-01", last: "2026-10-01", status: "active", entities: [], ...extra });
 
@@ -40,4 +40,21 @@ test("new optional fields survive a round trip; old records without them load fi
 	assert.equal(first.state, "dormant");
 	assert.equal(first.uses, 3);
 	assert.equal(second.links, undefined);
+});
+
+test("loading a store with a prefix prefixes its links too (global links pointed at project memories)", () => {
+	const dir = mkdtempSync(join(tmpdir(), "mem-"));
+	saveStore(dir, { records: [rec("r1", { links: ["r2"] }), rec("r2")], vectors: new Map() });
+	const store = loadStore(dir, "g:");
+	assert.deepEqual(store.records[0].links, ["g:r2"]);
+});
+
+test("ids are never reused: the store remembers the last one, forgotten ids included", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "mem-"));
+	saveStore(dir, { records: [rec("r1"), rec("r7")], vectors: new Map() });
+	saveStore(dir, { records: [rec("r1")], vectors: new Map() });
+	assert.equal(lastId(dir), 7, "r7 was merged away: its number stays taken");
+	const { writeFileSync } = await import("node:fs");
+	writeFileSync(join(dir, "forgotten.jsonl"), `${JSON.stringify(rec("r12"))}\n`);
+	assert.equal(lastId(dir), 12);
 });

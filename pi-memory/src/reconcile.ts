@@ -1,7 +1,7 @@
 /** Bridge between the deep store and the consolidation core (applyProposal works on entries, ids by position). */
 import type { MemoryEntry } from "../../extensions/memory-core.ts";
 import { extractEntities } from "./entities.ts";
-import type { MemoryRecord } from "./store.ts";
+import { highestId, type MemoryRecord } from "./store.ts";
 
 export function recordsToEntries(records: MemoryRecord[]): { memory: MemoryEntry[]; archive: MemoryEntry[] } {
 	const memory: MemoryEntry[] = [];
@@ -16,9 +16,9 @@ export function recordsToEntries(records: MemoryRecord[]): { memory: MemoryEntry
 }
 
 /** Rebuilds records after applyProposal: ids are kept, new entries get fresh ids, merged-away ones disappear. */
-export function entriesToRecords(memory: MemoryEntry[], archive: MemoryEntry[], prev: MemoryRecord[], today: string): MemoryRecord[] {
+export function entriesToRecords(memory: MemoryEntry[], archive: MemoryEntry[], prev: MemoryRecord[], today: string, after = 0): MemoryRecord[] {
 	const before = new Map(prev.map((record) => [record.id, record]));
-	let counter = Math.max(0, ...prev.map((record) => Number(/^r(\d+)$/.exec(record.id)?.[1] ?? 0)));
+	let counter = Math.max(after, highestId(prev.map((record) => record.id)));
 	const taken = new Set<string>();
 	/** Additions of this /dream ("new:k") → the ids they get here, to resolve links between them. */
 	const fresh = new Map<string, string>();
@@ -74,10 +74,10 @@ export function entriesToRecords(memory: MemoryEntry[], archive: MemoryEntry[], 
  * Memories /dream marked "personale" while consolidating a project (language, style, personal tools): they hold in every
  * project, so they move to the global store, renumbered after its highest id.
  */
-export function movePersonal(project: MemoryRecord[], global: MemoryRecord[]): { project: MemoryRecord[]; global: MemoryRecord[]; moved: number } {
+export function movePersonal(project: MemoryRecord[], global: MemoryRecord[], after = 0): { project: MemoryRecord[]; global: MemoryRecord[]; moved: number } {
 	const personal = project.filter((record) => record.level === "personale" && record.status === "active");
 	if (personal.length === 0) return { project, global, moved: 0 };
-	let counter = Math.max(0, ...global.map((record) => Number(/^r(\d+)$/.exec(record.id)?.[1] ?? 0)));
+	let counter = Math.max(after, highestId(global.map((record) => record.id)));
 	// Links point to project memories: meaningless in the global store.
 	const moved = personal.map(({ links: _links, ...record }) => ({ ...record, id: `r${++counter}` }));
 	return { project: project.filter((record) => !personal.includes(record)), global: [...global, ...moved], moved: moved.length };
@@ -92,13 +92,13 @@ const idNumber = (id: string) => Number(/^r(\d+)$/.exec(id)?.[1] ?? 0);
  * store now. Deletions and the user's changes win over the dream; memories added elsewhere are kept with their ids, and
  * the dream's own new memories are renumbered if their ids are taken.
  */
-export function rebaseOnCurrent(previous: MemoryRecord[], current: MemoryRecord[], next: MemoryRecord[]): MemoryRecord[] {
+export function rebaseOnCurrent(previous: MemoryRecord[], current: MemoryRecord[], next: MemoryRecord[], after = 0): MemoryRecord[] {
 	const before = new Map(previous.map((record) => [record.id, record]));
 	const now = new Map(current.map((record) => [record.id, record]));
 	if (previous.length === current.length && previous.every((record) => sameRecord(record, now.get(record.id)))) return next;
 	const merged: MemoryRecord[] = [];
 	const renamed = new Map<string, string>();
-	let counter = 0;
+	let counter = after;
 	for (const record of [...current, ...next]) counter = Math.max(counter, idNumber(record.id));
 	const taken = new Set(current.map((record) => record.id));
 	for (const record of next) {

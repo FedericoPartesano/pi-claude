@@ -36,3 +36,15 @@ test("personal memories proposed in a project go to the global store, with ids t
 	assert.equal(new Set(moved.global.map((record) => record.id)).size, 2);
 	assert.equal(moved.moved, 1);
 });
+
+test("ids: no stack overflow on very large stores (Math.max(...spread) blew up past ~100k)", () => {
+	const base = { type: "fatto", pinned: false, confirmations: 1, created: "2026-10-09", last: "2026-10-09", status: "active" as const, entities: [] };
+	const big: MemoryRecord[] = Array.from({ length: 200_000 }, (_, i) => ({ ...base, id: `r${i + 1}`, text: `t${i}` }));
+	const moved = movePersonal([{ ...base, id: "r1", text: "x", level: "personale" }], big);
+	assert.equal(moved.global[moved.global.length - 1].id, "r200001");
+});
+
+test("entriesToRecords numbers new memories after a given last id", () => {
+	const records = entriesToRecords([{ type: "fatto", text: "Nuovo", pinned: false, confirmations: 1, last: "2026-10-09" }], [], [], "2026-10-09", 12);
+	assert.equal(records[0].id, "r13");
+});
