@@ -54,3 +54,20 @@ test("recall log: one JSON line per recall, also when nothing is injected", () =
 	assert.ok(line.timestamp);
 	assert.ok(existsSync(join(dir, "recall-log.jsonl")));
 });
+
+test("Recaller: the merged index (project + global) and its vectors are built once, until a store changes", async () => {
+	const root = mkdtempSync(join(tmpdir(), "rec-"));
+	const project = join(root, "p");
+	const global = join(root, "g");
+	const record = (id: string, text: string) => ({ id, type: "fatto", text, pinned: false, confirmations: 1, created: "2026-10-01", last: "2026-10-01", status: "active" as const, entities: [] });
+	saveStore(project, { records: [record("r1", "Le esportazioni Excel usano exceljs")], vectors: new Map(), model: "fake" });
+	saveStore(global, { records: [record("r1", "Rispondi sempre in italiano")], vectors: new Map(), model: "fake" });
+	const recaller = new Recaller();
+	const first = recaller.indexFor({ project, global });
+	assert.equal(recaller.indexFor({ project, global }), first, "same index object on the next request");
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	saveStore(project, { records: [record("r1", "Le esportazioni Excel usano exceljs"), record("r2", "I report usano pdfkit")], vectors: new Map(), model: "fake" });
+	const second = recaller.indexFor({ project, global });
+	assert.notEqual(second, first, "rebuilt after a change");
+	assert.equal(second.index.records.length, 3);
+});

@@ -52,6 +52,26 @@ export class Recaller {
 		return entry;
 	}
 
+	private merged = new Map<string, { key: string; index: RecallIndex; vectors: Map<string, Float32Array> }>();
+
+	/**
+	 * The index over all stores (project + global) and the vectors of the given model, built once and reused until a
+	 * store changes: rebuilding them per request cost seconds at 100k memories.
+	 */
+	indexFor(dirs: StoreDirs, model?: string): { index: RecallIndex; vectors: Map<string, Float32Array> } {
+		const parts = this.all(dirs);
+		const slot = `${dirs.project}|${dirs.global ?? ""}|${model ?? ""}`;
+		const key = parts.map((part) => part.stamp).join("|");
+		const cached = this.merged.get(slot);
+		if (cached?.key === key) return cached;
+		const vectors = new Map<string, Float32Array>();
+		for (const part of parts) if (model && part.model === model) for (const [id, vector] of part.vectors) vectors.set(id, vector);
+		const index = parts.length === 1 ? parts[0].index : new RecallIndex(parts.flatMap((part) => part.records));
+		const entry = { key, index, vectors };
+		this.merged.set(slot, entry);
+		return entry;
+	}
+
 	private all(dirs: StoreDirs) {
 		const parts = [this.load(dirs.project, "")];
 		if (dirs.global) parts.push(this.load(dirs.global, "g:"));
@@ -70,11 +90,9 @@ export class Recaller {
 
 	async run(query: string, dirs: StoreDirs, today: string, embedder?: Embedder, options: { includeSuperseded?: boolean; threshold?: number; inquiryThreshold?: number; limit?: number } = {}): Promise<RecallRun> {
 		const started = performance.now();
-		const parts = this.all(dirs);
-		const records = parts.flatMap((part) => part.records);
 		const ready = isReady(embedder);
-		const vectors = new Map<string, Float32Array>();
-		for (const part of parts) if (embedder && part.model === embedder.model) for (const [id, vector] of part.vectors) vectors.set(id, vector);
+		const { index, vectors } = this.indexFor(dirs, embedder?.model);
+		const records = index.records;
 		let queryVector: Float32Array | undefined;
 		if (ready && vectors.size > 0) {
 			try {
@@ -85,7 +103,6 @@ export class Recaller {
 		}
 		// Pinned memories already sit in the system prompt: never repeat them in the request.
 		const pinned = new Set(coreIds(records));
-		const index = parts.length === 1 ? parts[0].index : new RecallIndex(records);
 		// Small talk recalls nothing; questions a few cues, tasks more (fixed ceiling).
 		const limit = options.limit ?? cueLimit(query);
 		if (limit === 0) return { text: "", hits: [], ids: [], chars: 0, estTokens: 0, embedderReady: ready, ms: Math.round((performance.now() - started) * 10) / 10 };
