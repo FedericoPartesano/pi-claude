@@ -58,7 +58,7 @@ test("a whole turn: user bubble, thinking, streamed markdown with a chart, tool 
 		await js(`emit("pi-event", { type: "agent_start" }); emit("pi-event", { type: "message_start", message: { role: "assistant" } });
 			${delta("thinking_delta", "Devo contare le vendite…")} ${delta("text_delta", "## Vendite\n\n1. **gennaio** alto\n2. febbraio\n\n| mese | k€ |\n|---|---:|\n| gen | 3 |\n\n")}
 			${delta("text_delta", '```grafico\n{"tipo":"barre","titolo":"Vendite","etichette":["gen","feb"],"serie":[{"nome":"2026","valori":[3,5]}],"unita":"k€"}\n```\n<!--suggerimenti-->\n- confronta col 2025\n- esporta in CSV')} "ok"`);
-		await wait(80);
+		await wait(700); // the typewriter reveals the text over a few hundred ms
 		assert.equal(await js(`String(document.querySelector(".thinking-head").hasAttribute("data-expanded"))`), "false", "thinking collapses when the answer starts");
 		const html = await js(`document.querySelector(".turn-pi .md").innerHTML`);
 		assert.match(html, /<h2>Vendite<\/h2>/);

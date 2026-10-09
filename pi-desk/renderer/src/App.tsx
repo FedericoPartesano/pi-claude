@@ -62,11 +62,33 @@ export function App() {
 	}
 
 	// ---- Pi events -----------------------------------------------------------------------------------------------
-	const nearEnd = () => scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 80;
+	// Smooth follow: while the user is at the end, the view glides down after new content (eased, a few frames);
+	// scrolling up to read stops it, and coming back to the end (or the ↓ button) resumes it.
+	const [stuck, setStuck] = createSignal(true);
+	const [unseen, setUnseen] = createSignal(false);
+	let glide = 0;
+	const distance = () => scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight;
+	const step = () => {
+		glide = 0;
+		if (!stuck()) return;
+		const left = distance();
+		if (left <= 1) return;
+		scroll.scrollTop += Math.max(1, Math.ceil(left * 0.2));
+		glide = requestAnimationFrame(step);
+	};
+	const kick = () => {
+		if (stuck()) {
+			if (!glide) glide = requestAnimationFrame(step);
+		} else setUnseen(true);
+	};
 	const follow = (work: () => void) => {
-		const near = nearEnd();
 		work();
-		if (near) queueMicrotask(() => (scroll.scrollTop = scroll.scrollHeight));
+		queueMicrotask(kick);
+	};
+	const toEnd = () => {
+		setStuck(true);
+		setUnseen(false);
+		kick();
 	};
 	desk.on("pi-event", (event) => {
 		follow(() => chat.onEvent(event));
@@ -121,7 +143,7 @@ export function App() {
 			return;
 		}
 		chat.addUser(text, images.length ? images : undefined);
-		queueMicrotask(() => (scroll.scrollTop = scroll.scrollHeight));
+		toEnd();
 		try {
 			const result = await desk.prompt(text, images.map((image) => ({ type: "image" as const, ...image })));
 			if (result?.disposition === "queued") chat.addNote("In coda: Pi lo legge appena finisce");
@@ -225,7 +247,19 @@ export function App() {
 	const onKey = (event: KeyboardEvent) => {
 		if (event.key === "Escape" && state.busy && !state.dialog && !lightboxOpen()) desk.abort();
 	};
-	onMount(() => document.addEventListener("keydown", onKey));
+	onMount(() => {
+		document.addEventListener("keydown", onKey);
+		// Reading back: wheel or keys up leave the end; reaching it again resumes following.
+		const leave = (up: boolean) => up && distance() > 4 && (setStuck(false), cancelAnimationFrame(glide), (glide = 0));
+		scroll.addEventListener("wheel", (event) => leave(event.deltaY < 0), { passive: true });
+		scroll.addEventListener("keydown", (event) => leave(["ArrowUp", "PageUp", "Home"].includes(event.key)));
+		scroll.addEventListener("scroll", () => {
+			if (distance() < 40 && !stuck()) toEnd();
+		});
+		// Any growth of the thread (streamed text, images loading, diagrams drawn) moves the view while following.
+		new ResizeObserver(kick).observe(scroll.firstElementChild ?? scroll);
+		new MutationObserver(kick).observe(scroll, { childList: true, subtree: true, characterData: true });
+	});
 
 	const turns = () => viewing()?.turns ?? state.turns;
 	// Statuses written for the terminal carry ANSI colours: plain text here.
@@ -264,12 +298,15 @@ export function App() {
 							</div>
 						</div>
 					}>
-						<Thread turns={turns()} onSuggestion={(text) => composer?.fill(text)} />
+						<Thread turns={turns()} typing={state.typing && !viewing()} onSuggestion={(text) => composer?.fill(text)} />
 					</Show>
 					<Show when={state.exited && !viewing()}>
 						<div class="thread"><div class="error-card"><TriangleAlert size={14} /> Pi si è fermato ({state.exited}). <button type="button" onClick={() => desk.restart().then(chat.restarted)}>Riavvia</button></div></div>
 					</Show>
 				</div>
+				<Show when={unseen() && !stuck()}>
+					<button type="button" class="to-end" onClick={toEnd}>↓ nuovi messaggi</button>
+				</Show>
 				<Composer busy={state.busy && !viewing()} readonly={Boolean(viewing()) && !viewing()!.writable} placeholder={viewing()?.writable ? "Scrivi al Pi nel terminale…" : "Chiedi a Pi…"} statuses={statuses()} onSend={send} onStop={() => desk.abort()} ref={(api) => (composer = api)} />
 				<ExtensionDialog request={state.dialog} mount={chatColumn} onAnswer={(fields) => {
 					const request = state.dialog;

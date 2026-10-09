@@ -19,7 +19,7 @@ let nextId = 1;
 const id = () => nextId++;
 
 export function createChat() {
-	const [state, set] = createStore({ turns: [] as Turn[], busy: false, status: "pronto", statuses: {} as Record<string, string>, dialog: undefined as UiRequest | undefined, exited: undefined as string | undefined });
+	const [state, set] = createStore({ typing: false, turns: [] as Turn[], busy: false, status: "pronto", statuses: {} as Record<string, string>, dialog: undefined as UiRequest | undefined, exited: undefined as string | undefined });
 	// Indices of what is being written now.
 	let turn = -1;
 	let text = -1;
@@ -65,8 +65,11 @@ export function createChat() {
 			set("turns", turn, "parts" as never, thinking as never, "text" as never, ((old: string) => old + delta) as never);
 		}
 		if (pendingText) {
-			const delta = pendingText;
-			pendingText = "";
+			// Typewriter: a steady reveal, a few characters per frame, faster when the model gets ahead (never more
+			// than ~18 frames behind). message_end and tools flush the rest at once (flushNow).
+			const take = revealAll ? pendingText.length : Math.min(pendingText.length, Math.max(4, Math.ceil(pendingText.length / 18)));
+			const delta = pendingText.slice(0, take);
+			pendingText = pendingText.slice(take);
 			closeThinking();
 			piTurn();
 			if (text < 0) {
@@ -75,14 +78,23 @@ export function createChat() {
 				steps = -1;
 			}
 			set("turns", turn, "parts" as never, text as never, "text" as never, ((old: string) => old + delta) as never);
+			if (pendingText) {
+				frame = requestAnimationFrame(flush);
+				set("typing", true);
+				return;
+			}
 		}
+		set("typing", false);
 	};
 	const schedule = () => {
 		if (!frame) frame = requestAnimationFrame(flush);
 	};
+	let revealAll = false;
 	const flushNow = () => {
 		if (frame) cancelAnimationFrame(frame);
+		revealAll = true;
 		flush();
+		revealAll = false;
 	};
 
 	function onEvent(event: any) {

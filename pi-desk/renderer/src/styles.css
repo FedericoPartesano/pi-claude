@@ -361,3 +361,14 @@ svg.lucide { flex: none; }
 .dialog-code { margin: 10px 0 4px; padding: 10px 12px; background: #08080b; border: 1px solid var(--line); border-left: 2px solid var(--warn); font: 12.5px/1.5 var(--mono); color: var(--yellow); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 200px; overflow-y: auto; }
 .dialog-actions kbd { margin-left: 6px; font: 600 10px var(--mono); padding: 1px 5px; border-radius: 4px; border: 1px solid currentColor; opacity: .7; }
 .dialog-actions button.danger:hover { border-color: var(--danger); color: var(--danger); }
+
+/* ---- Typewriter caret and the follow button ---------------------------------------------------------------------- */
+.thread.typing .turn-pi:last-child .md:last-of-type .block:last-child > :last-child::after {
+	content: ""; display: inline-block; width: .55em; height: 1.05em; margin-left: 2px; vertical-align: -0.16em;
+	background: var(--accent); box-shadow: 0 0 10px var(--accent), 0 0 2px var(--accent); border-radius: 1px;
+	animation: caret 1s steps(2, start) infinite;
+}
+.thread.typing .turn-pi:last-child .md:last-of-type .block:last-child > :is(ul, ol, table, .code, .chart, .kpis):last-child::after { display: none; }
+@keyframes caret { to { visibility: hidden; } }
+.to-end { position: absolute; left: 50%; transform: translateX(-50%); bottom: 118px; z-index: 5; border: 1px solid #2ee6ff66; background: var(--raised); color: var(--accent); border-radius: 999px; padding: 5px 14px; font: 600 12px var(--sans); box-shadow: 0 0 16px #2ee6ff33; }
+.to-end:hover { background: var(--accent-soft); }

@@ -49,9 +49,9 @@ function PiTurn(props: { turn: Extract<Turn, { role: "pi" }>; onSuggestion: (tex
 	);
 }
 
-export function Thread(props: { turns: Turn[]; onSuggestion: (text: string) => void }) {
+export function Thread(props: { turns: Turn[]; typing?: boolean; onSuggestion: (text: string) => void }) {
 	return (
-		<div class="thread">
+		<div class="thread" classList={{ typing: props.typing }}>
 			<For each={props.turns}>
 				{(turn) => (
 					<Switch>
