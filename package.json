@@ -15,6 +15,8 @@
       "./extensions/protected-paths.ts",
       "./extensions/guards.ts",
       "./extensions/land.ts",
+      "./extensions/browser.ts",
+      "./extensions/desk-link.ts",
       "./extensions/intent.ts",
       "./extensions/lean-tools.ts",
       "./extensions/loop.ts",

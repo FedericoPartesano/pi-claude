@@ -1,0 +1,385 @@
+import { createEffect, createSignal, onMount, Show } from "solid-js";
+import { makePersisted } from "@solid-primitives/storage";
+import { createResizeObserver } from "@solid-primitives/resize-observer";
+import { ArrowLeft, ArrowRight, Bug, Crosshair, FileText, Globe, Lock, Menu, Plus, RotateCw, TriangleAlert, X } from "lucide-solid";
+import { DocViewer } from "./components/DocViewer";
+import { WorkBar } from "./components/WorkBar";
+import { RemoteBar } from "./components/RemoteBar";
+import type { RemoteStatus } from "./bridge";
+import { actions } from "./actions";
+import { onTableClick } from "./enhance";
+import type { DocFile } from "./bridge";
+import { clean, desk, type Img, type Session } from "./bridge";
+import { createChat, transcriptTurns, type Turn } from "./state";
+import { Thread } from "./components/Thread";
+import { setImageBase } from "./render";
+import { Composer } from "./components/Composer";
+import { Sidebar } from "./components/Sidebar";
+import { ExtensionDialog } from "./components/ExtensionDialog";
+import { Lightbox, lightboxOpen, openImage } from "./components/Lightbox";
+
+const EXAMPLES = ["Riassumi lo stato del progetto", "Trova i test che falliscono e sistemali", "Apri nel browser localhost:3000 e prova il login", "Cosa ricordi di questo progetto?"];
+
+export function App() {
+	const chat = createChat();
+	const { state } = chat;
+	const [project, setProject] = createSignal("");
+	const [sidebar, setSidebar] = makePersisted(createSignal(false), { name: "pi-desk.sidebar" });
+	const [chatShare, setChatShare] = makePersisted(createSignal(46), { name: "pi-desk.chat" });
+	const [browserOpen, setBrowserOpen] = createSignal(false);
+	// The right panel shows the browser or a document.
+	const [panel, setPanel] = createSignal<"browser" | "doc">("browser");
+	const [doc, setDoc] = createSignal<DocFile>();
+	async function openFile(path: string) {
+		const file = await desk.file(path);
+		if (file.error && !file.kind) return chat.addNote(file.error, "error");
+		setBrowserOpen(true);
+		if (file.kind === "pdf" || file.kind === "html") {
+			// Chromium's own viewer (PDF: zoom, search, pages), in the browser panel.
+			setPanel("browser");
+			desk.browser("go", file.url!);
+			return;
+		}
+		setDoc(file);
+		setPanel("doc");
+	}
+	actions.openFile = openFile;
+	const [dragging, setDragging] = createSignal(false);
+	const [url, setUrl] = createSignal("");
+	const [nav, setNav] = createSignal({ back: false, forward: false, title: "" });
+	// A session from the sidebar shown instead of this window's chat.
+	const [viewing, setViewing] = createSignal<{ session: Session; turns: Turn[]; writable: boolean; label: string }>();
+	let scroll!: HTMLDivElement;
+	let chatColumn!: HTMLElement;
+	let slot!: HTMLDivElement;
+	let composer: { fill: (text: string) => void; attach: (text: string, image?: Img) => void } | undefined;
+	const [picking, setPicking] = createSignal(false);
+	async function pick() {
+		setPicking(true);
+		try {
+			const picked = await desk.pick();
+			if (picked) composer?.attach(`Nel browser (${picked.url}) ho indicato questo elemento: ${picked.role}${picked.name ? ` «${picked.name}»` : ""}\nselettore: \`${picked.selector}\``, picked.image ? { data: picked.image, mimeType: "image/png" } : undefined);
+		} finally {
+			setPicking(false);
+		}
+	}
+
+	// ---- Pi events -----------------------------------------------------------------------------------------------
+	// Smooth follow: while the user is at the end, the view glides down after new content (eased, a few frames);
+	// scrolling up to read stops it, and coming back to the end (or the ↓ button) resumes it.
+	const [stuck, setStuck] = createSignal(true);
+	const [unseen, setUnseen] = createSignal(false);
+	let glide = 0;
+	const distance = () => scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight;
+	const step = () => {
+		glide = 0;
+		if (!stuck()) return;
+		const left = distance();
+		if (left <= 1) return;
+		scroll.scrollTop += Math.max(1, Math.ceil(left * 0.2));
+		glide = requestAnimationFrame(step);
+	};
+	const kick = () => {
+		if (stuck()) {
+			if (!glide) glide = requestAnimationFrame(step);
+		} else setUnseen(true);
+	};
+	const follow = (work: () => void) => {
+		work();
+		queueMicrotask(kick);
+	};
+	const toEnd = () => {
+		setStuck(true);
+		setUnseen(false);
+		kick();
+	};
+	desk.on("pi-event", (event) => {
+		follow(() => chat.onEvent(event));
+		if (event.type === "tool_execution_start" && event.toolName === "browser" && event.args?.action !== "close") {
+			setBrowserOpen(true);
+			setPanel("browser");
+		}
+	});
+	desk.on("pi-ui", (request) => chat.onUi(request));
+	desk.on("pi-stderr", (text: string) => {
+		if (/\b(error|errore)\b/i.test(text) && !/MODULE_TYPELESS|ExperimentalWarning/.test(text)) chat.addNote(text.trim().slice(0, 240));
+	});
+	desk.on("pi-exit", (code: string) => chat.exited(code));
+	desk.on("download", ({ path, state, bytes }) => {
+		chat.addNote(state === "completed" ? `⇣ Scaricato in ${path} (${Math.round(bytes / 1024)} KB)` : `Download non riuscito: ${path}`, state === "completed" ? undefined : "error");
+		if (state === "completed") openFile(path);
+	});
+	// Image paths in answers resolve against the project (relative) and the home (~).
+	let home = "";
+	desk.on("home", (path: string) => {
+		home = path;
+		setImageBase({ project: project(), home });
+	});
+	desk.on("project", (path: string) => {
+		setProject(path);
+		setImageBase({ project: path, home });
+	});
+	// An image that does not exist (a path Pi mentioned and then removed): hidden, not a broken icon.
+	onMount(() => document.addEventListener("error", (event) => {
+		const target = event.target as HTMLElement;
+		if (target instanceof HTMLImageElement && target.closest(".md")) target.classList.add("broken");
+	}, true));
+	desk.on("browser-url", ({ url: next, title, back, forward }) => {
+		setUrl(!next || next.startsWith("data:") ? "" : next);
+		setNav({ back, forward, title: title ?? "" });
+	});
+	desk.on("session-append", ({ path, items }) => {
+		const current = viewing();
+		if (current?.session.path === path) follow(() => setViewing({ ...current, turns: [...current.turns, ...transcriptTurns(items)] }));
+	});
+
+	// ---- Sending ---------------------------------------------------------------------------------------------------
+	async function send(text: string, images: Img[]) {
+		const current = viewing();
+		if (current?.writable) {
+			try {
+				const reply = await desk.sendToSession(current.session.running!.pid, text);
+				setViewing({ ...current, turns: [...current.turns, { id: Date.now(), role: "note", text: reply.queued ? "Inviato: in coda, Pi lo legge appena finisce il passo in corso" : "Inviato al Pi nel terminale" }] });
+			} catch (error) {
+				setViewing({ ...current, turns: [...current.turns, { id: Date.now(), role: "note", tone: "error", text: `Non inviato: ${clean((error as Error).message)}` }] });
+			}
+			return;
+		}
+		chat.addUser(text, images.length ? images : undefined);
+		toEnd();
+		try {
+			const result = await desk.prompt(text, images.map((image) => ({ type: "image" as const, ...image })));
+			if (result?.disposition === "queued") chat.addNote("In coda: Pi lo legge appena finisce");
+		} catch (error) {
+			chat.addNote(clean((error as Error).message), "error");
+		}
+	}
+
+	// ---- Sessions --------------------------------------------------------------------------------------------------
+	// A linked terminal Pi: its status line, read every 600 ms while its session is open here.
+	const [remote, setRemote] = createSignal<RemoteStatus>();
+	let remoteTimer: ReturnType<typeof setInterval> | undefined;
+	const stopRemote = () => {
+		clearInterval(remoteTimer);
+		remoteTimer = undefined;
+		setRemote(undefined);
+	};
+	const watchRemote = (pid: number) => {
+		stopRemote();
+		const read = () => desk.sessionStatus(pid).then((reply) => setRemote(reply.status ?? undefined), () => setRemote(undefined));
+		read();
+		remoteTimer = setInterval(read, 600);
+	};
+	const answerRemote = async (value: "yes" | "no" | "always") => {
+		const current = viewing();
+		if (!current?.session.running) return;
+		try {
+			await desk.answerSession(current.session.running.pid, value);
+			setRemote((status) => (status ? { ...status, mode: "working", activity: value === "no" ? "rifiutato" : "ripreso" } : status));
+		} catch (error) {
+			chat.addNote(clean((error as Error).message), "error");
+		}
+	};
+	let composerText = () => "";
+
+	async function openSession(session: Session) {
+		stopRemote();
+		if (session.running?.own) return setViewing(undefined);
+		const turns = transcriptTurns(await desk.openSession(session.path));
+		const where = `${session.project}`;
+		setViewing({ session, turns, writable: false, label: session.running ? `In corso nel terminale · ${where} · collegamento…` : `Sessione chiusa · ${where} · sola lettura` });
+		queueMicrotask(() => (scroll.scrollTop = scroll.scrollHeight));
+		if (!session.running) return;
+		try {
+			await desk.linkSession(session.running.pid, session.path);
+			const current = viewing();
+			if (current?.session.path === session.path) {
+				setViewing({ ...current, writable: true, label: `In corso nel terminale · ${where} · scrivi qui: arriva a quel Pi` });
+				watchRemote(session.running.pid);
+			}
+		} catch (error) {
+			const current = viewing();
+			if (current?.session.path === session.path) setViewing({ ...current, label: `In corso nel terminale · ${where} · sola lettura: ${clean((error as Error).message)}` });
+		}
+	}
+	function backToChat() {
+		stopRemote();
+		setViewing(undefined);
+		desk.closeSession();
+	}
+	async function resume() {
+		const current = viewing()!;
+		const items = await desk.resumeSession(current.session.path, current.session.cwd);
+		chat.replace([...transcriptTurns(items), { id: Date.now(), role: "note", text: `Sessione ripresa in ${current.session.cwd}` }]);
+		setViewing(undefined);
+		queueMicrotask(() => (scroll.scrollTop = scroll.scrollHeight));
+	}
+	async function newSession() {
+		await desk.newSession();
+		chat.replace([]);
+		setViewing(undefined);
+	}
+
+	// ---- Browser panel: the native view goes exactly over #browser-slot (nothing when closed or under the lightbox) ---
+	const sendRect = () => {
+		if (!browserOpen() || panel() !== "browser" || lightboxOpen() || !slot) return desk.browserRect({ x: 0, y: 0, width: 0, height: 0 });
+		const rect = slot.getBoundingClientRect();
+		desk.browserRect({ x: Math.round(rect.left), y: Math.round(rect.top), width: Math.round(rect.width), height: Math.round(rect.height) });
+	};
+	onMount(() => {
+		createResizeObserver(slot, sendRect);
+		window.addEventListener("resize", sendRect);
+		sendRect();
+	});
+	createEffect(() => {
+		browserOpen();
+		panel();
+		lightboxOpen();
+		sidebar();
+		chatShare();
+		queueMicrotask(sendRect);
+	});
+	const go = (value: string) => {
+		const target = value.trim();
+		if (!target) return;
+		setBrowserOpen(true);
+		setPanel("browser");
+		desk.browser("go", /\s/.test(target) || !/[.:]/.test(target) ? `https://duckduckgo.com/?q=${encodeURIComponent(target)}` : target);
+	};
+	const startDrag = (down: MouseEvent) => {
+		down.preventDefault();
+		setDragging(true);
+		const left = sidebar() ? 272 : 0;
+		const move = (event: MouseEvent) => setChatShare(Math.min(75, Math.max(25, ((event.clientX - left) / (window.innerWidth - left)) * 100)));
+		const up = () => {
+			setDragging(false);
+			window.removeEventListener("mousemove", move);
+			window.removeEventListener("mouseup", up);
+		};
+		window.addEventListener("mousemove", move);
+		window.addEventListener("mouseup", up);
+	};
+
+	// Links in answers open in the browser panel; code blocks copy.
+	const onClick = (event: MouseEvent) => {
+		const target = event.target as HTMLElement;
+		if (onTableClick(target)) return;
+		const link = target.closest?.(".md a[href]");
+		if (link) {
+			event.preventDefault();
+			go(link.getAttribute("href")!);
+			return;
+		}
+		const copy = target.closest?.(".code .copy") as HTMLElement | null;
+		if (copy) navigator.clipboard?.writeText(copy.closest(".code")!.querySelector("code")!.textContent ?? "").then(() => {
+			copy.textContent = "Copiato";
+			setTimeout(() => (copy.textContent = "Copia"), 1400);
+		});
+		const image = target.closest?.(".md img") as HTMLImageElement | null;
+		if (image) openImage(image.src, image);
+	};
+	const onKey = (event: KeyboardEvent) => {
+		if (event.key === "Escape" && state.busy && !state.dialog && !lightboxOpen()) desk.abort();
+	};
+	onMount(() => {
+		document.addEventListener("keydown", onKey);
+		// Reading back: wheel or keys up leave the end; reaching it again resumes following.
+		const leave = (up: boolean) => up && distance() > 4 && (setStuck(false), cancelAnimationFrame(glide), (glide = 0));
+		scroll.addEventListener("wheel", (event) => leave(event.deltaY < 0), { passive: true });
+		scroll.addEventListener("keydown", (event) => leave(["ArrowUp", "PageUp", "Home"].includes(event.key)));
+		scroll.addEventListener("scroll", () => {
+			if (distance() < 40 && !stuck()) toEnd();
+		});
+		// Any growth of the thread (streamed text, images loading, diagrams drawn) moves the view while following.
+		new ResizeObserver(kick).observe(scroll.firstElementChild ?? scroll);
+		new MutationObserver(kick).observe(scroll, { childList: true, subtree: true, characterData: true });
+	});
+
+	const turns = () => viewing()?.turns ?? state.turns;
+	// Statuses written for the terminal carry ANSI colours: plain text here.
+	const statuses = () => Object.values(state.statuses).map((text) => text.replace(/\u001b\[[0-9;]*m/g, "")).join("   ·   ");
+
+	return (
+		<div id="app" classList={{ "sidebar-open": sidebar(), "browser-closed": !browserOpen() }} style={{ "--chat": `${chatShare()}%` }} onClick={onClick}>
+			<Show when={sidebar()} fallback={<aside id="sidebar" />}>
+				<Sidebar active={viewing()?.session.path} onOpen={openSession} onClose={() => setSidebar(false)} />
+			</Show>
+
+			<section id="chat" ref={chatColumn}>
+				<header id="top">
+					<button type="button" id="toggle-sessions" class="icon" title="Sessioni di Pi su questo PC" onClick={() => setSidebar(!sidebar())}><Menu size={17} /></button>
+					<div class="logo">π</div>
+					<div class="where"><b id="project-name">{project().split(/[\\/]/).filter(Boolean).pop() ?? "Pi Desk"}</b><span id="project-path" title={project()}>{project()}</span></div>
+					<span id="status" class="pill" classList={{ busy: state.busy, off: Boolean(state.exited) }}>{state.status}</span>
+					<button type="button" id="toggle-browser" class="icon" classList={{ on: browserOpen() }} title="Browser di Pi" onClick={() => setBrowserOpen(!browserOpen())}><Globe size={17} /></button>
+					<button type="button" id="new-session" class="icon" title="Nuova sessione" onClick={newSession}><Plus size={17} /></button>
+				</header>
+				<Show when={viewing()}>
+					<div id="viewer-bar" classList={{ live: Boolean(viewing()?.session.running) }}>
+						<span class="dot" /><span id="viewer-label">{viewing()!.label}</span>
+						<Show when={!viewing()!.session.running}><button type="button" id="viewer-resume" onClick={resume}>Riprendi qui</button></Show>
+						<button type="button" id="viewer-back" onClick={backToChat}>La mia chat</button>
+					</div>
+				</Show>
+				<div id="scroll" ref={scroll}>
+					<Show when={turns().length || viewing()} fallback={
+						<div id="empty" class="thread">
+							<div class="hello">
+								<div class="logo big">π</div>
+								<h1>Di cosa hai bisogno?</h1>
+								<p>Pi lavora nella cartella del progetto, con le tue estensioni, la memoria e un browser che si apre quando serve.</p>
+								<div class="examples">{EXAMPLES.map((text) => <button type="button" onClick={() => composer?.fill(text)}>{text}</button>)}</div>
+							</div>
+						</div>
+					}>
+						<Thread turns={turns()} typing={state.typing && !viewing()} onSuggestion={(text) => composer?.fill(text)} />
+					</Show>
+					<Show when={state.exited && !viewing()}>
+						<div class="thread"><div class="error-card"><TriangleAlert size={14} /> Pi si è fermato ({state.exited}). <button type="button" onClick={() => desk.restart().then(chat.restarted)}>Riavvia</button></div></div>
+					</Show>
+				</div>
+				<Show when={unseen() && !stuck()}>
+					<button type="button" class="to-end" onClick={toEnd}>↓ nuovi messaggi</button>
+				</Show>
+				<Show when={!viewing()} fallback={<RemoteBar status={remote()} onAnswer={answerRemote} composerEmpty={() => !composerText().trim()} />}>
+					<WorkBar work={chat.work} busy={state.busy} onStop={() => desk.abort()} />
+				</Show>
+				<Composer busy={state.busy && !viewing()} readonly={Boolean(viewing()) && !viewing()!.writable} placeholder={viewing()?.writable ? "Scrivi al Pi nel terminale…" : "Chiedi a Pi…"} statuses={statuses()} onSend={send} onStop={() => desk.abort()} ref={(api) => (composer = api)} onText={(value) => (composerText = () => value)} />
+				<ExtensionDialog request={state.dialog} mount={chatColumn} onAnswer={(fields) => {
+					const request = state.dialog;
+					if (!request) return;
+					desk.answer(request.id, fields);
+					chat.closeDialog();
+				}} />
+				<Lightbox />
+			</section>
+
+			<div id="splitter" classList={{ dragging: dragging() }} onMouseDown={startDrag} title="Trascina per ridimensionare" />
+
+			<section id="browser">
+				<div class="tabs">
+					<button type="button" classList={{ active: panel() === "browser" }} onClick={() => setPanel("browser")}><Globe size={13} /> Browser</button>
+					<Show when={doc()}>
+						<button type="button" classList={{ active: panel() === "doc" }} onClick={() => setPanel("doc")}><FileText size={13} /> {doc()!.name}</button>
+					</Show>
+				</div>
+				<Show when={panel() === "doc" && doc()}>
+					<DocViewer doc={doc()!} onClose={() => (setDoc(undefined), setPanel("browser"))} />
+				</Show>
+				<nav id="browserbar" classList={{ hidden: panel() !== "browser" }}>
+					<button type="button" id="back" class="icon" title="Indietro" disabled={!nav().back} onClick={() => desk.browser("back")}><ArrowLeft size={16} /></button>
+					<button type="button" id="forward" class="icon" title="Avanti" disabled={!nav().forward} onClick={() => desk.browser("forward")}><ArrowRight size={16} /></button>
+					<button type="button" id="reload" class="icon" title="Ricarica" onClick={() => desk.browser("reload")}><RotateCw size={15} /></button>
+					<div class="url" title={nav().title}>
+						<Show when={url().startsWith("https:")}><Lock size={12} class="lock" /></Show>
+						<input id="url" spellcheck={false} placeholder="Indirizzo o ricerca" value={url()} onKeyDown={(event) => event.key === "Enter" && go(event.currentTarget.value)} />
+					</div>
+					<button type="button" id="pick" class="icon" classList={{ on: picking() }} title="Indica a Pi un elemento della pagina (Esc annulla)" onClick={pick}><Crosshair size={16} /></button>
+					<button type="button" id="devtools" class="icon" title="DevTools della pagina" onClick={() => desk.browser("devtools")}><Bug size={15} /></button>
+					<button type="button" id="close-browser" class="icon" title="Chiudi il browser" onClick={() => setBrowserOpen(false)}><X size={16} /></button>
+				</nav>
+				<div id="browser-slot" ref={slot} classList={{ hidden: panel() !== "browser" }}><div class="slot-hint">Il browser di Pi</div></div>
+			</section>
+		</div>
+	);
+}

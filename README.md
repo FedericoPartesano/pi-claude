@@ -95,6 +95,21 @@ passano. Fa il rebase su `main`, esegue i controlli (`--check "cmd"`, altrimenti
 nella cartella git condivisa). Con un conflitto o un controllo rosso non viene integrato nulla e il branch torna com'era.
 Un checkout di `main` con modifiche non committate non viene mai toccato.
 
+## Browser (`pi-browser`)
+
+Pi pilota un Chrome vero che vedi: una finestra in modalità app accanto al terminale, con un profilo suo che ricorda i
+login (`~/.cache/pi-browser/profile`). Il modello legge la pagina come lista compatta con riferimenti
+(`[e3] button "Salva"`) invece di HTML o screenshot, agisce sui riferimenti e dopo ogni azione riceve solo cosa è cambiato.
+Screenshot (`shot`) ed errori di console e rete (`logs`) solo su richiesta.
+
+- Costo fisso zero: il tool si accende solo quando la richiesta parla di web (un URL, `localhost:porta`, "browser",
+  "pagina web"…) oppure con `/browser`. Misurato: prima richiesta 5304 token con e senza l'estensione, 5636 a tool acceso.
+- Un sito nuovo chiede conferma, una volta per sessione (`PI_BROWSER_ALLOW=https://a.it,http://localhost:3000` per
+  saltarla; `*` per tutti). Le pagine locali `file:` no.
+- Il tuo Chrome al posto di quello di Pi: avvialo con `--remote-debugging-port=9222` e imposta
+  `PI_BROWSER_CDP=http://127.0.0.1:9222`. Altre variabili: `PI_BROWSER_CHROME` (percorso), `PI_BROWSER_HEADLESS=1`,
+  `PI_BROWSER=0` (spento). `/browser chiudi` chiude la finestra.
+
 ## Guardie
 
 Attive da sole, a costo zero finché non trovano qualcosa (`PI_GUARDS=0` le spegne, `PI_GUARD_UNICODE|PEERS|PACKAGES=0` una per

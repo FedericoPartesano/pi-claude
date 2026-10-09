@@ -238,7 +238,21 @@ export default function (pi: ExtensionAPI) {
 		status = nextStatus(status, event);
 		panelDirty = true;
 		tui?.requestRender();
+		// For desk-link: Pi Desk shows this Pi's status line and answers its questions.
+		pi.events.emit("pi-ui:status", status);
 	};
+	/** The status bar's question answered (keys here, or Pi Desk through desk-link). */
+	const answerPending = (answer: "yes" | "no" | "always") => {
+		if (!pendingAnswer) return false;
+		const resolveAnswer = pendingAnswer;
+		pendingAnswer = undefined;
+		update({ type: "resumed" });
+		resolveAnswer(answer);
+		return true;
+	};
+	pi.events.on("pi-ui:answer", (answer) => {
+		if (answer === "yes" || answer === "no" || answer === "always") answerPending(answer);
+	});
 	// The context size is estimated over the whole session (up to ~5 ms on a long one): at most once a second, not on
 	// every keystroke.
 	let contextCache: { at: number; value: ReturnType<ExtensionContext["getContextUsage"]> } | undefined;
@@ -275,13 +289,7 @@ export default function (pi: ExtensionAPI) {
 			// The status bar is asking (TOCCA A TE): s / n / a answer it, other keys go to the editor.
 			if (pendingAnswer) {
 				const answer = answerFor(data);
-				if (answer) {
-					const resolveAnswer = pendingAnswer;
-					pendingAnswer = undefined;
-					update({ type: "resumed" });
-					resolveAnswer(answer);
-					return;
-				}
+				if (answer && answerPending(answer)) return;
 			}
 			// 1-4 on an empty prompt after a turn: put that suggestion in the editor (Enter sends it).
 			const pick = /^[1-4]$/.test(data) ? suggestions[Number(data) - 1] : undefined;
