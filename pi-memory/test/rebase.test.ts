@@ -62,3 +62,32 @@ test("a user's text edit still wins whole over the dream's change of the same me
 	assert.equal(merged.find((record) => record.id === "r1")?.text, "Uno corretto dall'utente");
 	assert.equal(merged.find((record) => record.id === "r1")?.status, "active");
 });
+
+test("end to end: a /dream update (replaces) records supersededBy, so a pin made meanwhile moves to the new memory", async () => {
+	const { entriesToRecords } = await import("../src/reconcile.ts");
+	const previous = [rec("r1", "Deploy con script A"), rec("r2", "Altro")];
+	// The dream rewrote r1 as a new memory replacing it, and archived r1.
+	const memory = [{ id: "new:1", type: "fatto", text: "Deploy con script B", pinned: false, confirmations: 1, last: "2026-10-09", replaces: ["r1"] }, { id: "r2", type: "fatto", text: "Altro", pinned: false, confirmations: 2, last: "2026-10-09" }];
+	const archive = [{ id: "r1", type: "fatto", text: "Deploy con script A", pinned: false, confirmations: 1, last: "2026-10-01", archived: "2026-10-09", reason: "superato" }];
+	const next = entriesToRecords(memory as never, archive as never, previous, "2026-10-09");
+	const newId = next.find((record) => record.text === "Deploy con script B")!.id;
+	assert.equal(next.find((record) => record.id === "r1")?.supersededBy, newId);
+	const current = [rec("r1", "Deploy con script A", { pinned: true }), rec("r2", "Altro")];
+	const merged = rebaseOnCurrent(previous, current, next);
+	assert.equal(merged.find((record) => record.id === newId)?.pinned, true);
+	assert.equal(merged.find((record) => record.id === "r1")?.pinned, false);
+});
+
+test("links of merged (rebuilt) records follow the dream's renamed ids", () => {
+	const previous = [rec("r1", "Uno")];
+	// Meanwhile: the user pinned r1, and another session added r2.
+	const current = [rec("r1", "Uno", { pinned: true }), rec("r2", "Da un'altra sessione")];
+	// The dream linked r1 to its own new r2.
+	const next = [rec("r1", "Uno", { links: ["r2"] }), rec("r2", "Nuovo del dream")];
+	const merged = rebaseOnCurrent(previous, current, next);
+	const ours = merged.find((record) => record.text === "Nuovo del dream")!;
+	assert.notEqual(ours.id, "r2");
+	const r1 = merged.find((record) => record.id === "r1")!;
+	assert.equal(r1.pinned, true);
+	assert.deepEqual(r1.links, [ours.id], "the link points to the dream's memory, not the other session's");
+});

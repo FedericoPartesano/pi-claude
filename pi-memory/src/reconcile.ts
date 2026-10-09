@@ -82,6 +82,12 @@ export function entriesToRecords(memory: MemoryEntry[], archive: MemoryEntry[], 
 		for (let hops = 0; target && redirect.has(target) && hops < 10; hops++) target = redirect.get(target);
 		return target;
 	};
+	// What replaced a superseded memory (followed to the end): a pin given to it meanwhile moves there (rebaseOnCurrent).
+	for (const record of records) {
+		if (record.status !== "superseded" || !redirect.has(record.id)) continue;
+		const target = follow(record.id);
+		if (target && target !== record.id) record.supersededBy = target;
+	}
 	for (const record of records) {
 		if (!record.links?.length) continue;
 		const links = [...new Set(record.links.map(follow).filter((link): link is string => link !== undefined && link !== record.id && active.has(link)))];
@@ -142,13 +148,21 @@ export function rebaseOnCurrent(previous: MemoryRecord[], current: MemoryRecord[
 	let counter = after;
 	for (const record of [...current, ...next]) counter = Math.max(counter, idNumber(record.id));
 	const taken = new Set(current.map((record) => record.id));
+	/** Records carrying the dream's links (its own, or merged with the user's pin): their links follow renamed ids. */
+	const fromDream = new Set<MemoryRecord>();
 	for (const record of next) {
 		const old = before.get(record.id);
 		if (old) {
 			// Existed when the dream started: deleted since → stays deleted; changed since → the change wins.
 			const saved = now.get(record.id);
 			if (!saved) continue;
-			merged.push(sameRecord(saved, old) ? record : threeWay(old, saved, record));
+			if (sameRecord(saved, old)) merged.push(record);
+			else {
+				const result = threeWay(old, saved, record);
+				merged.push(result);
+				if (result === saved) continue; // the user's version: its links are theirs
+			}
+			fromDream.add(merged[merged.length - 1]);
 			continue;
 		}
 		// The dream's own addition: a new id if another writer took this one meanwhile.
@@ -157,6 +171,7 @@ export function rebaseOnCurrent(previous: MemoryRecord[], current: MemoryRecord[
 			renamed.set(record.id, id);
 			merged.push({ ...record, id });
 		} else merged.push(record);
+		fromDream.add(merged[merged.length - 1]);
 		taken.add(merged[merged.length - 1].id);
 	}
 	// Memories that did not exist when the dream started (another session's /dream, an addition in /memory).
@@ -167,10 +182,17 @@ export function rebaseOnCurrent(previous: MemoryRecord[], current: MemoryRecord[
 		const replacement = record.supersededBy ? byId.get(renamed.get(record.supersededBy) ?? record.supersededBy) : undefined;
 		if (record.status !== "superseded" || !record.pinned || !replacement) continue;
 		merged[index] = { ...record, pinned: false };
+		if (fromDream.has(record)) fromDream.add(merged[index]);
 		const at = merged.indexOf(replacement);
 		merged[at] = { ...replacement, pinned: true };
+		if (fromDream.has(replacement)) fromDream.add(merged[at]);
 		byId.set(replacement.id, merged[at]);
 	}
 	if (renamed.size === 0) return merged;
-	return merged.map((record) => (record.links?.some((link) => renamed.has(link)) && next.includes(record) ? { ...record, links: record.links.map((link) => renamed.get(link) ?? link) } : record));
+	return merged.map((record) => {
+		if (!fromDream.has(record)) return record;
+		const links = record.links?.some((link) => renamed.has(link)) ? { links: record.links.map((link) => renamed.get(link) ?? link) } : {};
+		const supersededBy = record.supersededBy && renamed.has(record.supersededBy) ? { supersededBy: renamed.get(record.supersededBy) } : {};
+		return Object.keys(links).length || Object.keys(supersededBy).length ? { ...record, ...links, ...supersededBy } : record;
+	});
 }

@@ -533,7 +533,9 @@ export function recall(index: RecallIndex, query: string, options: RecallOptions
 		take(walk(seeds));
 		for (const item of reached) hits.push({ record: index.records[item.position], score: top * Math.min(1, item.share), via: "deep" });
 		// Unused deep slots go back to direct hits.
-		for (const item of directHits.slice(chosen.length, chosen.length + slots - reached.length)) hits.push({ record: index.records[item.position], score: item.score });
+		// (Not one the walk already brought in: it would appear twice.)
+		const free = directHits.slice(chosen.length).filter((item) => !seen.has(item.position));
+		for (const item of free.slice(0, slots - reached.length)) hits.push({ record: index.records[item.position], score: item.score });
 	}
 	return { hits };
 }
