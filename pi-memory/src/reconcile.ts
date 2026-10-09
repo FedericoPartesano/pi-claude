@@ -41,10 +41,10 @@ export function entriesToRecords(memory: MemoryEntry[], archive: MemoryEntry[], 
 			...(old?.source ? { source: old.source } : {}),
 			// Graph, lifecycle and usage survive consolidation (they were dropped: every /dream erased the links). The
 			// gist only while the text is the same.
-			...(old?.links?.length ? { links: old.links } : {}),
-			...(old?.gist && old.text === entry.text ? { gist: old.gist } : {}),
+			...(entry.links?.length || old?.links?.length ? { links: [...new Set([...(old?.links ?? []), ...(entry.links ?? [])])] } : {}),
+			...(entry.gist ? { gist: entry.gist } : old?.gist && old.text === entry.text ? { gist: old.gist } : {}),
 			...(old?.state ? { state: old.state, dormantSince: old.dormantSince } : {}),
-			...(old?.level ? { level: old.level } : {}),
+			...(entry.level ?? old?.level ? { level: entry.level ?? old?.level } : {}),
 			...(old?.uses ? { uses: old.uses } : {}),
 			...(old?.lastUsed ? { lastUsed: old.lastUsed } : {}),
 			...(old?.scope ? { scope: old.scope } : {}),
@@ -58,4 +58,17 @@ export function entriesToRecords(memory: MemoryEntry[], archive: MemoryEntry[], 
 		else records.push({ ...record, status: "superseded", reason: entry.reason });
 	}
 	return records;
+}
+
+/**
+ * Memories /dream marked "personale" while consolidating a project (language, style, personal tools): they hold in every
+ * project, so they move to the global store, renumbered after its highest id.
+ */
+export function movePersonal(project: MemoryRecord[], global: MemoryRecord[]): { project: MemoryRecord[]; global: MemoryRecord[]; moved: number } {
+	const personal = project.filter((record) => record.level === "personale" && record.status === "active");
+	if (personal.length === 0) return { project, global, moved: 0 };
+	let counter = Math.max(0, ...global.map((record) => Number(/^r(\d+)$/.exec(record.id)?.[1] ?? 0)));
+	// Links point to project memories: meaningless in the global store.
+	const moved = personal.map(({ links: _links, ...record }) => ({ ...record, id: `r${++counter}` }));
+	return { project: project.filter((record) => !personal.includes(record)), global: [...global, ...moved], moved: moved.length };
 }

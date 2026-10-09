@@ -23,13 +23,26 @@ export interface MemoryEntry {
 	last: string;
 	archived?: string;
 	reason?: string;
+	/** Ids of related memories (deep store), from the "links" /dream proposes. */
+	links?: string[];
+	/** One short line for the cues (deep store). */
+	gist?: string;
+	/** personale = valid in every project (moved to the global store). */
+	level?: "progetto" | "personale";
+}
+
+/** Graph and cue fields /dream may propose for a memory (links are m<n> ids of the current memory). */
+export interface Extras {
+	links?: string[];
+	gist?: string;
+	level?: "progetto" | "personale";
 }
 
 export interface Proposal {
-	add: { type: MemoryType; text: string; entities?: string[] }[];
+	add: ({ type: MemoryType; text: string; entities?: string[] } & Extras)[];
 	reinforce: string[];
-	merge: { ids: string[]; text: string; type?: MemoryType; entities?: string[] }[];
-	update: { id: string; text: string; type?: MemoryType; entities?: string[] }[];
+	merge: ({ ids: string[]; text: string; type?: MemoryType; entities?: string[] } & Extras)[];
+	update: ({ id: string; text: string; type?: MemoryType; entities?: string[] } & Extras)[];
 	forget: { id: string; reason?: string }[];
 }
 
@@ -102,13 +115,18 @@ export function applyProposal(memory: MemoryEntry[], archive: MemoryEntry[], pro
 	const newArchive = archive.map((entry) => ({ ...entry }));
 	const index = (id: string) => Number(id.slice(1)) - 1;
 	const touched = new Set<number>();
+	/** Extras with links turned from m<n> into the ids of the memories (memories without an id cannot be linked). */
+	const extras = (item: Extras): Extras => {
+		const links = (item.links ?? []).map((id) => memory[index(id)]?.id).filter((id): id is string => Boolean(id));
+		return { ...(links.length ? { links } : {}), ...(item.gist ? { gist: item.gist } : {}), ...(item.level ? { level: item.level } : {}) };
+	};
 
-	for (const { id, text, type, entities } of proposal.update) {
+	for (const { id, text, type, entities, ...more } of proposal.update) {
 		const position = index(id);
 		const old = slots[position];
 		if (!old || touched.has(position)) continue;
 		newArchive.push({ ...old, archived: today, reason: `superato da "${text}"` });
-		slots[position] = { type: type ?? old.type, text, pinned: old.pinned, confirmations: old.confirmations + 1, last: today, ...withEntities(entities ?? old.entities) };
+		slots[position] = { type: type ?? old.type, text, pinned: old.pinned, confirmations: old.confirmations + 1, last: today, ...withEntities(entities ?? old.entities), ...extras(more) };
 		touched.add(position);
 		counts.updated++;
 	}
@@ -121,7 +139,7 @@ export function applyProposal(memory: MemoryEntry[], archive: MemoryEntry[], pro
 		touched.add(position);
 		counts.forgotten++;
 	}
-	for (const { ids, text, type, entities } of proposal.merge) {
+	for (const { ids, text, type, entities, ...more } of proposal.merge) {
 		const positions = ids.map(index).filter((position) => slots[position] && !touched.has(position));
 		if (positions.length < 2) continue;
 		const parts = positions.map((position) => slots[position] as MemoryEntry);
@@ -132,6 +150,7 @@ export function applyProposal(memory: MemoryEntry[], archive: MemoryEntry[], pro
 			confirmations: parts.reduce((sum, part) => sum + part.confirmations, 0) + 1,
 			last: today,
 			...withEntities(entities ?? [...new Set(parts.flatMap((part) => part.entities ?? []))]),
+			...extras(more),
 		};
 		for (const position of positions.slice(1)) slots[position] = undefined;
 		for (const position of positions) touched.add(position);
@@ -148,7 +167,7 @@ export function applyProposal(memory: MemoryEntry[], archive: MemoryEntry[], pro
 	}
 	const known = new Set([...memory, ...slots.filter(Boolean) as MemoryEntry[]].map((entry) => normalize(entry.text)));
 	const added: MemoryEntry[] = [];
-	for (const { type, text, entities } of proposal.add) {
+	for (const { type, text, entities, ...more } of proposal.add) {
 		const key = normalize(text);
 		if (!key || known.has(key)) continue;
 		known.add(key);
@@ -174,12 +193,46 @@ export function applyProposal(memory: MemoryEntry[], archive: MemoryEntry[], pro
 				continue;
 			}
 		}
-		const entry: MemoryEntry = { type, text, pinned: false, confirmations: 1, last: today, ...withEntities(entities) };
+		const entry: MemoryEntry = { type, text, pinned: false, confirmations: 1, last: today, ...withEntities(entities), ...extras(more) };
 		if (type === "episodio") newArchive.push({ ...entry, archived: today, reason: "episodio" });
 		else added.push(entry);
 		counts.added++;
 	}
 	return { memory: [...(slots.filter(Boolean) as MemoryEntry[]), ...added], archive: newArchive, counts };
+}
+
+/** Additions that carry nothing a future session can use (measured: "the user sent random messages, Pi asked…"). */
+const NO_CONTENT = /messagg[io] casual|senza richieste? chiar|ha chiesto chiariment|chiedendo chiariment|ha salutato|saluti iniziali|nessuna richiesta|non ha fatto nulla|ha digitato .?clear|conversazione di prova|messaggi? di test|ha ringraziato/i;
+
+/**
+ * After the model, by code: drop additions without content (chit-chat, clarifications, a few words) and turn an
+ * addition almost identical to a memory (same significant words) into a confirmation of it.
+ */
+export function filterProposal(proposal: Proposal, memory: MemoryEntry[]): { proposal: Proposal; dropped: string[] } {
+	const dropped: string[] = [];
+	const reinforce = new Set(proposal.reinforce);
+	const memoryWords = memory.map((entry) => contentWords(entry.text));
+	const similarity = (a: Set<string>, b: Set<string>) => {
+		if (a.size === 0 || b.size === 0) return 0;
+		let shared = 0;
+		for (const word of a) if (b.has(word)) shared++;
+		return shared / (a.size + b.size - shared);
+	};
+	const add = proposal.add.filter((item) => {
+		const words = contentWords(item.text);
+		if (NO_CONTENT.test(item.text) || words.size < 3) {
+			dropped.push(`− senza contenuto: ${item.text.slice(0, 80)}`);
+			return false;
+		}
+		const twin = memoryWords.findIndex((known) => similarity(words, known) >= 0.8);
+		if (twin !== -1) {
+			reinforce.add(`m${twin + 1}`);
+			dropped.push(`↑ già noto (m${twin + 1}): ${item.text.slice(0, 80)}`);
+			return false;
+		}
+		return true;
+	});
+	return { proposal: { ...proposal, add, reinforce: [...reinforce] }, dropped };
 }
 
 const DEDUP_STOPWORDS = new Set("il lo la i gli le un uno una di a da in con su per tra fra e o ma che non più sempre mai del della dei delle al alla ai alle nel nella nei è sono va vanno the a an of to in and or".split(" "));
@@ -286,6 +339,13 @@ export function parseProposal(text: string, memoryCount: number): { ok: true; pr
 	};
 	const list = (key: string) => (Array.isArray(raw[key]) ? (raw[key] as unknown[]) : []);
 	type Item = Record<string, unknown>;
+	/** links (existing m<n> only, at most 5; unknown ones are dropped silently), gist (≤ 90 chars), level. */
+	const extrasOf = (item: Item): Extras => {
+		const links = Array.isArray(item.links) ? [...new Set(item.links.filter((id): id is string => typeof id === "string" && /^m\d+$/.test(id) && Number(id.slice(1)) >= 1 && Number(id.slice(1)) <= memoryCount))].slice(0, 5) : [];
+		const gist = typeof item.gist === "string" && item.gist.trim() ? cleanText(item.gist).slice(0, 90) : undefined;
+		const level = item.level === "personale" || item.level === "progetto" ? item.level : undefined;
+		return { ...(links.length ? { links } : {}), ...(gist ? { gist } : {}), ...(level ? { level } : {}) };
+	};
 	// Measured: with an empty memory the model "merges" things said in the sessions using invented ids, and every item
 	// was discarded. A merge/update whose ids do not exist but whose text is valid is new knowledge: keep it as an add.
 	const knownId = (id: unknown) => typeof id === "string" && /^m\d+$/.test(id) && Number(id.slice(1)) >= 1 && Number(id.slice(1)) <= memoryCount;
@@ -303,10 +363,10 @@ export function parseProposal(text: string, memoryCount: number): { ok: true; pr
 	salvage("update");
 	raw.add = [...list("add"), ...salvaged];
 	const proposal: Proposal = {
-		add: list("add").filter((item): item is Item => typeof item === "object" && item !== null).filter((item) => validType(item.type) && validText(item.text)).map((item) => ({ type: item.type as MemoryType, text: cleanText(item.text as string), ...withEntities(entitiesOf(item.entities)) })),
+		add: list("add").filter((item): item is Item => typeof item === "object" && item !== null).filter((item) => validType(item.type) && validText(item.text)).map((item) => ({ type: item.type as MemoryType, text: cleanText(item.text as string), ...withEntities(entitiesOf(item.entities)), ...extrasOf(item) })),
 		reinforce: list("reinforce").filter(validId),
-		merge: list("merge").filter((item): item is Item => typeof item === "object" && item !== null).filter((item) => Array.isArray(item.ids) && item.ids.every(validId) && validText(item.text) && validType(item.type, true)).map((item) => ({ ids: item.ids as string[], text: cleanText(item.text as string), type: item.type as MemoryType | undefined, ...withEntities(entitiesOf(item.entities)) })),
-		update: list("update").filter((item): item is Item => typeof item === "object" && item !== null).filter((item) => validId(item.id) && validText(item.text) && validType(item.type, true)).map((item) => ({ id: item.id as string, text: cleanText(item.text as string), type: item.type as MemoryType | undefined, ...withEntities(entitiesOf(item.entities)) })),
+		merge: list("merge").filter((item): item is Item => typeof item === "object" && item !== null).filter((item) => Array.isArray(item.ids) && item.ids.every(validId) && validText(item.text) && validType(item.type, true)).map((item) => ({ ids: item.ids as string[], text: cleanText(item.text as string), type: item.type as MemoryType | undefined, ...withEntities(entitiesOf(item.entities)), ...extrasOf(item) })),
+		update: list("update").filter((item): item is Item => typeof item === "object" && item !== null).filter((item) => validId(item.id) && validText(item.text) && validType(item.type, true)).map((item) => ({ id: item.id as string, text: cleanText(item.text as string), type: item.type as MemoryType | undefined, ...withEntities(entitiesOf(item.entities)), ...extrasOf(item) })),
 		forget: list("forget").filter((item): item is Item => typeof item === "object" && item !== null).filter((item) => validId(item.id)).map((item) => ({ id: item.id as string, reason: typeof item.reason === "string" ? item.reason : undefined })),
 	};
 	// Defense in depth: a memory never holds credentials, whatever the model wrote.
@@ -346,11 +406,19 @@ export function buildDreamPrompt(memory: MemoryEntry[], sessions: string, today:
 		options.deep
 			? "- Il perché di una decisione o un episodio → add con type \"episodio\" (resta ricordabile, ma viene richiamato solo se pertinente). Ogni ricordo ha \"entities\": 1-5 parole chiave (percorsi, identificatori, nomi di concetti) con cui lo si richiamerà."
 			: "- Il perché di una decisione o un episodio utile solo su richiesta → add con type \"episodio\" (va in archivio).",
+		...(options.deep
+			? [
+					"- \"links\": gli id (m<n>) dei ricordi esistenti a cui questo è collegato (ne spiega il perché, ne dipende, lo contraddice): così da uno si arriva all'altro. Solo id esistenti.",
+					"- \"gist\": se il testo è lungo, una versione di massimo 10 parole per i promemoria brevi.",
+					options.global ? "" : "- \"level\": \"personale\" per preferenze dell'utente valide in OGNI progetto (lingua, stile, strumenti personali), altrimenti ometti.",
+					"- NON salvare: chiacchiere e saluti, messaggi senza contenuto (\"asd\", \"ok\", prove), richieste di chiarimento, cosa ha fatto Pi in una sessione senza una lezione da ricordare, tentativi falliti senza il perché.",
+				].filter(Boolean)
+			: []),
 		"- forget solo per ricordi chiaramente sbagliati o inutili (allo sbiadire nel tempo pensa il codice).",
 		...(fill >= 70 ? [`- La memoria è al ${fill}% del suo spazio: unisci i ricordi simili e sintetizza; aggiungi solo ciò che vale più di quello che c'è (il codice archivia l'eccedenza meno importante).`] : []),
 		"",
 		options.deep
-			? 'Rispondi SOLO con JSON: {"add":[{"type":"correzione|preferenza|decisione|fatto|episodio","text":"...","entities":["..."]}],"reinforce":["m1"],"merge":[{"ids":["m2","m3"],"type":"...","text":"...","entities":["..."]}],"update":[{"id":"m4","text":"...","entities":["..."]}],"forget":[{"id":"m5","reason":"..."}]}'
+			? 'Rispondi SOLO con JSON: {"add":[{"type":"correzione|preferenza|decisione|fatto|episodio","text":"...","entities":["..."],"links":["m2"],"gist":"..."}],"reinforce":["m1"],"merge":[{"ids":["m2","m3"],"type":"...","text":"...","entities":["..."]}],"update":[{"id":"m4","text":"...","entities":["..."],"links":["m1"]}],"forget":[{"id":"m5","reason":"..."}]}'
 			: 'Rispondi SOLO con JSON: {"add":[{"type":"correzione|preferenza|decisione|fatto|episodio","text":"..."}],"reinforce":["m1"],"merge":[{"ids":["m2","m3"],"type":"...","text":"..."}],"update":[{"id":"m4","text":"..."}],"forget":[{"id":"m5","reason":"..."}]}',
 	].join("\n");
 }

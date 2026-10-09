@@ -17,6 +17,7 @@ import { dirname, join } from "node:path";
 import type { BeforeAgentStartEvent, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	applyProposal,
+	filterProposal,
 	bm25Search,
 	buildDreamPrompt,
 	contextLine,
@@ -36,7 +37,7 @@ import {
 import { MemoryWorker } from "../pi-memory/src/memory-worker-client.ts";
 import { appendRecallLog, type StoreDirs } from "../pi-memory/src/engine.ts";
 import { isSmallTalk, recallMessage } from "../pi-memory/src/recall.ts";
-import { entriesToRecords, recordsToEntries } from "../pi-memory/src/reconcile.ts";
+import { entriesToRecords, movePersonal, recordsToEntries } from "../pi-memory/src/reconcile.ts";
 import { loadStore, migrateLegacy, pruneVectors, saveStore, storeExists, type MemoryRecord } from "../pi-memory/src/store.ts";
 import { applyUsage, lifecycle } from "../pi-memory/src/forget.ts";
 import { applyAction, dreamEntry, memoryStatus, recordLabel, recordPreview, summarize, type DreamEntry, type MemoryAction } from "../pi-memory/src/dashboard.ts";
@@ -424,7 +425,9 @@ export default function (pi: ExtensionAPI) {
 			write(target.proposal, `# Proposta non valida\n\n${parsed.error}\n\n${answer.text}\n`);
 			return ctx.ui.notify(`/dream: ${parsed.error} (risposta in ${target.proposal})`, "error");
 		}
-		const proposal = parsed.proposal;
+		// What to keep is checked by code too: additions without content dropped, near-twins turned into confirmations.
+		const filtered = deep ? filterProposal(parsed.proposal, memory) : { proposal: parsed.proposal, dropped: [] as string[] };
+		const proposal = filtered.proposal;
 		// Fading is decided by code, not by the model.
 		// Deep mode never fades by deletion: weak memories are just harder to recall.
 		if (!deep) for (const id of staleIds(memory, date, FADE_DAYS)) if (!proposal.forget.some((item) => item.id === id)) proposal.forget.push({ id, reason: `sbiadito (nessuna conferma da ${FADE_DAYS} giorni)` });
@@ -490,6 +493,16 @@ export default function (pi: ExtensionAPI) {
 				if (cycle.forgotten.length) appendFileSync(join(storeDir, "forgotten.jsonl"), cycle.forgotten.map((record) => `${JSON.stringify({ ...record, forgottenAt: date })}\n`).join(""));
 				lifecycleNote = [cycle.dormant.length ? `${cycle.dormant.length} addormentati` : "", cycle.woken.length ? `${cycle.woken.length} risvegliati` : "", cycle.forgotten.length ? `${cycle.forgotten.length} dimenticati (recuperabili)` : ""].filter(Boolean).join(" · ");
 			}
+			// Personal preferences found in a project's sessions hold everywhere: to the global store.
+			if (!global && dirs.global) {
+				const globalStore = storeExists(dirs.global) ? loadStore(dirs.global) : { records: [], vectors: new Map<string, Float32Array>() };
+				const split = movePersonal(deepRecords, globalStore.records);
+				if (split.moved) {
+					deepRecords = split.project;
+					saveStore(dirs.global, { ...globalStore, records: split.global });
+					lifecycleNote = [lifecycleNote, `${split.moved} nella memoria personale`].filter(Boolean).join(" · ");
+				}
+			}
 			saveStore(storeDir, { records: deepRecords, vectors: pruneVectors(previous.records, deepRecords, previous.vectors), model: previous.model });
 		} else {
 			write(target.memory, renderMemory(result.memory));
@@ -515,7 +528,7 @@ export default function (pi: ExtensionAPI) {
 			if (await memoryWorker.start()) await memoryWorker.fillVectors(storeDir).catch(() => 0);
 			// The result stays in the chat (a notification disappears and leaves the user unsure it was saved).
 			const active = deepRecords?.filter((record) => record.status === "active") ?? [];
-			pi.appendEntry("memory-dream", dreamEntry(result.counts, [...describe(memory, approved), ...(lifecycleNote ? [`… ${lifecycleNote}`] : [])], { active: active.length, pinned: active.filter((record) => record.pinned).length, pending: batch.pending }));
+			pi.appendEntry("memory-dream", dreamEntry(result.counts, [...describe(memory, approved), ...filtered.dropped.slice(0, 3), ...(lifecycleNote ? [`… ${lifecycleNote}`] : [])], { active: active.length, pinned: active.filter((record) => record.pinned).length, pending: batch.pending }));
 			return ctx.ui.notify(`${options.auto ? "Memoria aggiornata in automatico (/memory per vederla)" : "Memoria aggiornata"}: +${added} nuovi, ${reinforced} rinforzati, ${merged} uniti, ${updated} aggiornati (superati), ${forgotten} dimenticati · ${deepRecords?.filter((record) => record.status === "active").length ?? 0} ricordi attivi, nessun tetto${batch.pending ? ` · restano ${batch.pending} sessioni: rilancia /dream` : ""}`, "info");
 		}
 		pi.appendEntry("memory-dream", dreamEntry(result.counts, describe(memory, approved), { active: result.memory.length, pinned: result.memory.filter((entry) => entry.pinned).length, pending: batch.pending }));
