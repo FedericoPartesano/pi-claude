@@ -27,8 +27,6 @@ else if (wsl) app.commandLine.appendSwitch("ozone-platform", "x11");
 if (wsl && process.env.PI_DESK_GPU !== "1") app.disableHardwareAcceleration();
 
 const UI_MARK = "pi-desk-ui";
-const HEADER = 44;
-const CHAT_SHARE = 0.42;
 
 /** The folder Pi works in: the first non-flag argument, else the current directory. */
 let project = resolve(process.argv.slice(app.isPackaged ? 1 : 2).find((arg) => !arg.startsWith("-")) ?? process.cwd());
@@ -51,12 +49,10 @@ let win;
 let view;
 let pi;
 
-function layout() {
-	if (!win || !view) return;
-	const [width, height] = win.getContentSize();
-	const left = Math.round(width * CHAT_SHARE);
-	view.setBounds({ x: left, y: HEADER, width: width - left, height: height - HEADER });
-	win.webContents.send("layout", { left, header: HEADER });
+/** The native browser view sits exactly over the page's #browser-slot (the page reports it on every resize). */
+function placeView(rect) {
+	if (!view || !rect) return;
+	view.setBounds({ x: Math.max(0, rect.x), y: Math.max(0, rect.y), width: Math.max(0, rect.width), height: Math.max(0, rect.height) });
 }
 
 function sendToUi(channel, payload) {
@@ -122,9 +118,7 @@ app.whenReady().then(() => {
 		return { action: "deny" };
 	});
 
-	win.on("resize", layout);
 	win.webContents.on("did-finish-load", () => {
-		layout();
 		navigated();
 		sendToUi("project", project);
 	});
@@ -133,6 +127,7 @@ app.whenReady().then(() => {
 	ipcMain.handle("prompt", (_event, text) => pi.prompt(text));
 	ipcMain.handle("abort", () => pi.abort().catch(() => undefined));
 	ipcMain.handle("ui-answer", (_event, id, fields) => pi.answer(id, fields));
+	ipcMain.on("browser-rect", (_event, rect) => placeView(rect));
 	ipcMain.handle("restart", () => {
 		pi.stop();
 		startPi();

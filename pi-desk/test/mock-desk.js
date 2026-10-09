@@ -1,14 +1,4 @@
-<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../ui/style.css"></head>
-<body>
-<section id="chat"><header id="top"><button id="toggle-sessions">☰</button><span class="brand">π Desk</span><span id="project"></span><span id="status" class="status"></span><button id="new-session">＋</button></header>
-<aside id="sessions" hidden><input id="session-filter"><div id="session-list"></div></aside>
-<div id="viewer-bar" hidden><span id="viewer-label"></span><button id="viewer-resume" hidden>Riprendi qui</button><button id="viewer-back">←</button></div>
-<main id="viewer" hidden></main>
-<main id="log"></main><form id="composer"><textarea id="input"></textarea><div class="row"><span id="chips"></span><button type="button" id="stop" hidden>■</button><button type="submit" id="send">Invia</button></div></form></section>
-<nav id="browserbar"><button id="back">←</button><button id="forward">→</button><button id="reload">⟳</button><input id="url"><span id="title"></span></nav>
-<div id="dialog" hidden><div class="box"><h3 id="dialog-title"></h3><p id="dialog-message"></p><div id="dialog-actions"></div></div></div>
-<script>
-// Stand-in for preload.cjs: records calls, lets the test emit events.
+// Stand-in for preload.cjs in tests: records calls, lets the test emit events.
 window.calls = [];
 const listeners = {};
 window.desk = {
@@ -17,6 +7,7 @@ window.desk = {
 	answer: (id, fields) => calls.push(["answer", id, fields]),
 	restart: () => Promise.resolve(),
 	browser: (action, value) => calls.push(["browser", action, value]),
+	browserRect: (rect) => (window.lastRect = rect),
 	on: (channel, listener) => (listeners[channel] = listener),
 	sessions: () => Promise.resolve([
 		{ path: "/s/mine", cwd: "/p/claude", project: "claude", title: "questa", modified: Date.now(), running: { pid: 1, own: true } },
@@ -28,10 +19,7 @@ window.desk = {
 	closeSession: () => calls.push(["close"]),
 	resumeSession: (path, cwd) => (calls.push(["resume", path, cwd]), Promise.resolve([{ role: "user", text: "scrivi il post" }])),
 	newSession: () => (calls.push(["new"]), Promise.resolve()),
-	linkSession: (pid) => (pid === 42 ? Promise.resolve({ type: "hello", pid }) : Promise.reject(new Error("questo Pi non ha desk-link: riavvialo per poterci scrivere"))),
+	linkSession: (pid) => (pid === 42 ? Promise.resolve({ type: "hello", pid }) : Promise.reject(new Error("Error invoking remote method 'session-link': Error: questo Pi non ha desk-link: riavvialo per poterci scrivere"))),
 	sendToSession: (pid, text) => (calls.push(["send", pid, text]), Promise.resolve({ type: "ok", queued: true })),
 };
 window.emit = (channel, payload) => listeners[channel]?.(payload);
-</script>
-<script src="../ui/app.js"></script>
-</body></html>
