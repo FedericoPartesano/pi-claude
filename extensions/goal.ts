@@ -15,6 +15,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { beginMetric, metricLines, settleRound, type MetricSpec, type MetricState } from "./goal-metric.ts";
 import { activeIntent, INTENTS_DIR, parseIntent, pickIntent, setStatus, slugify, type Intent } from "./intent.ts";
 
 export const DEFAULT_MAX = 20;
@@ -25,7 +26,7 @@ const OUTPUT_TAIL = 4000;
 const USAGE_FILE = join(homedir(), ".pi/agent/claude-code-usage.json");
 
 export type GoalArgs =
-	| { action: "start"; text: string; checks: string[]; max: number | undefined; intentFile?: string }
+	| { action: "start"; text: string; checks: string[]; max: number | undefined; intentFile?: string; metric?: MetricSpec }
 	| { action: "status" }
 	| { action: "stop" }
 	| { action: "resume" }
@@ -45,6 +46,8 @@ export interface GoalState {
 	startedAt?: number;
 	/** The last notable thing that happened, for the panel ("chiusura rifiutata: mancano 2"). */
 	lastEvent?: string;
+	/** --metric: each round is an experiment, kept (commit) or put aside (stash) by the number. */
+	metric?: MetricState;
 }
 
 // ---- What the user sees: progress, state, chat lines ------------------------------------------------------------
@@ -70,6 +73,8 @@ export interface GoalSnapshot {
 	minutes: number;
 	lastEvent?: string;
 	checks: string[];
+	/** --metric: "baseline → best". */
+	metric?: string;
 }
 
 export function goalSnapshot(goal: GoalState, outcomes: string[], now: number): GoalSnapshot {
@@ -87,12 +92,13 @@ export function goalSnapshot(goal: GoalState, outcomes: string[], now: number): 
 		minutes: goal.startedAt === undefined ? 0 : Math.floor((now - goal.startedAt) / 60_000),
 		lastEvent: goal.lastEvent,
 		checks: goal.checks,
+		...(goal.metric ? { metric: `${goal.metric.baseline} → ${goal.metric.best}` } : {}),
 	};
 }
 
 /** The footer's goal status: state, outcomes done, round. */
 export function statusText(snapshot: GoalSnapshot): string {
-	const progress = snapshot.total ? `${snapshot.done}/${snapshot.total} · ` : "";
+	const progress = (snapshot.total ? `${snapshot.done}/${snapshot.total} · ` : "") + (snapshot.metric ? `${snapshot.metric} · ` : "");
 	return snapshot.state === "in pausa" ? `⏸ in pausa · ${progress}giro ${snapshot.round}/${snapshot.max}` : `▶ ${progress}giro ${snapshot.round}/${snapshot.max}`;
 }
 
@@ -104,7 +110,8 @@ export type GoalEvent =
 	| { kind: "paused"; reason: string }
 	| { kind: "blocked"; reason: string }
 	| { kind: "done"; total: number; minutes: number }
-	| { kind: "stopped" };
+	| { kind: "stopped" }
+	| { kind: "metric"; line: string };
 
 /** One line in the chat for each moment of the goal (an entry: shown to the user, never sent to the model). */
 export function eventLine(event: GoalEvent): string {
@@ -125,6 +132,8 @@ export function eventLine(event: GoalEvent): string {
 			return `✓ Goal completato${event.total ? ` · ${event.total}/${event.total} risultati` : ""} · ${event.minutes} min`;
 		case "stopped":
 			return "■ Goal chiuso dall'utente";
+		case "metric":
+			return event.line;
 	}
 }
 
@@ -136,7 +145,7 @@ export interface TurnInfo {
 
 export type SettleDecision = { action: "continue" } | { action: "pause"; reason: string };
 
-const USAGE = 'Uso: /goal [--check "cmd"] [--max N] <obiettivo> · /goal @intents/<file>.md · /goal · /goal stop · /goal resume';
+const USAGE = 'Uso: /goal [--check "cmd"] [--max N] [--metric "cmd" [--higher] [--target N]] <obiettivo> · /goal @intents/<file>.md · /goal · /goal stop · /goal resume';
 
 export function parseGoalArgs(args: string): GoalArgs {
 	const trimmed = args.trim();
@@ -149,13 +158,21 @@ export function parseGoalArgs(args: string): GoalArgs {
 	const words: string[] = [];
 	let max: number | undefined;
 	let intentFile: string | undefined;
+	let metricCommand: string | undefined;
+	let target: number | undefined;
+	let higher = false;
 	for (let index = 0; index < tokens.length; index++) {
 		const token = tokens[index];
-		if (!token.quoted && (token.value === "--check" || token.value === "--max")) {
+		if (!token.quoted && token.value === "--higher") higher = true;
+		else if (!token.quoted && ["--check", "--max", "--metric", "--target"].includes(token.value)) {
 			const value = tokens[++index]?.value;
 			if (value === undefined || value === "") return { action: "error", message: `${token.value} senza valore. ${USAGE}` };
 			if (token.value === "--check") checks.push(value);
-			else if (/^[1-9]\d*$/.test(value)) max = Number(value);
+			else if (token.value === "--metric") metricCommand = value;
+			else if (token.value === "--target") {
+				if (!Number.isFinite(Number(value))) return { action: "error", message: `--target vuole un numero, non "${value}".` };
+				target = Number(value);
+			} else if (/^[1-9]\d*$/.test(value)) max = Number(value);
 			else return { action: "error", message: `--max vuole un intero positivo, non "${value}".` };
 		} else if (!token.quoted && token.value.startsWith("@") && token.value.length > 1 && intentFile === undefined) {
 			intentFile = token.value.slice(1);
@@ -163,6 +180,11 @@ export function parseGoalArgs(args: string): GoalArgs {
 	}
 	const text = words.join(" ");
 	if (!text && !intentFile) return { action: "error", message: `Manca l'obiettivo. ${USAGE}` };
+	if ((target !== undefined || higher) && !metricCommand) return { action: "error", message: `--target e --higher valgono solo con --metric. ${USAGE}` };
+	if (metricCommand) {
+		const metric: MetricSpec = { command: metricCommand, direction: higher ? "higher" : "lower", ...(target !== undefined ? { target } : {}) };
+		return intentFile ? { action: "start", intentFile, text, checks, max, metric } : { action: "start", text, checks, max, metric };
+	}
 	return intentFile ? { action: "start", intentFile, text, checks, max } : { action: "start", text, checks, max };
 }
 
@@ -199,6 +221,7 @@ export function renderReminder(state: GoalState, intent?: Intent): string {
 		...(state.intentFile ? [`Riferimento: ${state.intentFile}`] : []),
 		...bullets("Outcome atteso", intent?.outcomes ?? []),
 		...bullets("Vincoli", intent?.constraints ?? []),
+		...(state.metric ? [metricLines(state.metric)] : []),
 		"Continua con il prossimo passo concreto. Quando ogni risultato atteso è fatto e provato chiama goal_done con outcomes (n, done, evidence)" +
 			(state.checks.length > 0 ? " (eseguirà i controlli)." : ".") +
 			" Se non puoi procedere senza l'utente, chiama goal_done con blocked: true e spiega cosa ti serve.",
@@ -241,6 +264,7 @@ export function startMessages(state: GoalState, options: { intent?: Intent; crea
 		...(createIntentAt || state.intentFile ? ["Man mano che completi un risultato atteso, spuntalo nell'intent con la prova: `- [x] <risultato> — prova: <comando e risultato, test, file>` (l'utente segue l'avanzamento da lì)."] : []),
 		"Chiama goal_done solo quando ogni risultato atteso è fatto e provato: riporta ciascuno in outcomes con la prova (comando e risultato, test, file, cosa hai visto). Test verdi su una parte non bastano per il tutto; una parte non fatta non è un \"limite\" da scrivere nel riepilogo, è lavoro ancora da fare.",
 	);
+	if (state.metric) lines.push(metricLines(state.metric));
 	if (state.checks.length > 0) lines.push(`goal_done esegue questi controlli e passa solo se riescono: ${state.checks.map((check) => `\`${check}\``).join(", ")}.`);
 	lines.push("Se ti serve una decisione dell'utente, chiama goal_done con blocked: true.");
 	return { visible: visible.join("\n"), instructions: lines.join("\n") };
@@ -385,6 +409,10 @@ export default function (pi: ExtensionAPI) {
 				const { summary, blocked, outcomes: reported = [] } = params as { summary: string; blocked?: boolean; outcomes?: OutcomeReport[] };
 				const text = (content: string) => ({ content: [{ type: "text" as const, text: content }], details: undefined });
 				if (!goal) return text("Nessun goal attivo.");
+				if (goal.metric) {
+					const last = await settleRound(ctx.cwd, goal.metric, goal.continuations + 1);
+					if (!last.line.startsWith("◦")) event(ctx, { kind: "metric", line: last.line });
+				}
 				if (blocked) {
 					goal.paused = "serve una tua decisione";
 					event(ctx, { kind: "blocked", reason: summary.split("\n")[0].slice(0, 160) });
@@ -456,11 +484,20 @@ export default function (pi: ExtensionAPI) {
 		if (goal) toolCalls++;
 	});
 
-	// event.context.canContinue describes the context before our entries (it ends with the assistant reply, so it is
+	// settle.context.canContinue describes the context before our entries (it ends with the assistant reply, so it is
 	// false): the reminder entry is what makes the continuation valid, so it is not a reason to stop.
-	pi.on("agent_before_settle", (event, ctx) => {
+	pi.on("agent_before_settle", async (settle, ctx) => {
 		if (!goal || goal.paused) return;
-		const decision = decideAfterSettle(goal, { outcome: event.outcome, toolCalls, budgetStop: readBudgetStop() });
+		if (goal.metric && settle.outcome === "completed") {
+			const round = await settleRound(ctx.cwd, goal.metric, goal.continuations + 1);
+			event(ctx, { kind: "metric", line: round.line });
+			if (round.targetReached) {
+				event(ctx, { kind: "done", total: 0, minutes: goal.startedAt === undefined ? 0 : Math.floor((Date.now() - goal.startedAt) / 60_000) });
+				finish(ctx);
+				return;
+			}
+		}
+		const decision = decideAfterSettle(goal, { outcome: settle.outcome, toolCalls, budgetStop: readBudgetStop() });
 		const calls = toolCalls;
 		toolCalls = 0;
 		if (decision.action === "pause") return void pause(ctx, decision.reason);
@@ -474,7 +511,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("goal", {
-		description: "Lavora in autonomia fino a un obiettivo: /goal [--check \"cmd\"] [--max N] <obiettivo> · /goal @intents/x.md · stop · resume",
+		description: "Lavora in autonomia fino a un obiettivo: /goal [--check \"cmd\"] [--max N] [--metric \"cmd\" --higher --target N] <obiettivo> · /goal @intents/x.md · stop · resume",
 		handler: async (args, ctx) => {
 			const parsed = parseGoalArgs(args);
 			if (parsed.action === "error") return tell(ctx, parsed.message, "warning");
@@ -509,14 +546,22 @@ export default function (pi: ExtensionAPI) {
 
 			if (goal && !goal.paused) return tell(ctx, "C'è già un goal attivo: /goal stop per chiuderlo.", "warning");
 			const max = parsed.max ?? DEFAULT_MAX;
+			let metric: MetricState | undefined;
+			if (parsed.metric) {
+				const begun = await beginMetric(ctx.cwd, parsed.metric, parsed.text || parsed.intentFile || "goal");
+				if (!begun.ok) return tell(ctx, begun.reason, "warning");
+				metric = begun.state;
+				tell(ctx, `Metrica di partenza: ${metric.baseline} · branch ${metric.branch}`);
+			}
 			if (parsed.intentFile) {
 				const intent = readIntent(ctx.cwd, parsed.intentFile);
 				if (!intent) return tell(ctx, `Intent non trovato: ${parsed.intentFile}`, "warning");
 				const checks = parsed.checks.length > 0 ? parsed.checks : intent.checks;
-				return start(ctx, { text: parsed.text, checks, max, continuations: 0, idleContinuations: 0, intentFile: parsed.intentFile }, intent);
+				return start(ctx, { text: parsed.text, checks, max, continuations: 0, idleContinuations: 0, intentFile: parsed.intentFile, metric }, intent);
 			}
-			const createIntentAt = shouldCreateIntent(parsed.text) ? `${INTENTS_DIR}/${new Date().toISOString().slice(0, 10)}-${slugify(parsed.text.split(/\s+/).slice(0, 6).join(" "))}.md` : undefined;
-			return start(ctx, { text: parsed.text, checks: parsed.checks, max, continuations: 0, idleContinuations: 0, intentFile: createIntentAt }, undefined, createIntentAt);
+			// With a metric the number is the measure of done: no intent to write first.
+			const createIntentAt = !metric && shouldCreateIntent(parsed.text) ? `${INTENTS_DIR}/${new Date().toISOString().slice(0, 10)}-${slugify(parsed.text.split(/\s+/).slice(0, 6).join(" "))}.md` : undefined;
+			return start(ctx, { text: parsed.text, checks: parsed.checks, max, continuations: 0, idleContinuations: 0, intentFile: createIntentAt, metric }, undefined, createIntentAt);
 		},
 	});
 }
