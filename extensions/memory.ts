@@ -41,10 +41,10 @@ import { entriesToRecords, movePersonal, rebaseOnCurrent, recordsToEntries } fro
 import { withStoreLock } from "../pi-memory/src/lock.ts";
 import { renderVault } from "../pi-memory/src/vault.ts";
 import { lastId, loadStore, migrateLegacy, pruneVectors, saveStore, storeExists, type MemoryRecord } from "../pi-memory/src/store.ts";
-import { applyUsage, lifecycle } from "../pi-memory/src/forget.ts";
+import { applyUsage, lifecycle, newestEvent } from "../pi-memory/src/forget.ts";
 import { applyAction, dreamEntry, memoryStatus, recordLabel, recordPreview, summarize, type DreamEntry, type MemoryAction } from "../pi-memory/src/dashboard.ts";
 import type { DashboardResult, View } from "../pi-memory/src/dashboard-tui.ts";
-import { answerPrompt, appendDreamRun, appendRecallEvent, readDreamRuns, readRecallEvents, type MemoryDashboardSource, type SearchHit } from "../pi-memory/src/dashboard-data.ts";
+import { answerPrompt, appendDreamRun, logUsage, readDreamRuns, readRecallEvents, type MemoryDashboardSource, type SearchHit } from "../pi-memory/src/dashboard-data.ts";
 
 /** ~1.000 tokens of memory in context at most. */
 export const CONTEXT_BUDGET_CHARS = 3600;
@@ -290,7 +290,7 @@ export default function (pi: ExtensionAPI) {
 		// Always kept (last 500): the dashboard shows what was recalled, when and with which score.
 		try {
 			const injected = new Set(run.ids);
-			appendRecallEvent(dirs.project, { at: new Date().toISOString(), query: event.prompt.slice(0, 300), hits: run.hits.filter((hit) => injected.has(hit.record.id)).map((hit) => ({ id: hit.record.id, score: Math.round(hit.score * 1000) / 1000 })), ms: run.ms });
+			logUsage(dirs, { at: new Date().toISOString(), query: event.prompt.slice(0, 300), hits: run.hits.filter((hit) => injected.has(hit.record.id)).map((hit) => ({ id: hit.record.id, score: Math.round(hit.score * 1000) / 1000 })), ms: run.ms });
 		} catch {
 			// A read-only project folder must not break the request.
 		}
@@ -315,7 +315,7 @@ export default function (pi: ExtensionAPI) {
 		const records = await memoryWorker.forFile(dirs, relativePath(ctx.cwd, absolute), today()).catch(() => []);
 		if (records.length === 0) return undefined;
 		try {
-			appendRecallEvent(dirs.project, { at: new Date().toISOString(), query: `file: ${path}`.slice(0, 300), hits: records.map((record) => ({ id: record.id, score: 1 })), ms: 0 });
+			logUsage(dirs, { at: new Date().toISOString(), query: `file: ${path}`.slice(0, 300), hits: records.map((record) => ({ id: record.id, score: 1 })), ms: 0 });
 		} catch {
 			// Usage is a hint.
 		}
@@ -347,7 +347,7 @@ export default function (pi: ExtensionAPI) {
 				if (!hasStore(dirs)) return reply("Nessun ricordo per questo progetto.");
 				const used = (ids: string[], query: string) => {
 					try {
-						appendRecallEvent(dirs.project, { at: new Date().toISOString(), query: `ricorda: ${query}`.slice(0, 300), hits: ids.map((id) => ({ id, score: 1 })), ms: 0 });
+						logUsage(dirs, { at: new Date().toISOString(), query: `ricorda: ${query}`.slice(0, 300), hits: ids.map((id) => ({ id, score: 1 })), ms: 0 });
 					} catch {
 						// Usage is a hint, never a reason to fail.
 					}
@@ -565,9 +565,10 @@ export default function (pi: ExtensionAPI) {
 			// Long term: what was recalled counts as used; unused memories go dormant, then are forgotten (kept aside).
 			if (process.env.PI_MEMORY_FORGET !== "0") {
 				const sinceFile = join(storeDir, "usage-since");
-				const events = readRecallEvents(dirs.project);
+				// The global store has its own log (logUsage writes personal hits there from every project).
+				const events = readRecallEvents(global && dirs.global ? dirs.global : dirs.project);
 				deepRecords = applyUsage(deepRecords, events, global ? "g:" : "", existsSync(sinceFile) ? readFileSync(sinceFile, "utf8").trim() : "");
-				if (events.length) write(sinceFile, `${events[events.length - 1].at}\n`);
+				if (events.length) write(sinceFile, `${newestEvent(events)}\n`);
 				const cycle = lifecycle(deepRecords, date, { fileExists: global ? undefined : (path) => existsSync(join(ctx.cwd, path)) });
 				deepRecords = cycle.records;
 				if (cycle.forgotten.length) appendFileSync(join(storeDir, "forgotten.jsonl"), cycle.forgotten.map((record) => `${JSON.stringify({ ...record, forgottenAt: date })}\n`).join(""));

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { applyUsage, lifecycle } from "../src/forget.ts";
+import { applyUsage, lifecycle, newestEvent } from "../src/forget.ts";
 import type { MemoryRecord } from "../src/store.ts";
 
 const rec = (id: string, extra: Partial<MemoryRecord> = {}): MemoryRecord => ({ id, type: "fatto", text: `ricordo ${id}`, pinned: false, confirmations: 1, created: "2026-01-01", last: "2026-01-01", status: "active", entities: [], ...extra });
@@ -63,4 +63,9 @@ test("a memory confirmed three times can sleep but is never forgotten (rare but 
 	const result = lifecycle([rec("deploy", { type: "decisione", confirmations: 3, state: "dormant", dormantSince: "2025-01-01", created: "2024-01-01", last: "2024-06-01" })], today);
 	assert.deepEqual(result.forgotten, []);
 	assert.equal(result.records[0].state, "dormant");
+});
+
+test("newestEvent: the newest timestamp whatever the order (the recall log reads newest first)", () => {
+	assert.equal(newestEvent([{ at: "2026-10-09T10:00:00Z" }, { at: "2026-10-01T10:00:00Z" }, { at: "2026-10-05T10:00:00Z" }]), "2026-10-09T10:00:00Z");
+	assert.equal(newestEvent([]), "");
 });

@@ -76,3 +76,10 @@ export function applyUsage(records: MemoryRecord[], events: { at: string; hits: 
 		return { ...record, uses: (record.uses ?? 0) + count, lastUsed: day && day > (record.lastUsed ?? "") ? day : record.lastUsed };
 	});
 }
+
+/** The newest event's time, whatever the order (readRecallEvents returns newest first). */
+export function newestEvent(events: { at: string }[]): string {
+	let newest = "";
+	for (const event of events) if (event.at > newest) newest = event.at;
+	return newest;
+}
