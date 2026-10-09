@@ -42,6 +42,10 @@ const B = 0.75;
 export const HUB_DEGREE = 30;
 /** Terms in more than this share of memories carry no information: skipped by BM25 (and they cost the most). */
 const COMMON_TERM_SHARE = 0.2;
+/** A term in at most this share of memories (or 3) identifies something by itself: a library, a file, a code. */
+const RARE_TERM_SHARE = 0.005;
+/** Weight of a match on a single, non-rare term. */
+const SINGLE_COMMON_TERM = 0.6;
 
 /** Depth: how recall walks the memory graph (Personalized PageRank by push, see ppr.ts). Tuned on bench/deep-bench.ts. */
 export const DEPTH = {
@@ -127,6 +131,9 @@ export class RecallIndex {
 		// Small stores behave like a 300-memory corpus, so idf (and the threshold) does not depend on store size.
 		const n = Math.max(this.records.length, 300);
 		const common = Math.max(50, this.records.length * COMMON_TERM_SHARE);
+		const rare = Math.max(3, this.records.length * RARE_TERM_SHARE);
+		/** Per record: how many query terms it shares, and whether one of them is rare. */
+		const evidence = new Map<number, { terms: number; rare: boolean }>();
 		for (const term of new Set(stems(query))) {
 			const posting = this.postings.get(term);
 			if (!posting || posting.size > common) continue;
@@ -134,9 +141,17 @@ export class RecallIndex {
 			for (const [position, frequency] of posting) {
 				const part = idf * ((frequency * (K1 + 1)) / (frequency + K1 * (1 - B + (B * this.lengths[position]) / this.average)));
 				out.set(position, (out.get(position) ?? 0) + part);
+				const seen = evidence.get(position) ?? { terms: 0, rare: false };
+				seen.terms++;
+				seen.rare ||= posting.size <= rare;
+				evidence.set(position, seen);
 			}
 		}
-		for (const [position, score] of out) out.set(position, 1 - Math.exp(-score / 5));
+		// A single common word in common is not evidence ("scrivi una poesia" matched every memory that "scrive").
+		for (const [position, score] of out) {
+			const seen = evidence.get(position)!;
+			out.set(position, (1 - Math.exp(-score / 5)) * (seen.terms === 1 && !seen.rare ? SINGLE_COMMON_TERM : 1));
+		}
 		return out;
 	}
 
