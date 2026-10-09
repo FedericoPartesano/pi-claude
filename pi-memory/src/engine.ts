@@ -135,10 +135,19 @@ export class Recaller {
 		return this.all(dirs).some((part) => part.vectors.size > 0);
 	}
 
-	/** Pinned memories for the system prompt (stable text, small). */
+	/**
+	 * The always-present part for the system prompt: the project overview /dream writes (gist.md, ≤ 1200 chars) and the
+	 * pinned memories not already in it. Stable between two /dream, so the prompt prefix stays cached.
+	 */
 	core(dirs: StoreDirs): string | undefined {
-		return coreSection(this.all(dirs).flatMap((part) => part.records));
+		const file = join(dirs.project, "gist.md");
+		const quadro = existsSync(file) ? readFileSync(file, "utf8").trim().slice(0, 1200) : "";
+		const known = quadro.toLowerCase();
+		const pinned = coreSection(this.all(dirs).flatMap((part) => part.records).filter((record) => !known.includes(record.text.toLowerCase().replace(/[.\s]+$/, ""))));
+		const parts = [quadro ? `Quadro del progetto (da sessioni precedenti):\n${quadro}` : "", pinned ?? ""].filter(Boolean);
+		return parts.length ? parts.join("\n\n") : undefined;
 	}
+
 
 	async run(query: string, dirs: StoreDirs, today: string, embedder?: Embedder, options: { includeSuperseded?: boolean; threshold?: number; inquiryThreshold?: number; limit?: number } = {}): Promise<RecallRun> {
 		const started = performance.now();

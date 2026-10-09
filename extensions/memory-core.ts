@@ -44,6 +44,8 @@ export interface Proposal {
 	merge: ({ ids: string[]; text: string; type?: MemoryType; entities?: string[] } & Extras)[];
 	update: ({ id: string; text: string; type?: MemoryType; entities?: string[] } & Extras)[];
 	forget: { id: string; reason?: string }[];
+	/** The project overview, rewritten by /dream (deep mode): always in the system prompt, ≤ 1200 chars. */
+	quadro?: string;
 }
 
 const HEADERS = {
@@ -378,11 +380,15 @@ export function parseProposal(text: string, memoryCount: number): { ok: true; pr
 	proposal.add = proposal.add.filter((item) => credential(item.text));
 	proposal.merge = proposal.merge.filter((item) => credential(item.text));
 	proposal.update = proposal.update.filter((item) => credential(item.text));
+	if (typeof raw.quadro === "string" && raw.quadro.trim()) proposal.quadro = maskSecrets(raw.quadro.trim()).slice(0, QUADRO_CHARS);
 	// Invalid items are skipped one by one (reported), never the whole consolidation.
 	return { ok: true, proposal, skipped: problems };
 }
 
-export function buildDreamPrompt(memory: MemoryEntry[], sessions: string, today: string, options: { global?: boolean; capChars?: number; deep?: boolean } = {}): string {
+/** The overview's ceiling: ~300 tokens in the system prompt, stable between two /dream (cached). */
+export const QUADRO_CHARS = 1200;
+
+export function buildDreamPrompt(memory: MemoryEntry[], sessions: string, today: string, options: { global?: boolean; capChars?: number; deep?: boolean; quadro?: string } = {}): string {
 	const fill = options.capChars ? Math.round((memory.map(contextLine).join("\n").length / options.capChars) * 100) : 0;
 	const current = memory.length > 0
 		? memory.map((entry, position) => `${idOf(position)} ${contextLine(entry).slice(2)}${entry.pinned ? " 📌" : ""} (conferme ${entry.confirmations}, ultima ${entry.last || "?"})`).join("\n")
@@ -395,6 +401,7 @@ export function buildDreamPrompt(memory: MemoryEntry[], sessions: string, today:
 		"Memoria attuale:",
 		current,
 		"",
+		...(options.deep && !options.global ? ["Quadro attuale del progetto:", options.quadro?.trim() || "(nessuno)", ""] : []),
 		"Sessioni nuove (dalla più vecchia alla più recente):",
 		sessions,
 		"",
@@ -411,6 +418,7 @@ export function buildDreamPrompt(memory: MemoryEntry[], sessions: string, today:
 					"- \"links\": gli id (m<n>) dei ricordi esistenti a cui questo è collegato (ne spiega il perché, ne dipende, lo contraddice): così da uno si arriva all'altro. Solo id esistenti.",
 					"- \"gist\": se il testo è lungo, una versione di massimo 10 parole per i promemoria brevi.",
 					options.global ? "" : "- \"level\": \"personale\" per preferenze dell'utente valide in OGNI progetto (lingua, stile, strumenti personali), altrimenti ometti.",
+					options.global ? "" : `- "quadro": riscrivi il quadro del progetto (massimo ${QUADRO_CHARS} caratteri, in italiano): com'è fatto, regole e decisioni chiave, cosa è in corso. Partendo da quello attuale e dalle sessioni nuove; omettilo se non cambia nulla.`,
 					"- NON salvare: chiacchiere e saluti, messaggi senza contenuto (\"asd\", \"ok\", prove), richieste di chiarimento, cosa ha fatto Pi in una sessione senza una lezione da ricordare, tentativi falliti senza il perché.",
 				].filter(Boolean)
 			: []),
@@ -418,7 +426,7 @@ export function buildDreamPrompt(memory: MemoryEntry[], sessions: string, today:
 		...(fill >= 70 ? [`- La memoria è al ${fill}% del suo spazio: unisci i ricordi simili e sintetizza; aggiungi solo ciò che vale più di quello che c'è (il codice archivia l'eccedenza meno importante).`] : []),
 		"",
 		options.deep
-			? 'Rispondi SOLO con JSON: {"add":[{"type":"correzione|preferenza|decisione|fatto|episodio","text":"...","entities":["..."],"links":["m2"],"gist":"..."}],"reinforce":["m1"],"merge":[{"ids":["m2","m3"],"type":"...","text":"...","entities":["..."]}],"update":[{"id":"m4","text":"...","entities":["..."],"links":["m1"]}],"forget":[{"id":"m5","reason":"..."}]}'
+			? 'Rispondi SOLO con JSON: {"add":[{"type":"correzione|preferenza|decisione|fatto|episodio","text":"...","entities":["..."],"links":["m2"],"gist":"..."}],"reinforce":["m1"],"merge":[{"ids":["m2","m3"],"type":"...","text":"...","entities":["..."]}],"update":[{"id":"m4","text":"...","entities":["..."],"links":["m1"]}],"forget":[{"id":"m5","reason":"..."}],"quadro":"..."}'
 			: 'Rispondi SOLO con JSON: {"add":[{"type":"correzione|preferenza|decisione|fatto|episodio","text":"..."}],"reinforce":["m1"],"merge":[{"ids":["m2","m3"],"type":"...","text":"..."}],"update":[{"id":"m4","text":"..."}],"forget":[{"id":"m5","reason":"..."}]}',
 	].join("\n");
 }

@@ -88,3 +88,13 @@ test("the deep dream prompt asks for links, gist and level, and says what not to
 	assert.match(prompt, /personale/);
 	assert.match(prompt, /NON salvare/);
 });
+
+test("the overview: /dream proposes a 'quadro' (clipped to 1200 chars) and the prompt shows the current one", () => {
+	const parsed = parseProposal(JSON.stringify({ add: [], quadro: `Progetto: gestionale ordini. ${"x".repeat(2000)}` }), 0);
+	assert.ok(parsed.ok);
+	assert.equal(parsed.proposal.quadro?.length, 1200);
+	const prompt = buildDreamPrompt([], "## Sessione\nUtente: ciao", "2026-10-09", { deep: true, quadro: "Progetto: gestionale ordini in NestJS." });
+	assert.match(prompt, /Quadro attuale/);
+	assert.match(prompt, /gestionale ordini in NestJS/);
+	assert.match(prompt, /"quadro"/);
+});

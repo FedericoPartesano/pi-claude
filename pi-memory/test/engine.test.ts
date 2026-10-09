@@ -105,3 +105,16 @@ test("open: a memory by id with its state and its neighbours in the graph (links
 	assert.match(recaller.open({ project }, "#r2"), /conferme 3/);
 	assert.match(recaller.open({ project }, "r99"), /non trovato/);
 });
+
+test("core: the project overview (gist.md) plus pinned memories not already in it, within the budget", async () => {
+	const project = join(tmp(), "p");
+	saveStore(project, { records: [rec("r1", "Risposte sempre in italiano", { pinned: true }), rec("r2", "Le date in UTC", { pinned: true })], vectors: new Map() });
+	const { writeFileSync } = await import("node:fs");
+	writeFileSync(join(project, "gist.md"), "Progetto: gestionale ordini in NestJS. Le date in UTC.\n");
+	const core = new Recaller().core({ project }) ?? "";
+	assert.match(core, /Quadro del progetto/);
+	assert.match(core, /gestionale ordini/);
+	assert.match(core, /italiano/);
+	assert.equal(core.match(/date in UTC/gi)?.length, 1, "a pinned memory already in the overview is not repeated");
+	assert.ok(core.length <= 1700);
+});

@@ -152,6 +152,7 @@ function describe(memory: MemoryEntry[], proposal: Proposal): string[] {
 		...proposal.merge.map((item) => `⇄ ${item.ids.map(name).join(" + ")} → ${item.text}`),
 		...proposal.update.map((item) => `✎ ${name(item.id)} → ${item.text}`),
 		...proposal.forget.map((item) => `− ${name(item.id)}${item.reason ? ` (${item.reason})` : ""}`),
+		...(proposal.quadro ? [`◎ quadro del progetto aggiornato`] : []),
 	];
 }
 
@@ -463,7 +464,7 @@ export default function (pi: ExtensionAPI) {
 		const memory = split ? split.memory : parseMemory(read(target.memory));
 		const archive = split ? split.archive : parseMemory(read(target.archive));
 		ctx.ui.notify(`Consolido la memoria${global ? " globale" : ""}…`, "info");
-		const answer = await consolidate(ctx, buildDreamPrompt(memory, sessions, date, deep ? { global, deep: true } : { global, capChars: CONTEXT_BUDGET_CHARS }));
+		const answer = await consolidate(ctx, buildDreamPrompt(memory, sessions, date, deep ? { global, deep: true, quadro: global ? undefined : read(join(storeDir, "gist.md")) } : { global, capChars: CONTEXT_BUDGET_CHARS }));
 		const parsed = answer.error ? { ok: false as const, error: answer.error } : parseProposal(answer.text, memory.length);
 		if (!parsed.ok) {
 			write(target.proposal, `# Proposta non valida\n\n${parsed.error}\n\n${answer.text}\n`);
@@ -513,6 +514,7 @@ export default function (pi: ExtensionAPI) {
 					merge: await pick(proposal.merge, (item) => `⇄ ${item.text}`),
 					update: await pick(proposal.update, (item) => `✎ ${name(item.id)} → ${item.text}`),
 					forget: await pick(proposal.forget, (item) => `− ${name(item.id)}`),
+					...(proposal.quadro && (await keep(`◎ quadro del progetto:\n${proposal.quadro}`)) ? { quadro: proposal.quadro } : {}),
 				};
 			}
 		}
@@ -548,6 +550,8 @@ export default function (pi: ExtensionAPI) {
 				}
 			}
 			saveStore(storeDir, { records: deepRecords, vectors: pruneVectors(previous.records, deepRecords, previous.vectors), model: previous.model });
+			// The overview in the system prompt: rewritten only when the model proposes a new one.
+			if (!global && approved.quadro) write(join(storeDir, "gist.md"), `${approved.quadro}\n`);
 		} else {
 			write(target.memory, renderMemory(result.memory));
 			write(target.archive, renderMemory(result.archive, "archive"));
