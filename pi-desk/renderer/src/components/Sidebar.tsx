@@ -86,7 +86,7 @@ export function Sidebar(props: { active?: string; current?: RowState; info?: Inf
 			const row = rows()[index];
 			return !row ? index : row.kind === "group" ? `g:${row.name}` : `s:${row.session.path}`;
 		},
-		estimateSize: (index) => (rows()[index]?.kind === "group" ? 28 : 52),
+		estimateSize: (index) => (rows()[index]?.kind === "group" ? 28 : 48),
 		overscan: 8,
 	});
 	const usage = () => [

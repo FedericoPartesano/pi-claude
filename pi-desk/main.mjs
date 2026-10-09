@@ -6,7 +6,7 @@
  *   npm start [-- <project folder>]      PI_DESK_PI=<pi command>   PI_DESK_CDP_PORT=9339
  */
 import { app, BrowserWindow, WebContentsView, clipboard, ipcMain, shell, session as electronSession } from "electron";
-import { externalTarget, forkEntry, gitInfo, readUsage } from "./info.mjs";
+import { externalTarget, forkEntry, gitInfo, projectFiles, readUsage } from "./info.mjs";
 import { PICKER_SCRIPT } from "./picker.mjs";
 import { readForPanel } from "./files.mjs";
 import { DESK_PROMPT } from "./prompt.mjs";
@@ -70,6 +70,22 @@ function ensureView() {
 	view.webContents.loadURL("data:text/html;charset=utf-8," + encodeURIComponent("<title>pi-browser</title><body style='font:15px system-ui;background:#0c0c0c;color:#858ba0;display:grid;place-items:center;height:100vh;margin:0'><div>Il browser di Pi. Chiedi a Pi di aprire una pagina, oppure scrivi un indirizzo qui sopra.</div></body>"));
 	const navigated = () => sendToUi("browser-url", { url: view.webContents.getURL(), title: view.webContents.getTitle(), back: view.webContents.navigationHistory.canGoBack(), forward: view.webContents.navigationHistory.canGoForward() });
 	for (const name of ["did-navigate", "did-navigate-in-page", "page-title-updated"]) view.webContents.on(name, navigated);
+	// The viewer's footer: console errors and requests of the page shown, counted from its last navigation.
+	const stats = { errors: 0, requests: 0 };
+	let statsTimer;
+	const sendStats = () => (statsTimer ??= setTimeout(() => ((statsTimer = undefined), sendToUi("browser-stats", stats)), 250));
+	view.webContents.on("did-start-navigation", (details) => {
+		if (!details.isMainFrame || details.isSameDocument) return;
+		stats.errors = 0;
+		stats.requests = 0;
+		sendStats();
+	});
+	view.webContents.on("console-message", (event, legacyLevel) => {
+		if (event?.level === "error" || legacyLevel === 3) (stats.errors++, sendStats());
+	});
+	view.webContents.session.webRequest.onCompleted({ urls: ["<all_urls>"] }, (details) => {
+		if (details.webContentsId === view?.webContents.id) (stats.requests++, sendStats());
+	});
 	// Links that want a new window open in the panel: Pi drives one page.
 	view.webContents.setWindowOpenHandler(({ url }) => {
 		view.webContents.loadURL(url);
@@ -204,6 +220,7 @@ app.whenReady().then(() => {
 		const state = await pi.send("get_state").catch(() => undefined);
 		return { ...result, items: state?.sessionFile ? readTranscript(state.sessionFile).items : [] };
 	});
+	ipcMain.handle("project-files", () => projectFiles(project));
 	ipcMain.handle("open-external", (_event, target) => {
 		const { url, path, reveal } = externalTarget(target, project);
 		if (url) return shell.openExternal(url);

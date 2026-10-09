@@ -1,6 +1,7 @@
 import { createSignal, For, Show } from "solid-js";
 import { X } from "lucide-solid";
 import { desk, type Img } from "../bridge";
+import { matchFiles, mentionAt } from "../mention";
 
 const MAX_BYTES = 4 * 1024 * 1024;
 const MAX_SIDE = 2000;
@@ -53,6 +54,29 @@ export function Composer(props: {
 	const [text, setText] = createSignal("");
 	const [images, setImages] = createSignal<Img[]>([]);
 	const [dragging, setDragging] = createSignal(false);
+	// "@file": chips of project files the message points Pi to, picked from a menu while typing "@…".
+	const [mentioned, setMentioned] = createSignal<string[]>([]);
+	const [menu, setMenu] = createSignal<{ start: number; items: string[]; index: number }>();
+	let files: Promise<string[]> | undefined;
+	const lookup = (value: string) => {
+		const at = mentionAt(value, area.selectionStart ?? value.length);
+		if (!at) return setMenu(undefined);
+		files ??= desk.projectFiles?.().catch(() => []) ?? Promise.resolve([]);
+		files.then((all) => {
+			const now = mentionAt(text(), area.selectionStart ?? text().length);
+			const items = now ? matchFiles(all, now.query) : [];
+			setMenu(now && items.length ? { start: now.start, items, index: 0 } : undefined);
+		});
+	};
+	const pickFile = (path: string) => {
+		const open = menu();
+		if (!open) return;
+		const caret = area.selectionStart ?? text().length;
+		changed(text().slice(0, open.start) + text().slice(caret));
+		if (!mentioned().includes(path)) setMentioned([...mentioned(), path]);
+		setMenu(undefined);
+		queueMicrotask(() => area.setSelectionRange(open.start, open.start));
+	};
 	let area!: HTMLTextAreaElement;
 	let picker!: HTMLInputElement;
 
@@ -70,11 +94,14 @@ export function Composer(props: {
 		if (added.length) setImages([...images(), ...added].slice(0, 6));
 	};
 	const send = () => {
-		const value = text().trim();
+		const typed = text().trim();
+		const value = mentioned().length ? `${typed}\n\n${mentioned().map((path) => `@${path}`).join(" ")}`.trim() : typed;
 		if (!value && !images().length) return;
 		props.onSend(value, images());
 		changed("");
 		setImages([]);
+		setMentioned([]);
+		setMenu(undefined);
 	};
 	props.ref?.({
 		fill: (value) => (changed(value), area.focus()),
@@ -96,7 +123,7 @@ export function Composer(props: {
 				setDragging(false);
 				if (event.dataTransfer?.files.length) add(event.dataTransfer.files);
 			}}>
-			<Show when={props.queued || images().length || props.chips.length}>
+			<Show when={props.queued || images().length || props.chips.length || mentioned().length}>
 				<div class="chips">
 					<Show when={props.queued}><span class="chip queued" title="Pi lo legge appena finisce il passo in corso"><b>{props.queued} in coda</b>{props.queuedText || "Pi lo legge appena finisce"}</span></Show>
 					<For each={images()}>
@@ -107,11 +134,17 @@ export function Composer(props: {
 							</span>
 						)}
 					</For>
+					<For each={mentioned()}>{(path) => <span class="chip file" title={path}><span class="at">@</span>{path}<button type="button" class="x" aria-label="Togli" onClick={() => setMentioned(mentioned().filter((p) => p !== path))}>×</button></span>}</For>
 					<For each={props.chips}>{(chip) => <span class="chip status">{chip}</span>}</For>
 				</div>
 			</Show>
-			<textarea id="input" rows="1" ref={area} value={text()} placeholder={props.placeholder}
-				onInput={(event) => changed(event.currentTarget.value)}
+			<div class="input-wrap">
+			<Show when={!text()}>
+				{/* The placeholder of the design: the words in the UI font, the hints in mono. */}
+				<div class="placeholder" aria-hidden="true">{props.placeholder.split("   ")[0]}<Show when={props.placeholder.includes("   ")}><span>{props.placeholder.split("   ")[1]}</span></Show></div>
+			</Show>
+			<textarea id="input" rows="1" ref={area} value={text()} aria-label={props.placeholder}
+				onInput={(event) => (changed(event.currentTarget.value), lookup(event.currentTarget.value))}
 				onPaste={(event) => {
 					const files = [...(event.clipboardData?.files ?? [])].filter((file) => file.type.startsWith("image/"));
 					if (files.length) {
@@ -126,11 +159,24 @@ export function Composer(props: {
 					}
 				}}
 				onKeyDown={(event) => {
+					const open = menu();
+					if (open) {
+						const move = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
+						if (move) return event.preventDefault(), setMenu({ ...open, index: (open.index + move + open.items.length) % open.items.length });
+						if (event.key === "Enter" || event.key === "Tab") return event.preventDefault(), pickFile(open.items[open.index]);
+						if (event.key === "Escape") return event.preventDefault(), setMenu(undefined);
+					}
 					if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
 						event.preventDefault();
 						send();
 					}
 				}} />
+			</div>
+			<Show when={menu()}>
+				<div class="mentions" role="listbox">
+					<For each={menu()!.items}>{(path, i) => <button type="button" role="option" classList={{ on: i() === menu()!.index }} onMouseDown={(event) => (event.preventDefault(), pickFile(path))}><span class="name">{path.slice(path.lastIndexOf("/") + 1)}</span><span class="dir">{path}</span></button>}</For>
+				</div>
+			</Show>
 			<div class="row">
 				<button type="button" class="attach" title="Allega un'immagine" onClick={() => picker.click()}>+</button>
 				<input ref={picker} type="file" accept="image/*" multiple hidden onChange={(event) => (add(event.currentTarget.files ?? []), (event.currentTarget.value = ""))} />

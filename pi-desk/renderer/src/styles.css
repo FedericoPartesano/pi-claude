@@ -86,7 +86,7 @@ html, * { scrollbar-color: var(--control) transparent; scrollbar-width: thin; }
 .group.dim { color: var(--dim); }
 .group.run { color: var(--cyan); }
 .group.faint { color: var(--faint); }
-.session { position: relative; width: 100%; display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; column-gap: 8px; row-gap: 1px; align-items: center; padding: 7px 8px 7px 10px; margin: 1px 0; border: 0; border-radius: 6px; background: transparent; text-align: left; }
+.session { line-height: 1.3; position: relative; width: 100%; display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; column-gap: 8px; row-gap: 1px; align-items: center; padding: 7px 8px 7px 10px; margin: 1px 0; border: 0; border-radius: 6px; background: transparent; text-align: left; }
 .session:hover { background: var(--active); }
 .session.active { background: var(--active); }
 .session.active::before { content: ""; position: absolute; left: 0; top: 9px; bottom: 9px; width: 2px; border-radius: 1px; background: var(--mag); }
@@ -488,3 +488,21 @@ html, * { scrollbar-color: var(--control) transparent; scrollbar-width: thin; }
 .pswp { --pswp-bg: #050507; --pswp-icon-color: #dcdfe8; --pswp-icon-color-secondary: #0c0c0f; --pswp-icon-stroke-color: #ff3fd8; }
 .pswp__counter { font: 12px var(--mono); color: var(--mag); }
 svg.lucide { flex: none; }
+
+/* "@file" menu and chips, browser stats and Pi's current action */
+#composer { position: relative; }
+#composer .chip.file .at { color: var(--cyan); }
+#composer .chip.file .x { border: 0; background: transparent; color: var(--dim); padding: 0; font: 11.5px var(--mono); cursor: pointer; }
+#composer .chip.file .x:hover { color: var(--text); }
+.mentions { position: absolute; left: 12px; right: 12px; bottom: calc(100% + 6px); z-index: 10; max-height: 280px; overflow-y: auto; display: flex; flex-direction: column; padding: 4px; background: var(--panel); border: 1px solid var(--control); border-radius: 8px; }
+.mentions button { display: flex; align-items: baseline; gap: 10px; padding: 5px 8px; border: 0; border-radius: 5px; background: transparent; text-align: left; font: 12px var(--mono); min-width: 0; }
+.mentions button.on, .mentions button:hover { background: var(--active); }
+.mentions .name { color: var(--text); flex: none; }
+.mentions .dir { color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#viewer .pane-foot .ok { color: var(--ok); }
+#viewer .pane-foot .bad { color: var(--err); }
+.acting { flex: none; padding: 3px 7px; border: 1px solid var(--cyan); background: var(--bg); font: 11px var(--mono); color: var(--cyan); white-space: nowrap; max-width: 40%; overflow: hidden; text-overflow: ellipsis; }
+#composer .input-wrap { position: relative; }
+#composer .placeholder { position: absolute; inset: 0 0 auto 0; pointer-events: none; font: 14.5px/24px var(--sans); color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#composer .placeholder span { margin-left: 8px; font: 12px var(--mono); }
+#composer #input { min-height: 24px; line-height: 24px; display: block; }

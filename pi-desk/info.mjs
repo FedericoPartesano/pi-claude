@@ -54,3 +54,10 @@ export function forkEntry(messages, text, occurrence) {
 	const same = messages.filter((message) => message.text === text);
 	return same[Math.min(occurrence, same.length - 1)]?.entryId;
 }
+
+/** The project's files for "@" in the composer: git's list (tracked and untracked, not ignored), at most 20 000. */
+export function projectFiles(cwd) {
+	return new Promise((resolve) => {
+		execFile("git", ["ls-files", "--cached", "--others", "--exclude-standard"], { cwd, timeout: 5000, maxBuffer: 32 * 1024 * 1024 }, (error, stdout) => resolve(error ? [] : stdout.split("\n").filter(Boolean).slice(0, 20000)));
+	});
+}

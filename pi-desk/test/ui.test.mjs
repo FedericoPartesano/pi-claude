@@ -256,3 +256,23 @@ test("a terminal Pi's status line in the app: TOCCA A TE answered with a button 
 		close();
 	}
 });
+
+test("@ in the composer: a file of the project as a chip, sent as a mention", { skip, timeout: 60_000 }, async () => {
+	const { js, close } = await openPage();
+	try {
+		await js(`input.focus(); input.value = "correggi @car"; input.selectionStart = input.selectionEnd = input.value.length; input.dispatchEvent(new Event("input", { bubbles: true })); "ok"`);
+		await wait(150);
+		assert.match(await js(`document.querySelector(".mentions")?.innerText ?? ""`), /src\/cart.js/);
+		await js(`input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })); "ok"`);
+		await wait(80);
+		assert.equal(await js(`input.value`), "correggi ");
+		assert.match(await js(`document.querySelector("#composer .chip.file").textContent`), /src\/cart.js/);
+		await js(`input.value = "correggi totalValue"; input.dispatchEvent(new Event("input", { bubbles: true })); input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); "ok"`);
+		await wait(80);
+		assert.match(await js(`JSON.stringify(calls)`), /"prompt","correggi totalValue\\n\\n@src\/cart.js"/);
+		assert.equal(await js(`String(Boolean(document.querySelector("#composer .chip.file")))`), "false");
+	} finally {
+		close();
+	}
+});
+

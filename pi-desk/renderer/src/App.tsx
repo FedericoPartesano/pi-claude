@@ -94,6 +94,10 @@ export function App() {
 	const [url, setUrl] = createSignal("");
 	const [nav, setNav] = createSignal({ back: false, forward: false });
 	const [driving, setDriving] = createSignal(false);
+	const [stats, setStats] = createSignal({ errors: 0, requests: 0 });
+	desk.on("browser-stats", setStats);
+	// What Pi is doing on the page now ("◆ click e12"), shown on the viewer while the step runs.
+	const [acting, setActing] = createSignal("");
 	desk.on("browser-url", ({ url: next, back, forward }) => {
 		const shown = !next || next.startsWith("data:") ? "" : next;
 		setNav({ back, forward });
@@ -168,8 +172,11 @@ export function App() {
 		follow(() => chat.onEvent(event));
 		if (event.type === "tool_execution_start" && event.toolName === "browser" && event.args?.action !== "close") {
 			setDriving(true);
+			const a = event.args ?? {};
+			setActing(a.action === "act" ? `◆ ${a.do ?? "azione"}${a.text ? ` «${String(a.text).slice(0, 40)}»` : a.ref ? ` ${a.ref}` : ""}` : a.action === "open" ? "◆ apro la pagina" : a.action === "snapshot" ? "◆ leggo la pagina" : a.action === "shot" ? "◆ screenshot" : "");
 			if (viewer.current()?.kind !== "web") openWeb();
 		}
+		if (event.type === "tool_execution_end") setActing("");
 		if (event.type === "agent_settled") {
 			setDriving(false);
 			refreshInfo();
@@ -314,7 +321,7 @@ export function App() {
 		}
 		if (work.error) return { state: "err", text: clean(work.error).slice(0, 140), meta: "", keys: "R riprova · ⏎ scrivi tu" };
 		if (work.phase === "done") return { state: "done", text: "Turno completato", meta: `${duration(work.seconds)} · ↑${tokens(work.tokensIn)} ↓${tokens(work.tokensOut)} tok${work.steps ? ` · ${work.steps} ${work.steps === 1 ? "passo" : "passi"}` : ""}`, keys: "1–4 suggerimenti" };
-		return { state: "idle", text: "Pronto", meta: "", keys: "⏎ invia" };
+		return { state: "idle", text: "Pronto", meta: "", keys: "" };
 	});
 	const remoteBar = createMemo<Bar>(() => {
 		const status = remote();
@@ -498,12 +505,12 @@ export function App() {
 						</Show>
 						<div id="dock" class={bar().state}>
 							<StatusBar bar={bar()} remote={Boolean(viewing())} onStop={viewing() ? undefined : () => desk.abort()} />
-							<Composer busy={state.busy && !viewing()} readonly={Boolean(viewing()) && !viewing()!.writable} placeholder={viewing()?.writable ? "Scrivi al Pi nel terminale…" : state.busy ? "Scrivi per aggiungere in coda…" : "Chiedi a Pi…   / comandi"}
+							<Composer busy={state.busy && !viewing()} readonly={Boolean(viewing()) && !viewing()!.writable} placeholder={viewing()?.writable ? "Scrivi al Pi nel terminale…" : state.busy ? "Scrivi per aggiungere in coda…" : "Chiedi a Pi…   / comandi · @ file"}
 								queued={viewing() ? 0 : work.queued} queuedText={work.queuedText} chips={otherStatuses()} model={model()} memory={memory()} roomy={roomy()} mode={mode()} onMode={setMode}
 								onSend={send} onStop={() => desk.abort()} ref={(api) => (composer = api)} onText={(value) => (composerText = value)} />
 						</div>
 					</section>
-					<Viewer slot={(el) => (slot = el)} url={url()} nav={nav()} driving={driving()} onGo={go} onPick={pick} picking={picking()} slotSize={slotSize()} />
+					<Viewer slot={(el) => (slot = el)} url={url()} nav={nav()} driving={driving()} acting={acting()} stats={stats()} onGo={go} onPick={pick} picking={picking()} slotSize={slotSize()} />
 				</div>
 			</main>
 			<Lightbox />

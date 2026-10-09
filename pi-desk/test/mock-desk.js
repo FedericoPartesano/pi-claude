@@ -28,6 +28,7 @@ window.desk = {
 	info: () => Promise.resolve(window.mockInfo ?? { project: "/p/claude", branch: "main", changes: 2, usage: { fiveHour: 34, sevenDay: 18, overage: false, updatedAt: "2026-10-09T14:01:50Z" }, model: "claude-sonnet-4-5", thinking: "medium", context: 41, user: "fede" }),
 	fork: (text, occurrence) => (calls.push(["fork", text, occurrence]), Promise.resolve({ text: "rifai", cancelled: false, items: [{ role: "user", text: "prima" }] })),
 	openExternal: (target) => (calls.push(["external", target]), Promise.resolve()),
+	projectFiles: () => Promise.resolve(["src/cart.js", "test/cart.test.js", "README.md"]),
 	answerSession: (pid, value) => (calls.push(["remote-answer", pid, value]), (window.remoteStatus = { mode: "working", activity: "ripreso" }), Promise.resolve({ type: "ok" })),
 };
 window.emit = (channel, payload) => listeners[channel]?.(payload);

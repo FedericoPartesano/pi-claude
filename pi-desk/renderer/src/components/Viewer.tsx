@@ -81,7 +81,7 @@ function CodeView(props: { tab: Tab }) {
 }
 
 /** The panel: tabs on top, the open one below. PDF and web pages are the native view placed over #browser-slot. */
-export function Viewer(props: { slot: (el: HTMLDivElement) => void; url: string; nav: { back: boolean; forward: boolean }; driving: boolean; onGo: (url: string) => void; onPick: () => void; picking: boolean; slotSize: string }) {
+export function Viewer(props: { slot: (el: HTMLDivElement) => void; url: string; nav: { back: boolean; forward: boolean }; driving: boolean; acting: string; stats: { errors: number; requests: number }; onGo: (url: string) => void; onPick: () => void; picking: boolean; slotSize: string }) {
 	const tab = () => viewer.current();
 	const native = () => tab()?.kind === "web" || tab()?.kind === "pdf";
 	const outside = () => {
@@ -112,6 +112,7 @@ export function Viewer(props: { slot: (el: HTMLDivElement) => void; url: string;
 					<button type="button" class="icon" title="Avanti" disabled={!props.nav.forward} onClick={() => desk.browser("forward")}>›</button>
 					<button type="button" class="icon" title="Ricarica" onClick={() => desk.browser("reload")}>↻</button>
 					<input id="url" spellcheck={false} placeholder="Indirizzo o ricerca" value={props.url} onKeyDown={(event) => event.key === "Enter" && props.onGo(event.currentTarget.value)} />
+					<Show when={props.acting}><span class="acting">{props.acting}</span></Show>
 					<Show when={props.driving}><span class="driving" title="Pi può cliccare, leggere e fare screenshot di questa pagina">● Pi al comando</span></Show>
 				</nav>
 			</Show>
@@ -121,6 +122,8 @@ export function Viewer(props: { slot: (el: HTMLDivElement) => void; url: string;
 			<div id="browser-slot" ref={props.slot} hidden={!native()}><div class="slot-hint">Il browser di Pi</div></div>
 			<Show when={tab()?.kind === "web"}>
 				<div class="pane-foot">
+					<span>console <span classList={{ ok: !props.stats.errors, bad: props.stats.errors > 0 }}>{props.stats.errors} {props.stats.errors === 1 ? "errore" : "errori"}</span></span>
+					<span>rete {props.stats.requests}</span>
 					<button type="button" class="link" classList={{ on: props.picking }} title="Indica a Pi un elemento della pagina (Esc annulla)" onClick={props.onPick}>⌖ indica</button>
 					<button type="button" class="link" title="DevTools della pagina" onClick={() => desk.browser("devtools")}>devtools</button>
 					<span class="grow" />
