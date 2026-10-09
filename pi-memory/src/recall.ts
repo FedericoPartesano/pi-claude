@@ -55,7 +55,9 @@ export const DEPTH = {
 	alpha: 0.5,
 	epsilon: 1e-4,
 	/** Seeds: hits within this share of the best one (a weak hit's neighbourhood is noise). */
-	seedShare: 0.8,
+	seedShare: 0.9,
+	/** Seed weight = score^power: the walk starts mostly from the best hits. */
+	power: 3,
 	/** Share of the cues reserved to memories the walk reaches (shown as "collegato"). */
 	slotShare: 0.4,
 	/** Below this PPR mass relative to the top seed a reached memory is not worth a cue. */
@@ -271,7 +273,7 @@ export function recall(index: RecallIndex, query: string, options: RecallOptions
 		// but its hits lead to (the reason two links away) fills the reserved cues, strongest mass first.
 		const top = directHits[0].score;
 		const seeds = directHits.filter((item) => item.score >= top * DEPTH.seedShare).slice(0, DEPTH.seeds);
-		const mass = pushPpr(new Map(seeds.map((seed) => [`m${seed.position}`, seed.score ** 3])), index.neighbors, { alpha: DEPTH.alpha, epsilon: DEPTH.epsilon });
+		const mass = pushPpr(new Map(seeds.map((seed) => [`m${seed.position}`, seed.score ** DEPTH.power])), index.neighbors, { alpha: DEPTH.alpha, epsilon: DEPTH.epsilon });
 		const reference = Math.max(...seeds.map((seed) => mass.get(`m${seed.position}`) ?? 0)) || 1;
 		const taken = new Set(chosen.map((item) => item.position));
 		const reached = [...mass]

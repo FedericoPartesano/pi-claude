@@ -5,12 +5,31 @@
  * requests. --real uses the e5-small model (slow to embed: use small sizes); default a hashing embedder.
  */
 import { BackgroundEmbedder, MODELS, createFakeEmbedder, type Embedder } from "../src/embed.ts";
-import { RecallIndex, cueLimit, recall, renderCues } from "../src/recall.ts";
+import { DEPTH, RecallIndex, cueLimit, recall, renderCues } from "../src/recall.ts";
 import { embedText } from "../src/store.ts";
 import { buildCorpus } from "../test/corpus.ts";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+const writeVectors = (file: string, list: Float32Array[]) => {
+	const all = new Float32Array(list.length * list[0].length);
+	list.forEach((vector, i) => all.set(vector, i * vector.length));
+	writeFileSync(file, Buffer.from(all.buffer));
+};
+const readVectors = (file: string, ids: string[]) => {
+	const bytes = readFileSync(file);
+	const all = new Float32Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+	const dim = all.length / ids.length;
+	if (!Number.isInteger(dim)) return undefined;
+	return new Map(ids.map((id, i) => [id, all.subarray(i * dim, (i + 1) * dim)]));
+};
 
 const sizes = (process.argv.find((arg) => /^\d/.test(arg)) ?? "1000,10000,100000").split(",").map(Number);
 const real = process.argv.includes("--real");
+// --depth='{"seedShare":0.9}' overrides the walk's parameters (tuning sweeps).
+const depthArg = process.argv.find((arg) => arg.startsWith("--depth="));
+if (depthArg) Object.assign(DEPTH, JSON.parse(depthArg.slice("--depth=".length)));
 const embedder: Embedder = real ? new BackgroundEmbedder(MODELS.e5) : createFakeEmbedder(384);
 if (real && !(await (embedder as BackgroundEmbedder).start())) throw new Error("model failed to load");
 const today = "2026-10-08";
@@ -20,10 +39,16 @@ const mb = (bytes: number) => `${Math.round(bytes / 1048576)}MB`;
 for (const size of sizes) {
 	const corpus = buildCorpus(size);
 	let started = performance.now();
-	const vectors = new Map<string, Float32Array>();
-	for (let i = 0; i < corpus.records.length; i += 64) {
-		const batch = corpus.records.slice(i, i + 64);
-		(await embedder.embed(batch.map(embedText), "passage")).forEach((vector, j) => vectors.set(batch[j].id, vector));
+	// Real embeddings take minutes: kept on disk per corpus (same seed and size → same texts).
+	const cacheFile = real ? join(tmpdir(), `pi-memory-bench-e5-${size}.bin`) : undefined;
+	let vectors = cacheFile && existsSync(cacheFile) ? readVectors(cacheFile, corpus.records.map((record) => record.id)) : undefined;
+	if (!vectors) {
+		vectors = new Map<string, Float32Array>();
+		for (let i = 0; i < corpus.records.length; i += 64) {
+			const batch = corpus.records.slice(i, i + 64);
+			(await embedder.embed(batch.map(embedText), "passage")).forEach((vector, j) => vectors!.set(batch[j].id, vector));
+		}
+		if (cacheFile) writeVectors(cacheFile, corpus.records.map((record) => vectors!.get(record.id)!));
 	}
 	const embedMs = performance.now() - started;
 	global.gc?.();
