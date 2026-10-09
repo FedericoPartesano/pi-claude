@@ -11,7 +11,7 @@ import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, relative, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { assessPackage, parseInstalls, registryInfo } from "./guard/packages.ts";
+import { assessPackage, isPopular, parseInstalls, privateRegistry, registryInfo } from "./guard/packages.ts";
 import { PeerGuard } from "./guard/peers.ts";
 import { describeHidden, instructionFiles, scanHidden, stripHidden } from "./guard/unicode.ts";
 
@@ -119,7 +119,7 @@ export default function (pi: ExtensionAPI) {
 		pi.on("tool_call", async (event, ctx) => {
 			if (event.toolName !== "bash") return undefined;
 			const command = String((event.input as { command?: unknown }).command ?? "");
-			const installs = parseInstalls(command);
+			const installs = parseInstalls(command).filter((install) => !isPopular(install) && !privateRegistry(install, ctx.cwd, homedir()));
 			if (installs.length === 0 || warned.has(command)) return undefined;
 			const findings = (await Promise.all(installs.slice(0, 8).map(async (install) => assessPackage(install, await registryInfo(install))))).filter((finding): finding is string => Boolean(finding));
 			if (findings.length === 0) return undefined;

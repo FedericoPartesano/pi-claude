@@ -127,3 +127,25 @@ test("/land arguments", async () => {
 	assert.deepEqual(parseLandArgs(""), { checks: [], onto: undefined });
 	assert.ok("error" in parseLandArgs("main"));
 });
+
+test("two waiters taking over one stale lock: only one gets it", async () => {
+	const { work } = setup();
+	const dir = join(git(work, "rev-parse", "--git-common-dir"), "pi-land.lock");
+	mkdirSync(dir);
+	writeFileSync(join(dir, "owner.json"), JSON.stringify({ pid: 999999, at: Date.now() }));
+	const [a, b] = await Promise.all([acquireLandLock(work, { pollMs: 5, waitMs: 150 }), acquireLandLock(work, { pollMs: 5, waitMs: 150 })]);
+	assert.equal([a, b].filter(Boolean).length, 1);
+	(a ?? b)!.release();
+});
+
+test("a lock directory without an owner file is stale after a while (crash between mkdir and write)", async () => {
+	const { work } = setup();
+	const { utimesSync } = await import("node:fs");
+	const dir = join(git(work, "rev-parse", "--git-common-dir"), "pi-land.lock");
+	mkdirSync(dir);
+	const old = new Date(Date.now() - 10 * 60 * 1000);
+	utimesSync(dir, old, old);
+	const lock = await acquireLandLock(work, { pollMs: 5, waitMs: 200 });
+	assert.ok(lock);
+	lock!.release();
+});

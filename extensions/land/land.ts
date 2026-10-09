@@ -6,7 +6,8 @@
  * target with uncommitted work is never touched.
  */
 import { execFile, spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 export interface LandOptions {
@@ -26,6 +27,8 @@ export interface LandResult {
 
 const CHECK_TIMEOUT_MS = 15 * 60 * 1000;
 const STALE_MS = 2 * 60 * 60 * 1000;
+/** A lock directory still without its owner file after this long was left by a crash between mkdir and write. */
+const ORPHAN_MS = 60 * 1000;
 
 function git(cwd: string, args: string[]): Promise<{ ok: boolean; out: string }> {
 	return new Promise((done) =>
@@ -66,6 +69,42 @@ const alive = (pid: number) => {
 	}
 };
 
+function readOwner(dir: string): { cwd?: string; stale: boolean } {
+	let owner: { pid?: number; at?: number; cwd?: string } = {};
+	let age = 0;
+	try {
+		age = Date.now() - statSync(dir).mtimeMs;
+		owner = JSON.parse(readFileSync(join(dir, "owner.json"), "utf8"));
+	} catch {
+		// Gone, being written right now, or left without an owner file.
+	}
+	return { cwd: owner.cwd, stale: owner.pid !== undefined ? !alive(owner.pid) || Date.now() - (owner.at ?? 0) > STALE_MS : age > ORPHAN_MS };
+}
+
+/**
+ * Removes a stale lock under a second, short-lived lock, re-checking staleness while holding it: of several waiters
+ * that saw the same dead owner, one removes it and the others then find a live owner (or a free slot).
+ */
+function takeOver(dir: string): boolean {
+	const mutex = `${dir}.takeover`;
+	try {
+		mkdirSync(mutex);
+	} catch {
+		try {
+			if (Date.now() - statSync(mutex).mtimeMs > 10_000) rmSync(mutex, { recursive: true, force: true }); // left by a crash
+		} catch {
+			// Released meanwhile.
+		}
+		return false;
+	}
+	try {
+		if (readOwner(dir).stale) rmSync(dir, { recursive: true, force: true });
+		return true;
+	} finally {
+		rmSync(mutex, { recursive: true, force: true });
+	}
+}
+
 /** The queue: a directory in the git dir shared by all worktrees (mkdir is atomic). A dead or stale owner's lock is taken over. */
 export async function acquireLandLock(cwd: string, options: { pollMs?: number; waitMs?: number; onWait?: (owner: string) => void; signal?: AbortSignal } = {}): Promise<{ release: () => void } | undefined> {
 	const common = await git(cwd, ["rev-parse", "--git-common-dir"]);
@@ -76,20 +115,21 @@ export async function acquireLandLock(cwd: string, options: { pollMs?: number; w
 	while (!options.signal?.aborted) {
 		try {
 			mkdirSync(dir);
-			writeFileSync(join(dir, "owner.json"), JSON.stringify({ pid: process.pid, at: Date.now(), cwd }));
-			return { release: () => rmSync(dir, { recursive: true, force: true }) };
+			const token = randomUUID();
+			writeFileSync(join(dir, "owner.json"), JSON.stringify({ pid: process.pid, at: Date.now(), cwd, token }));
+			return {
+				// Only our own lock: never one another session took over after we were declared stale.
+				release: () => {
+					try {
+						if ((JSON.parse(readFileSync(join(dir, "owner.json"), "utf8")) as { token?: string }).token === token) rmSync(dir, { recursive: true, force: true });
+					} catch {
+						// Already gone.
+					}
+				},
+			};
 		} catch {
-			let owner: { pid?: number; at?: number; cwd?: string } = {};
-			try {
-				owner = JSON.parse(readFileSync(join(dir, "owner.json"), "utf8"));
-			} catch {
-				// Being written right now, or left without an owner file.
-			}
-			const stale = owner.pid !== undefined ? !alive(owner.pid) || Date.now() - (owner.at ?? 0) > STALE_MS : existsSync(dir) && Date.now() - (owner.at ?? Date.now()) > STALE_MS;
-			if (stale) {
-				rmSync(dir, { recursive: true, force: true });
-				continue;
-			}
+			const owner = readOwner(dir);
+			if (owner.stale && takeOver(dir)) continue;
 			if (!told) options.onWait?.(owner.cwd ?? "un'altra sessione");
 			told = true;
 			if (Date.now() > deadline) return undefined;
@@ -122,7 +162,8 @@ export async function land(options: LandOptions): Promise<LandResult> {
 	if (!lock) return { ok: false, message: signal?.aborted ? "Interrotto." : "Coda bloccata da troppo tempo: un'altra integrazione è ancora in corso." };
 	const before = (await git(cwd, ["rev-parse", "HEAD"])).out;
 	const putBack = async () => {
-		if ((await git(cwd, ["rev-parse", "HEAD"])).out !== before) await git(cwd, ["reset", "-q", "--hard", before]);
+		// --keep, not --hard: anything edited meanwhile (checks can take minutes) stops the reset instead of being lost.
+		if ((await git(cwd, ["rev-parse", "HEAD"])).out !== before) await git(cwd, ["reset", "-q", "--keep", before]);
 	};
 	try {
 		const target = (await git(cwd, ["rev-parse", onto])).out;

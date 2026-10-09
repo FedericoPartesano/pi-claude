@@ -29,3 +29,37 @@ test("assessPackage: missing from the registry, very new, or a lookalike; quiet 
 	assert.equal(assessPackage({ ecosystem: "npm", name: "lodash" }, { found: true, created: "2012-04-23" }, now), undefined);
 	assert.equal(assessPackage({ ecosystem: "npm", name: "x" }, undefined, now), undefined, "registry unreachable: silent");
 });
+
+test("no false alarms on real packages near popular names (review findings)", () => {
+	for (const [name, eco] of [["preact", "npm"], ["nuxt", "npm"], ["just", "npm"], ["guid", "npm"], ["yarn", "npm"], ["boto", "pypi"], ["jinja", "pypi"], ["attr", "pypi"], ["pyaml", "pypi"]] as const) {
+		assert.equal(looksLike(name, eco), undefined, name);
+	}
+	assert.equal(looksLike("raect", "npm"), "react", "a swap in a short name is still caught");
+	assert.equal(looksLike("expres", "npm"), undefined, "a deletion in a short name is too ambiguous");
+});
+
+test("parseInstalls skips option values, non-registry specs and quoted text; splits on newlines", () => {
+	assert.deepEqual(parseInstalls("npm i -w packages/a foo --tag next --prefix web"), [{ ecosystem: "npm", name: "foo" }]);
+	assert.deepEqual(parseInstalls("npm i user/repo github:user/repo file:../x workspace:* @scope/pkg"), [{ ecosystem: "npm", name: "@scope/pkg" }]);
+	assert.deepEqual(parseInstalls("pip install -t libs x --index-url https://x/simple"), [{ ecosystem: "pypi", name: "x" }]);
+	assert.deepEqual(parseInstalls("poetry add --group dev pytest && uv add --python 3.12 httpx"), [{ ecosystem: "pypi", name: "pytest" }, { ecosystem: "pypi", name: "httpx" }]);
+	assert.deepEqual(parseInstalls(`git commit -m "x; npm install foo"`), []);
+	assert.deepEqual(parseInstalls("cd web\nnpm i zod"), [{ ecosystem: "npm", name: "zod" }]);
+});
+
+test("private registries: npm scopes or a default registry from .npmrc, a pip index from the environment", async () => {
+	const { mkdtempSync, writeFileSync } = await import("node:fs");
+	const { tmpdir } = await import("node:os");
+	const { join } = await import("node:path");
+	const { privateRegistry } = await import("./guard/packages.ts");
+	const project = mkdtempSync(join(tmpdir(), "npmrc-"));
+	const home = mkdtempSync(join(tmpdir(), "home-"));
+	assert.equal(privateRegistry({ ecosystem: "npm", name: "@acme/lib" }, project, home, {}), false);
+	writeFileSync(join(project, ".npmrc"), "@acme:registry=https://npm.acme.internal/\n");
+	assert.equal(privateRegistry({ ecosystem: "npm", name: "@acme/lib" }, project, home, {}), true);
+	assert.equal(privateRegistry({ ecosystem: "npm", name: "lodash" }, project, home, {}), false);
+	writeFileSync(join(home, ".npmrc"), "registry=https://nexus.acme.internal/repository/npm/\n");
+	assert.equal(privateRegistry({ ecosystem: "npm", name: "lodash" }, project, home, {}), true);
+	assert.equal(privateRegistry({ ecosystem: "pypi", name: "x" }, project, home, { PIP_INDEX_URL: "https://pypi.acme/simple" }), true);
+	assert.equal(privateRegistry({ ecosystem: "pypi", name: "x" }, project, home, {}), false);
+});

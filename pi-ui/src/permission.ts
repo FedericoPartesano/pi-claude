@@ -12,10 +12,11 @@ const DANGEROUS: [RegExp, string][] = [
 	[/\b(curl|wget)\b[^|]*\|\s*(ba|z)?sh\b/, "esegue uno script scaricato"],
 	// From claude-mods' dangerous-cmd-warn: databases, more git, containers, processes, printing secrets.
 	[/\b(DROP\s+(TABLE|DATABASE|SCHEMA)|TRUNCATE\s+TABLE)\b/i, "cancella dati in un database"],
-	[/\bDELETE\s+FROM\s+[\w."\[\]]+\s*(;|"|'|$)/i, "cancella tutte le righe di una tabella (DELETE senza WHERE)"],
+	// The table name, plain or quoted ("public"."users", [dbo].[t]), then the end of the statement: no WHERE.
+	[/\bDELETE\s+FROM\s+(?:"[^"]+"|\[[^\]]+\]|`[^`]+`|\w+)(?:\.(?:"[^"]+"|\[[^\]]+\]|`[^`]+`|\w+))*\s*(;|"|'|$)/i, "cancella tutte le righe di una tabella (DELETE senza WHERE)"],
 	[/\bdb\.(dropDatabase\(\)|\w+\.drop\(\)|\w+\.(deleteMany|remove)\(\s*\{\s*\}\s*\))/, "cancella dati in MongoDB"],
 	[/\bgit\s+(checkout\s+--\s+\.(\s|$)|branch\s+-D\b|stash\s+(drop|clear)\b)/, "butta via lavoro git non salvato"],
-	[/\bdocker\s+(system\s+prune\s+.*-a|volume\s+prune)\b/, "cancella dati di Docker"],
+	[/\bdocker\s+(system\s+prune\b.*\s(-\w*a\w*|--all)\b|volume\s+prune\b)/, "cancella dati di Docker"],
 	[/\bkubectl\s+delete\s+(namespace\b|.*\s--all\b)/, "cancella risorse Kubernetes in blocco"],
 	[/\bkill\s+-9\s+1\b|\bkillall\s+-9\b/, "termina processi senza farli chiudere"],
 	[/(^|[;&|(]\s*)(printenv|env)\s*($|[;&|)])/, "stampa le variabili d'ambiente (possono contenere segreti)"],

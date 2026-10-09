@@ -39,3 +39,13 @@ test("dangerReason: databases, more git, containers, processes and printing secr
 	];
 	for (const command of safe) assert.equal(dangerReason(command), undefined, command);
 });
+
+test("dangerReason: quoted identifiers with WHERE pass, docker prune -af is caught (review findings)", () => {
+	assert.equal(dangerReason(`psql -c 'DELETE FROM "users" WHERE id=1'`), undefined);
+	assert.equal(dangerReason(`psql -c 'DELETE FROM "public"."users" WHERE id=1;'`), undefined);
+	assert.ok(dangerReason(`psql -c 'DELETE FROM "users";'`));
+	assert.ok(dangerReason(`psql -c 'DELETE FROM "public"."users";'`));
+	assert.ok(dangerReason("mysql -e \"DELETE FROM shop.orders\""));
+	assert.ok(dangerReason("docker system prune -af"));
+	assert.ok(dangerReason("docker system prune --all --force"));
+});

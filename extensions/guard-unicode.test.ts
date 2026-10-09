@@ -39,3 +39,12 @@ test("instructionFiles: the project's and the user's instruction files and insta
 	assert.ok(files.includes(join(project, "AGENTS.md")));
 	assert.ok(files.includes(join(home, ".agents", "skills", "demo", "SKILL.md")));
 });
+
+test("legitimate scripts keep their joiners and bidi marks; flag tag sequences stay (review findings)", () => {
+	for (const text of ["می‌خواهم", "क्‍ष", "שלום ⁧world⁩ עולם", "🏴\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F} England"]) {
+		assert.equal(scanHidden(text).count, 0, JSON.stringify(text));
+		assert.equal(stripHidden(text), text);
+	}
+	assert.ok(scanHidden("const ok = ‮true").count > 0, "bidi override in code is still a finding");
+	assert.ok(scanHidden("ciao‌mondo").count > 0, "ZWNJ between Latin letters is still a finding");
+});

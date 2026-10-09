@@ -48,11 +48,15 @@ function sh(command: string, cwd: string): Promise<{ ok: boolean; output: string
 
 const quote = (text: string) => `'${text.replace(/'/g, "'\\''")}'`;
 
-/** The last number the command prints (a decimal comma is read as a point). */
+/**
+ * The last number the command prints, standing alone (not the 256 in "sha256"). "1,234" and "1,234,567" are thousands;
+ * any other comma is a decimal comma ("3,5").
+ */
 export function parseMetricValue(output: string): number | undefined {
-	const numbers = output.match(/-?\d+(?:[.,]\d+)?(?:e[-+]?\d+)?/gi);
+	const numbers = output.match(/(?<![\w.,])-?\d+(?:,\d{3})+(?![\d.,]*\d)|(?<![\w.,])-?\d+(?:[.,]\d+)?(?:e[-+]?\d+)?(?![\w])/gi);
 	if (!numbers) return undefined;
-	const value = Number(numbers[numbers.length - 1].replace(",", "."));
+	const last = numbers[numbers.length - 1];
+	const value = Number(/^-?\d{1,3}(,\d{3})+$/.test(last) ? last.replace(/,/g, "") : last.replace(",", "."));
 	return Number.isFinite(value) ? value : undefined;
 }
 
@@ -94,16 +98,26 @@ export async function settleRound(cwd: string, state: MetricState, round: number
 	const status = await sh("git status --porcelain", cwd);
 	if (!status.output.trim()) return record({ round, kept: false, note: "nessuna modifica" }, `◦ giro ${round}: nessuna modifica da misurare`);
 	const { value, problem } = await measure(cwd, state.command);
+	let commitFailed = false;
+	let commitError = "";
 	if (value !== undefined && improves(value, state.best, state.direction)) {
 		const previous = state.best;
-		await sh(`git add -A && git commit -q -m ${quote(`goal metric: ${previous} → ${value} (giro ${round})`)}`, cwd);
+		const committed = await sh(`git add -A && git commit -q -m ${quote(`goal metric: ${previous} → ${value} (giro ${round})`)}`, cwd);
+		commitFailed = !committed.ok;
+		commitError = committed.output.trim().split("\n").pop()?.slice(0, 120) || "hook o firma";
+	}
+	if (value !== undefined && !commitFailed && improves(value, state.best, state.direction)) {
+		const previous = state.best;
 		state.best = value;
 		const target = reached(value, state);
 		return record({ round, value, kept: true }, `▲ giro ${round}: ${previous} → ${value} · tenuto (commit)${target ? " · obiettivo raggiunto" : ""}`, target);
 	}
-	await sh(`git stash push -q -u -m ${quote(`goal-metric giro ${round}: ${value ?? problem}`)}`, cwd);
-	const why = value === undefined ? problem! : `${value} non migliora ${state.best}`;
-	return record({ round, value, kept: false, note: value === undefined ? problem : undefined }, `▽ giro ${round}: ${why} · scartato (git stash)`);
+	// A failed commit (a pre-commit hook, signing) leaves the changes staged: unstage, then put them aside like any other.
+	if (commitFailed) await sh("git reset -q", cwd);
+	const stashed = await sh(`git stash push -q -u -m ${quote(`goal-metric giro ${round}: ${value ?? problem}`)}`, cwd);
+	const why = commitFailed ? `${value} migliorerebbe, ma il commit non riesce (${commitError})` : value === undefined ? problem! : `${value} non migliora ${state.best}`;
+	const where = stashed.ok ? "scartato (git stash)" : "non messo da parte: git stash non riesce, le modifiche restano nel working tree";
+	return record({ round, value, kept: false, note: commitFailed ? "commit non riuscito" : value === undefined ? problem : undefined }, `▽ giro ${round}: ${why} · ${where}`);
 }
 
 /** For the model's reminder: what is measured, where it stands, what each round did. */

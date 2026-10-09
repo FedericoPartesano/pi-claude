@@ -14,12 +14,31 @@ export interface HiddenScan {
 }
 
 const PICTOGRAPH = /\p{Extended_Pictographic}/u;
+/** Scripts that need ZWJ/ZWNJ to be written correctly (Persian می‌خواهم, Devanagari conjuncts), and combining marks (virama). */
+const JOINING_SCRIPT = /[\p{Script=Arabic}\p{Script=Syriac}\p{Script=Thaana}\p{Script=Nko}\p{Script=Devanagari}\p{Script=Bengali}\p{Script=Gurmukhi}\p{Script=Gujarati}\p{Script=Oriya}\p{Script=Tamil}\p{Script=Telugu}\p{Script=Kannada}\p{Script=Malayalam}\p{Script=Sinhala}\p{Script=Khmer}\p{Script=Myanmar}\p{Script=Tibetan}\p{Script=Mongolian}\p{M}]/u;
+/** Right-to-left letters: where bidi controls are ordinary punctuation of the text. */
+const RTL = /[\p{Script=Hebrew}\p{Script=Arabic}\p{Script=Syriac}\p{Script=Thaana}\p{Script=Nko}]/u;
+const isTag = (char: string | undefined) => {
+	const code = char?.codePointAt(0) ?? 0;
+	return code >= 0xe0000 && code <= 0xe007f;
+};
+
+/** Tag characters spelling a subdivision flag (🏴 + tags + cancel tag: England, Scotland, Wales). */
+function inFlagSequence(chars: string[], index: number): boolean {
+	let start = index;
+	while (isTag(chars[start - 1])) start--;
+	if (chars[start - 1] !== "🏴") return false;
+	let end = index;
+	while (isTag(chars[end]) && chars[end].codePointAt(0) !== 0xe007f) end++;
+	return chars[end]?.codePointAt(0) === 0xe007f;
+}
 
 /** Kind of a hidden code point at `index` in `chars`, or undefined when it is visible or legitimate there. */
-function hiddenKind(chars: string[], index: number): keyof HiddenScan["kinds"] | undefined {
+function hiddenKind(chars: string[], index: number, rtlText: boolean): keyof HiddenScan["kinds"] | undefined {
 	const code = chars[index].codePointAt(0)!;
-	if (code >= 0xe0000 && code <= 0xe007f) return "tag";
-	if ((code >= 0x202a && code <= 0x202e) || (code >= 0x2066 && code <= 0x2069)) return "bidi";
+	if (code >= 0xe0000 && code <= 0xe007f) return inFlagSequence(chars, index) ? undefined : "tag";
+	if ((code >= 0x202a && code <= 0x202e) || (code >= 0x2066 && code <= 0x2069)) return rtlText ? undefined : "bidi";
+	if ((code === 0x200c || code === 0x200d) && (JOINING_SCRIPT.test(chars[index - 1] ?? "") || JOINING_SCRIPT.test(chars[index + 1] ?? ""))) return undefined;
 	if (code === 0x200d) {
 		// Zero-width joiner between two pictographs: an emoji sequence (👨‍👩‍👧), not a hiding place.
 		const before = chars[index - 1] ?? "";
@@ -37,9 +56,10 @@ export function scanHidden(text: string): HiddenScan {
 	// Fast path: nothing outside the BMP's common ranges and no format characters.
 	if (!/[​-‍⁠᠎﻿‪-‮⁦-⁩]|\uDB40[\uDC00-\uDC7F]/.test(text)) return result;
 	const chars = [...text];
+	const rtlText = RTL.test(text);
 	let smuggled = "";
 	chars.forEach((_, index) => {
-		const kind = hiddenKind(chars, index);
+		const kind = hiddenKind(chars, index, rtlText);
 		if (!kind) return;
 		result.count++;
 		result.kinds[kind] = (result.kinds[kind] ?? 0) + 1;
@@ -55,7 +75,8 @@ export function scanHidden(text: string): HiddenScan {
 export function stripHidden(text: string): string {
 	if (scanHidden(text).count === 0) return text;
 	const chars = [...text];
-	return chars.filter((_, index) => !hiddenKind(chars, index)).join("");
+	const rtlText = RTL.test(text);
+	return chars.filter((_, index) => !hiddenKind(chars, index, rtlText)).join("");
 }
 
 /** One line for a finding: counts by kind and the smuggled text. */

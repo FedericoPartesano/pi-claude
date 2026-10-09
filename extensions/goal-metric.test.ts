@@ -110,3 +110,24 @@ test("reaching the target is reported", async () => {
 	assert.equal(round.kept, true);
 	assert.equal(round.targetReached, true);
 });
+
+test("a commit that fails (hook) is not reported as kept: the round is stashed instead", async () => {
+	const dir = repo();
+	const started = await beginMetric(dir, { command: "cat size.txt", direction: "lower" }, "x");
+	assert.ok(started.ok);
+	if (!started.ok) return;
+	writeFileSync(join(dir, ".git", "hooks", "pre-commit"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+	writeFileSync(join(dir, "size.txt"), "5\n");
+	const round = await settleRound(dir, started.state, 1);
+	assert.equal(round.kept, false);
+	assert.match(round.line, /commit non riesce/);
+	assert.equal(started.state.best, 10);
+	assert.equal(git(dir, "status", "--porcelain"), "");
+});
+
+test("thousands separators and digits inside words", () => {
+	assert.equal(parseMetricValue("time 1,234 ms"), 1234);
+	assert.equal(parseMetricValue("1,234,567"), 1234567);
+	assert.equal(parseMetricValue("3,5 s"), 3.5);
+	assert.equal(parseMetricValue("42 ok sha256"), 42);
+});
