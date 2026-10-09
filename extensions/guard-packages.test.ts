@@ -63,3 +63,10 @@ test("private registries: npm scopes or a default registry from .npmrc, a pip in
 	assert.equal(privateRegistry({ ecosystem: "pypi", name: "x" }, project, home, { PIP_INDEX_URL: "https://pypi.acme/simple" }), true);
 	assert.equal(privateRegistry({ ecosystem: "pypi", name: "x" }, project, home, {}), false);
 });
+
+test("redirections and shell syntax are not package names (real commands)", () => {
+	assert.deepEqual(parseInstalls("npm i zod 2>&1 | tail -3"), [{ ecosystem: "npm", name: "zod" }]);
+	assert.deepEqual(parseInstalls("pip install httpx 2> /dev/null"), [{ ecosystem: "pypi", name: "httpx" }]);
+	assert.deepEqual(parseInstalls("(cd x && npm install 2>&1)"), []);
+	assert.deepEqual(parseInstalls("npm i foo > log.txt"), [{ ecosystem: "npm", name: "foo" }]);
+});

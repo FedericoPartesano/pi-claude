@@ -36,6 +36,10 @@ export function parseInstalls(command: string): Install[] {
 		if (!ecosystem) continue;
 		for (let i = 0; i < args.length; i++) {
 			const arg = args[i];
+			if (/^\d*[<>]/.test(arg)) {
+				if (/^\d*[<>]+&?$/.test(arg)) i++; // "> file", "2> /dev/null": the target is the next word
+				continue;
+			}
 			if (VALUE_FLAGS.has(arg)) {
 				i++; // its value is a file, a folder, a tag: not a package
 				continue;
@@ -43,7 +47,7 @@ export function parseInstalls(command: string): Install[] {
 			// Flags, paths, URLs, archives, protocol specs (github:, file:, workspace:) and npm's owner/repo shorthand.
 			if (arg.startsWith("-") || /^[./~]|:|^git\+|\.(tgz|whl|tar\.gz)$/.test(arg) || (ecosystem === "npm" && !arg.startsWith("@") && arg.includes("/"))) continue;
 			const name = ecosystem === "npm" ? arg.replace(/(.)@.*$/, "$1") : arg.replace(/[\[<>=!~;].*$/, "");
-			if (name) out.push({ ecosystem, name: name.toLowerCase() });
+			if (/^(@[\w.-]+\/)?[a-z0-9][\w.-]*$/i.test(name)) out.push({ ecosystem, name: name.toLowerCase() });
 		}
 	}
 	return out;

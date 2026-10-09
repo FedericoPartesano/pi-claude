@@ -79,6 +79,27 @@ export function stripHidden(text: string): string {
 	return chars.filter((_, index) => !hiddenKind(chars, index, rtlText)).join("");
 }
 
+/**
+ * For tool results: removes what the model would read as hidden instructions (tag characters spell ASCII it reads) or
+ * that reorders text (bidi), and leaves zero-width characters alone — measured on 387k real files, they appear in
+ * minified code and regex classes, and removing them would make the model's later edits miss. Undefined: nothing to do.
+ */
+export function cleanToolText(text: string): { text: string; note: string } | undefined {
+	const scan = scanHidden(text);
+	if (!scan.kinds.tag && !scan.kinds.bidi) return undefined;
+	const chars = [...text];
+	const rtlText = RTL.test(text);
+	const cleaned = chars.filter((_, index) => {
+		const kind = hiddenKind(chars, index, rtlText);
+		return kind !== "tag" && kind !== "bidi";
+	});
+	const removed = { count: (scan.kinds.tag ?? 0) + (scan.kinds.bidi ?? 0), kinds: { ...(scan.kinds.tag ? { tag: scan.kinds.tag } : {}), ...(scan.kinds.bidi ? { bidi: scan.kinds.bidi } : {}) }, smuggled: scan.smuggled };
+	return { text: cleaned.join(""), note: describeHidden(removed) };
+}
+
+/** Whether a scan is worth a warning about instruction files: tags or bidi (zero-width alone is ordinary in real files). */
+export const isSuspicious = (scan: HiddenScan) => Boolean(scan.kinds.tag || scan.kinds.bidi);
+
 /** One line for a finding: counts by kind and the smuggled text. */
 export function describeHidden(scan: HiddenScan): string {
 	const kinds = Object.entries(scan.kinds).map(([kind, count]) => `${count} ${kind}`).join(", ");

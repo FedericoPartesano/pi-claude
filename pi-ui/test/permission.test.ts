@@ -49,3 +49,14 @@ test("dangerReason: quoted identifiers with WHERE pass, docker prune -af is caug
 	assert.ok(dangerReason("docker system prune -af"));
 	assert.ok(dangerReason("docker system prune --all --force"));
 });
+
+test("dangerReason on real commands: heredoc bodies written to files are data; env filtered by grep is fine", () => {
+	assert.equal(dangerReason("cat >> test/x.test.ts <<'EOF'\nassert.ok(dangerReason(\"DROP TABLE users\"));\ndb.users.deleteMany({})\nEOF\nnode --test"), undefined);
+	assert.equal(dangerReason("python3 - <<'EOF'\ns = 'rm -rf /tmp/x'\nEOF"), undefined);
+	assert.ok(dangerReason("psql mydb <<'SQL'\nDROP TABLE users;\nSQL"), "a heredoc fed to a database client still counts");
+	assert.ok(dangerReason("cat > x <<EOF\nhello\nEOF\nrm -rf build"), "commands after the heredoc still count");
+	assert.equal(dangerReason("env | grep -i mongo"), undefined);
+	assert.equal(dangerReason("printenv | grep -E 'A|B'"), undefined);
+	assert.ok(dangerReason("env"));
+	assert.ok(dangerReason("printenv | sort"));
+});
