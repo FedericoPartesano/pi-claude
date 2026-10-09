@@ -30,7 +30,8 @@ const time = (name: string, run: () => unknown) => {
 const reasons: Record<string, number> = {};
 for (const chain of corpus.chains) {
 	const queryVector = (await embedder.embed([chain.query], "query"))[0];
-	const bm = time("bm25", () => index.bm25(chain.query)) as Map<number, number>;
+	const lexical = time("bm25", () => index.bm25(chain.query)) as ReturnType<RecallIndex["bm25"]>;
+	const bm = lexical.touched.map((p) => [p, lexical.scores[p]] as [number, number]);
 	time("entities", () => index.entityMatches(chain.query));
 	time("vectors", () => index.vectorsFor(vectors).search(queryVector, 64));
 	const limit = cueLimit(chain.query);
