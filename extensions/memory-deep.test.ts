@@ -98,3 +98,18 @@ test("the overview: /dream proposes a 'quadro' (clipped to 1200 chars) and the p
 	assert.match(prompt, /gestionale ordini in NestJS/);
 	assert.match(prompt, /"quadro"/);
 });
+
+test("new memories of the same /dream can link each other (n<k> = k-th addition) and the ids are resolved", () => {
+	const parsed = parseProposal(JSON.stringify({ add: [
+		{ type: "fatto", text: "L'export delle fatture usa ReportBuilder", links: ["n2"] },
+		{ type: "decisione", text: "La coda reports resta a concorrenza 1 per la RAM del pod", links: ["n1", "n9"] },
+	] }), 0);
+	assert.ok(parsed.ok);
+	assert.deepEqual(parsed.proposal.add[0].links, ["n2"]);
+	assert.deepEqual(parsed.proposal.add[1].links, ["n1"], "n9 does not exist");
+	const applied = applyProposal([], [], parsed.proposal, "2026-10-09");
+	const records = entriesToRecords(applied.memory, applied.archive, [], "2026-10-09");
+	const [exportRecord, queueRecord] = records;
+	assert.deepEqual(exportRecord.links, [queueRecord.id]);
+	assert.deepEqual(queueRecord.links, [exportRecord.id]);
+});

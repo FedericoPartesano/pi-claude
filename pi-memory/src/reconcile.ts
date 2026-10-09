@@ -20,9 +20,12 @@ export function entriesToRecords(memory: MemoryEntry[], archive: MemoryEntry[], 
 	const before = new Map(prev.map((record) => [record.id, record]));
 	let counter = Math.max(0, ...prev.map((record) => Number(/^r(\d+)$/.exec(record.id)?.[1] ?? 0)));
 	const taken = new Set<string>();
+	/** Additions of this /dream ("new:k") → the ids they get here, to resolve links between them. */
+	const fresh = new Map<string, string>();
 	const idFor = (entry: MemoryEntry) => {
 		let id = entry.id;
-		if (!id || taken.has(id)) id = `r${++counter}`;
+		if (!id || id.startsWith("new:") || taken.has(id)) id = `r${++counter}`;
+		if (entry.id?.startsWith("new:")) fresh.set(entry.id, id);
 		taken.add(id);
 		return id;
 	};
@@ -56,6 +59,13 @@ export function entriesToRecords(memory: MemoryEntry[], archive: MemoryEntry[], 
 		const record = base(entry, idFor(entry));
 		if (!entry.reason || entry.reason === "episodio") records.push(record);
 		else records.push({ ...record, status: "superseded", reason: entry.reason });
+	}
+	// Links between additions of the same /dream, now that they have ids (unresolved ones dropped).
+	for (const record of records) {
+		if (!record.links?.some((link) => link.startsWith("new:"))) continue;
+		const links = record.links.map((link) => (link.startsWith("new:") ? fresh.get(link) : link)).filter((link): link is string => Boolean(link) && link !== record.id);
+		if (links.length) record.links = [...new Set(links)];
+		else delete record.links;
 	}
 	return records;
 }

@@ -119,7 +119,8 @@ export function applyProposal(memory: MemoryEntry[], archive: MemoryEntry[], pro
 	const touched = new Set<number>();
 	/** Extras with links turned from m<n> into the ids of the memories (memories without an id cannot be linked). */
 	const extras = (item: Extras): Extras => {
-		const links = (item.links ?? []).map((id) => memory[index(id)]?.id).filter((id): id is string => Boolean(id));
+		// n<k> stays symbolic ("new:k") until entriesToRecords gives the additions their ids.
+		const links = (item.links ?? []).map((id) => (id.startsWith("n") ? `new:${id.slice(1)}` : memory[index(id)]?.id)).filter((id): id is string => Boolean(id));
 		return { ...(links.length ? { links } : {}), ...(item.gist ? { gist: item.gist } : {}), ...(item.level ? { level: item.level } : {}) };
 	};
 
@@ -169,7 +170,7 @@ export function applyProposal(memory: MemoryEntry[], archive: MemoryEntry[], pro
 	}
 	const known = new Set([...memory, ...slots.filter(Boolean) as MemoryEntry[]].map((entry) => normalize(entry.text)));
 	const added: MemoryEntry[] = [];
-	for (const { type, text, entities, ...more } of proposal.add) {
+	for (const [position, { type, text, entities, ...more }] of proposal.add.entries()) {
 		const key = normalize(text);
 		if (!key || known.has(key)) continue;
 		known.add(key);
@@ -195,7 +196,7 @@ export function applyProposal(memory: MemoryEntry[], archive: MemoryEntry[], pro
 				continue;
 			}
 		}
-		const entry: MemoryEntry = { type, text, pinned: false, confirmations: 1, last: today, ...withEntities(entities), ...extras(more) };
+		const entry: MemoryEntry = { id: `new:${position + 1}`, type, text, pinned: false, confirmations: 1, last: today, ...withEntities(entities), ...extras(more) };
 		if (type === "episodio") newArchive.push({ ...entry, archived: today, reason: "episodio" });
 		else added.push(entry);
 		counts.added++;
@@ -342,8 +343,12 @@ export function parseProposal(text: string, memoryCount: number): { ok: true; pr
 	const list = (key: string) => (Array.isArray(raw[key]) ? (raw[key] as unknown[]) : []);
 	type Item = Record<string, unknown>;
 	/** links (existing m<n> only, at most 5; unknown ones are dropped silently), gist (≤ 90 chars), level. */
+	const additions = list("add").length;
+	/** m<n> = an existing memory, n<k> = the k-th addition of this same proposal. */
+	const linkable = (id: unknown): id is string =>
+		typeof id === "string" && ((/^m\d+$/.test(id) && Number(id.slice(1)) >= 1 && Number(id.slice(1)) <= memoryCount) || (/^n\d+$/.test(id) && Number(id.slice(1)) >= 1 && Number(id.slice(1)) <= additions));
 	const extrasOf = (item: Item): Extras => {
-		const links = Array.isArray(item.links) ? [...new Set(item.links.filter((id): id is string => typeof id === "string" && /^m\d+$/.test(id) && Number(id.slice(1)) >= 1 && Number(id.slice(1)) <= memoryCount))].slice(0, 5) : [];
+		const links = Array.isArray(item.links) ? [...new Set(item.links.filter(linkable))].slice(0, 5) : [];
 		const gist = typeof item.gist === "string" && item.gist.trim() ? cleanText(item.gist).slice(0, 90) : undefined;
 		const level = item.level === "personale" || item.level === "progetto" ? item.level : undefined;
 		return { ...(links.length ? { links } : {}), ...(gist ? { gist } : {}), ...(level ? { level } : {}) };
@@ -415,7 +420,7 @@ export function buildDreamPrompt(memory: MemoryEntry[], sessions: string, today:
 			: "- Il perché di una decisione o un episodio utile solo su richiesta → add con type \"episodio\" (va in archivio).",
 		...(options.deep
 			? [
-					"- \"links\": gli id (m<n>) dei ricordi esistenti a cui questo è collegato (ne spiega il perché, ne dipende, lo contraddice): così da uno si arriva all'altro. Solo id esistenti.",
+					"- \"links\": i ricordi a cui questo è collegato (ne spiega il perché, ne dipende, lo contraddice): così da uno si arriva all'altro. m<n> per quelli esistenti, n<k> per il k-esimo elemento di \"add\" di questa stessa risposta (es. n1). Collega ciò che riguarda la stessa cosa.",
 					"- \"gist\": se il testo è lungo, una versione di massimo 10 parole per i promemoria brevi.",
 					options.global ? "" : "- \"level\": \"personale\" per preferenze dell'utente valide in OGNI progetto (lingua, stile, strumenti personali), altrimenti ometti.",
 					options.global ? "" : `- "quadro": riscrivi il quadro del progetto (massimo ${QUADRO_CHARS} caratteri, in italiano): com'è fatto, regole e decisioni chiave, cosa è in corso. Partendo da quello attuale e dalle sessioni nuove; omettilo se non cambia nulla.`,
