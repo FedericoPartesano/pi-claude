@@ -157,3 +157,24 @@ test("document panel: a step's file opens as a sortable table in its own tab; a 
 		close();
 	}
 });
+
+test("permission dialog: the command apart, buttons with keys, answered with S/N/A like in the terminal", { skip, timeout: 60_000 }, async () => {
+	const { js, close } = await openPage();
+	try {
+		const ask = (id) => `emit("pi-ui", { type: "extension_ui_request", id: "${id}", method: "select", title: "⚠️ Comando pericoloso (cancella file):\\n\\n  rm -rf build\\n\\nLo eseguo?", options: ["Sì", "No", "Sì, sempre per questo comando"] }); "ok"`;
+		await js(ask("k1"));
+		await wait(200);
+		assert.equal(await js(`document.querySelector(".dialog-code").textContent`), "rm -rf build");
+		assert.equal(await js(`[...document.querySelectorAll(".dialog-actions kbd")].map((k) => k.textContent).join("")`), "SNA");
+		await js(`window.dispatchEvent(new KeyboardEvent("keydown", { key: "n", bubbles: true })); "ok"`);
+		await wait(150);
+		await js(ask("k2"));
+		await wait(200);
+		await js(`window.dispatchEvent(new KeyboardEvent("keydown", { key: "a", bubbles: true })); "ok"`);
+		await wait(150);
+		const answers = JSON.parse(await js(`JSON.stringify(calls.filter((c) => c[0] === "answer"))`));
+		assert.deepEqual(answers, [["answer", "k1", { value: "No" }], ["answer", "k2", { value: "Sì, sempre per questo comando" }]], "one answer each, no extra 'cancelled'");
+	} finally {
+		close();
+	}
+});

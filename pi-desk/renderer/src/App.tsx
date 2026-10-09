@@ -228,7 +228,8 @@ export function App() {
 	onMount(() => document.addEventListener("keydown", onKey));
 
 	const turns = () => viewing()?.turns ?? state.turns;
-	const statuses = () => Object.values(state.statuses).join("   ·   ");
+	// Statuses written for the terminal carry ANSI colours: plain text here.
+	const statuses = () => Object.values(state.statuses).map((text) => text.replace(/\u001b\[[0-9;]*m/g, "")).join("   ·   ");
 
 	return (
 		<div id="app" classList={{ "sidebar-open": sidebar(), "browser-closed": !browserOpen() }} style={{ "--chat": `${chatShare()}%` }} onClick={onClick}>
@@ -271,7 +272,9 @@ export function App() {
 				</div>
 				<Composer busy={state.busy && !viewing()} readonly={Boolean(viewing()) && !viewing()!.writable} placeholder={viewing()?.writable ? "Scrivi al Pi nel terminale…" : "Chiedi a Pi…"} statuses={statuses()} onSend={send} onStop={() => desk.abort()} ref={(api) => (composer = api)} />
 				<ExtensionDialog request={state.dialog} mount={chatColumn} onAnswer={(fields) => {
-					desk.answer(state.dialog!.id, fields);
+					const request = state.dialog;
+					if (!request) return;
+					desk.answer(request.id, fields);
 					chat.closeDialog();
 				}} />
 				<Lightbox />
