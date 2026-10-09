@@ -17,6 +17,9 @@ test("chat UI: user message, streamed markdown, tool lines, confirm dialog answe
 	const js = (code) => session.evaluate(code);
 	try {
 		await session.open(`file://${fileURLToPath(new URL("./ui-harness.html", import.meta.url))}`);
+		// Hidden overlays must not take the clicks (#dialog had display:grid, which beat [hidden]: every click hit it).
+		const under = await js(`[document.elementFromPoint(40, 22), document.elementFromPoint(200, 300)].map((e) => e?.id || e?.className).join(",")`);
+		assert.ok(!/dialog|viewer-bar/.test(under), `under the mouse: ${under}`);
 		// The user sends with Enter.
 		await js(`input.value = "apri example.com"; input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" })); "ok"`);
 		assert.match(await js(`JSON.stringify(calls)`), /"prompt","apri example.com"/);
