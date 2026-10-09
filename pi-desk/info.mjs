@@ -5,7 +5,7 @@
 import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 
 export const USAGE_FILE = join(homedir(), ".pi", "agent", "claude-code-usage.json");
 
@@ -33,4 +33,24 @@ export function readUsage(file = USAGE_FILE) {
 	} catch {
 		return undefined;
 	}
+}
+
+/**
+ * What "open outside" may open, from a viewer tab: web addresses in the browser, files of the project with their app.
+ * Anything else outside the project is only shown in its folder (a script or a .desktop file is never launched).
+ */
+export function externalTarget(target, project) {
+	if (typeof target !== "string" || !target) return {};
+	if (/^https?:\/\//i.test(target)) return { url: target };
+	if (/^(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(target)) return { url: `http://${target}` };
+	if (/^[a-z][\w+.-]*:/i.test(target) && !/^file:\/\//i.test(target)) return {};
+	const path = resolve(project, decodeURI(target.replace(/^file:\/\//i, "")));
+	const inside = relative(project, path);
+	return inside && !inside.startsWith("..") && !isAbsolute(inside) ? { path } : { reveal: path };
+}
+
+/** The session entry to fork from: the occurrence-th user message with this text (the last one if there are fewer). */
+export function forkEntry(messages, text, occurrence) {
+	const same = messages.filter((message) => message.text === text);
+	return same[Math.min(occurrence, same.length - 1)]?.entryId;
 }

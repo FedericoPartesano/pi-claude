@@ -23,3 +23,25 @@ test("usage: the file pi-claude-code writes, as percentages; missing or broken m
 	assert.equal(readUsage(file), undefined);
 	assert.equal(readUsage(join(dir, "none.json")), undefined);
 });
+
+test("open outside: web addresses (with or without scheme) and files inside the project only", async () => {
+	const { externalTarget } = await import("../info.mjs");
+	assert.deepEqual(externalTarget("https://a.it/x", "/p"), { url: "https://a.it/x" });
+	assert.deepEqual(externalTarget("localhost:3000/cart", "/p"), { url: "http://localhost:3000/cart" });
+	assert.deepEqual(externalTarget("out/vendite.png", "/p"), { path: "/p/out/vendite.png" });
+	assert.deepEqual(externalTarget("file:///p/a.pdf", "/p"), { path: "/p/a.pdf" });
+	assert.deepEqual(externalTarget("/p/docs/spec.pdf", "/p"), { path: "/p/docs/spec.pdf" });
+	assert.deepEqual(externalTarget("../etc/x.sh", "/p"), { reveal: "/etc/x.sh" });
+	assert.deepEqual(externalTarget("/home/me/run.desktop", "/p"), { reveal: "/home/me/run.desktop" });
+	assert.deepEqual(externalTarget("javascript:alert(1)", "/p"), {});
+	assert.deepEqual(externalTarget(42, "/p"), {});
+});
+
+test("fork point: the n-th time that text was sent, not a position that slash commands can shift", async () => {
+	const { forkEntry } = await import("../info.mjs");
+	const messages = [{ entryId: "a", text: "ciao" }, { entryId: "b", text: "rifai" }, { entryId: "c", text: "rifai" }];
+	assert.equal(forkEntry(messages, "rifai", 0), "b");
+	assert.equal(forkEntry(messages, "rifai", 1), "c");
+	assert.equal(forkEntry(messages, "rifai", 5), "c", "fewer in the session: the last one");
+	assert.equal(forkEntry(messages, "mai detto", 0), undefined);
+});

@@ -285,9 +285,9 @@ export function App() {
 			chat.addNote(clean((error as Error).message), "error");
 		}
 	}
-	async function fork(index: number) {
+	async function fork(text: string, occurrence: number) {
 		try {
-			const result = await desk.fork(index);
+			const result = await desk.fork(text, occurrence);
 			if (result.cancelled) return;
 			chat.replace([...transcriptTurns(result.items), { id: Date.now(), role: "note", text: "Nuova sessione diramata da qui: il messaggio è nel campo sotto" }]);
 			if (result.text) composer?.fill(result.text);
@@ -328,7 +328,9 @@ export function App() {
 		return { state: "run", text: thinking ? `penso${status.thought ? ` · ${status.thought}` : ""}` : status.activity || "lavoro", meta: [status.step ? `passo ${status.step}` : "", `${seconds}s`].filter(Boolean).join(" · "), keys: "", thinking };
 	});
 	const bar = () => (viewing() ? remoteBar() : localBar());
-	const question = () => (viewing() ? (remote()?.mode === "waiting" ? remoteQuestion(remote()!.question ?? "Pi aspetta una risposta") : undefined) : state.dialog ? localQuestion(state.dialog) : undefined);
+	// The same object while it is the same question: the status is polled every 600 ms, and a new object would remount
+	// the box (and its one-answer guard) each time.
+	const question = createMemo(() => (viewing() ? (remote()?.mode === "waiting" ? remoteQuestion(remote()!.question ?? "Pi aspetta una risposta") : undefined) : state.dialog ? localQuestion(state.dialog) : undefined), undefined, { equals: (a, b) => a?.id === b?.id });
 	const onAnswer = (fields: object) => {
 		if (viewing()) return answerRemote((fields as { value: "yes" | "no" | "always" }).value);
 		const request = state.dialog;
@@ -377,6 +379,7 @@ export function App() {
 		if (ctrl && event.key.toLowerCase() === "b") return event.preventDefault(), setSidebarChoice(!sidebar());
 		if (ctrl && event.key.toLowerCase() === "n") return event.preventDefault(), void newSession();
 		if (ctrl && event.key === "\\") return event.preventDefault(), viewer.hide();
+		if (event.defaultPrevented) return;
 		if (event.key === "Escape" && state.busy && !state.dialog && !lightboxOpen() && !viewing()) return void desk.abort();
 		if (ctrl || event.altKey || typing(event) || !composerEmpty() || question()) return;
 		if (/^[1-4]$/.test(event.key)) {

@@ -48,6 +48,9 @@ export function Ask(props: { question: Question; onAnswer: (fields: object) => v
 	};
 	const onKey = (event: KeyboardEvent) => {
 		if (props.question.input !== undefined || event.ctrlKey || event.metaKey || event.altKey || !props.composerEmpty()) return;
+		// A key typed in another field (search, address bar) is text, not an answer.
+		const target = event.target as HTMLElement | null;
+		if (target?.matches?.("input, textarea, select, [contenteditable]") && target.id !== "input") return;
 		const key = event.key.toLowerCase() === "y" ? "s" : event.key.toLowerCase();
 		const option = props.question.options.find((o) => o.key === key);
 		if (!option) return;
@@ -72,7 +75,8 @@ export function Ask(props: { question: Question; onAnswer: (fields: object) => v
 				}>
 					<input value={value()} onInput={(event) => setValue(event.currentTarget.value)} onKeyDown={(event) => {
 						if (event.key === "Enter") answer({ value: value() });
-						if (event.key === "Escape") answer({ cancelled: true });
+						// Esc answers the question only: it must not also stop Pi's turn (App checks defaultPrevented).
+						if (event.key === "Escape") (event.preventDefault(), answer({ cancelled: true }));
 					}} ref={(el) => queueMicrotask(() => el.focus())} />
 					<button type="button" class="primary" onClick={() => answer({ value: value() })}>OK <kbd>↵</kbd></button>
 					<button type="button" onClick={() => answer({ cancelled: true })}>Annulla <kbd>Esc</kbd></button>

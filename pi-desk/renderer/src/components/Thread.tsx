@@ -18,7 +18,7 @@ export type ThreadActions = {
 	onEdit: (text: string) => void;
 	onRetry: (text: string) => void;
 	/** Only for this window's own chat: a new session from the n-th user message. */
-	onFork?: (index: number) => void;
+	onFork?: (text: string, occurrence: number) => void;
 	ask?: Question;
 	onAnswer: (fields: object) => void;
 	composerEmpty: () => boolean;
@@ -171,7 +171,7 @@ function PiTurnView(props: { turn: PiTurn; last: boolean; userText?: string; use
 						<span class="grow" />
 						<button type="button" onClick={() => copy(answer(lastText()).text)}>copia</button>
 						<Show when={props.userText}><button type="button" onClick={() => props.actions.onRetry(props.userText!)}>riprova</button></Show>
-						<Show when={props.actions.onFork && props.userText}><button type="button" title="Nuova sessione da questo punto" onClick={() => props.actions.onFork!(props.userIndex)}>dirama ⎇</button></Show>
+						<Show when={props.actions.onFork && props.userText}><button type="button" title="Nuova sessione da questo punto" onClick={() => props.actions.onFork!(props.userText!, props.userIndex)}>dirama ⎇</button></Show>
 					</div>
 				</Show>
 				<Show when={suggestions().length}>
@@ -234,10 +234,15 @@ function ExchangeView(props: { exchange: Exchange; last: boolean; index: number;
 
 export function Thread(props: { turns: Turn[]; typing?: boolean; actions: ThreadActions }) {
 	const list = createMemo(() => exchanges(props.turns));
-	// The index of each exchange's user message among all user messages (the fork point).
+	// How many times each exchange's message was sent before it (the fork point is found by text in the session).
 	const userIndex = createMemo(() => {
-		let n = -1;
-		return list().map((e) => (e.user ? ++n : n));
+		const seen = new Map<string, number>();
+		return list().map((e) => {
+			if (!e.user) return 0;
+			const n = seen.get(e.user.text) ?? 0;
+			seen.set(e.user.text, n + 1);
+			return n;
+		});
 	});
 	const lastHasPi = () => list()[list().length - 1]?.items.some((t) => t.role === "pi" && !t.done);
 	return (

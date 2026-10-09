@@ -191,7 +191,14 @@ test("permission dialog: the command apart, buttons with keys, answered with S/N
 		await wait(200);
 		await js(`window.dispatchEvent(new KeyboardEvent("keydown", { key: "a", bubbles: true })); "ok"`);
 		await wait(150);
-		const answers = JSON.parse(await js(`JSON.stringify(calls.filter((c) => c[0] === "answer"))`));
+		// Esc in an input question cancels it and does not stop Pi's turn.
+		await js(`emit("pi-event", { type: "agent_start" }); emit("pi-ui", { type: "extension_ui_request", id: "k3", method: "input", title: "Nome del file?" }); "ok"`);
+		await wait(200);
+		await js(`document.querySelector(".ask input").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })); "ok"`);
+		await wait(150);
+		assert.match(await js(`JSON.stringify(calls)`), /"answer","k3",\{"cancelled":true\}/);
+		assert.ok(!/\["abort"\]/.test(await js(`JSON.stringify(calls)`)), "Esc answered the question only");
+		const answers = JSON.parse(await js(`JSON.stringify(calls.filter((c) => c[0] === "answer" && c[1] !== "k3"))`));
 		assert.deepEqual(answers, [["answer", "k1", { value: "No" }], ["answer", "k2", { value: "Sì, sempre per questo comando" }]], "one answer each, no extra 'cancelled'");
 	} finally {
 		close();
@@ -232,6 +239,14 @@ test("a terminal Pi's status line in the app: TOCCA A TE answered with a button 
 		assert.match(await js(`document.querySelector(".ask")?.innerText ?? ""`), /rm -rf build[\s\S]*Consenti[\s\S]*Sempre[\s\S]*No/);
 		// The sidebar says it too: the session needs you.
 		assert.match(await js(`document.getElementById("session-list").innerText`), /permesso/);
+		// The box stays the same while the status is polled (a remount would let one key answer twice).
+		await js(`window.__ask = document.querySelector(".ask"); "ok"`);
+		await wait(1300);
+		assert.equal(await js(`String(document.querySelector(".ask") === window.__ask)`), "true", "not remounted by polling");
+		// Typing in another field does not answer.
+		await js(`document.getElementById("session-filter").dispatchEvent(new KeyboardEvent("keydown", { key: "a", bubbles: true })); "ok"`);
+		await wait(100);
+		assert.ok(!/remote-answer/.test(await js(`JSON.stringify(calls)`)), "a key typed in the search is not an answer");
 		await js(`window.dispatchEvent(new KeyboardEvent("keydown", { key: "n", bubbles: true })); "ok"`);
 		await wait(100);
 		assert.match(await js(`JSON.stringify(calls)`), /"remote-answer",42,"no"/);

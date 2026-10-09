@@ -14,7 +14,7 @@ export type Info = { project: string; branch?: string; changes?: number; usage?:
 
 export interface Desk {
 	info(): Promise<Info>;
-	fork(index: number): Promise<{ text?: string; cancelled?: boolean; items: TranscriptItem[] }>;
+	fork(text: string, occurrence: number): Promise<{ text?: string; cancelled?: boolean; items: TranscriptItem[] }>;
 	openExternal(target: string): Promise<unknown>;
 	prompt(text: string, images?: { type: "image"; data: string; mimeType: string }[]): Promise<{ disposition?: string }>;
 	abort(): Promise<void>;

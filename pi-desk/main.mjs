@@ -6,7 +6,7 @@
  *   npm start [-- <project folder>]      PI_DESK_PI=<pi command>   PI_DESK_CDP_PORT=9339
  */
 import { app, BrowserWindow, WebContentsView, clipboard, ipcMain, shell, session as electronSession } from "electron";
-import { gitInfo, readUsage } from "./info.mjs";
+import { externalTarget, forkEntry, gitInfo, readUsage } from "./info.mjs";
 import { PICKER_SCRIPT } from "./picker.mjs";
 import { readForPanel } from "./files.mjs";
 import { DESK_PROMPT } from "./prompt.mjs";
@@ -194,15 +194,22 @@ app.whenReady().then(() => {
 		};
 	});
 	// "dirama": a new session from the n-th user message of this one (its text comes back for the composer).
-	ipcMain.handle("fork", async (_event, index) => {
+	// "dirama": a new session from a user message of this one, found by its text (the n-th time it was sent: slash
+	// commands typed here leave no user message in the session, so positions would drift). Its text comes back.
+	ipcMain.handle("fork", async (_event, text, occurrence) => {
 		const { messages = [] } = await pi.send("get_fork_messages");
-		const target = messages[index];
-		if (!target) throw new Error("messaggio non trovato");
-		const result = await pi.send("fork", { entryId: target.entryId });
+		const entryId = forkEntry(messages, text, occurrence);
+		if (!entryId) throw new Error("messaggio non trovato nella sessione");
+		const result = await pi.send("fork", { entryId });
 		const state = await pi.send("get_state").catch(() => undefined);
 		return { ...result, items: state?.sessionFile ? readTranscript(state.sessionFile).items : [] };
 	});
-	ipcMain.handle("open-external", (_event, target) => (/^https?:/i.test(target) ? shell.openExternal(target) : shell.openPath(resolve(project, target.replace(/^file:\/\//, "")))));
+	ipcMain.handle("open-external", (_event, target) => {
+		const { url, path, reveal } = externalTarget(target, project);
+		if (url) return shell.openExternal(url);
+		if (path) return shell.openPath(path);
+		if (reveal) shell.showItemInFolder(reveal);
+	});
 	ipcMain.handle("restart", () => {
 		pi.stop();
 		startPi();
