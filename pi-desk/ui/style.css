@@ -40,6 +40,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* ---- Layout: sidebar | chat | splitter | browser ------------------------------------------------------------- */
 #app { display: grid; grid-template-columns: var(--sidebar) minmax(360px, var(--chat)) 5px minmax(280px, 1fr); grid-template-rows: 100vh; height: 100vh; overflow: hidden; }
 #app.sidebar-open { --sidebar: 272px; }
+#app.browser-closed { grid-template-columns: var(--sidebar) minmax(0, 1fr) 0 0; }
+#app.browser-closed #splitter, #app.browser-closed #browser { display: none; }
+#toggle-browser.on { color: var(--accent); background: var(--accent-soft); text-shadow: 0 0 8px #2ee6ff88; }
 #sidebar { overflow: hidden; display: flex; flex-direction: column; background: var(--surface); border-right: 1px solid var(--line); min-width: 0; }
 #app:not(.sidebar-open) #sidebar { visibility: hidden; }
 #chat { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg); }

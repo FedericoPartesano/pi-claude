@@ -190,6 +190,8 @@ window.desk.on("pi-event", (event) => {
 				turn().appendChild(live.steps);
 			}
 			live.tools.set(event.toolCallId, { row: stepRow(live.steps, event.toolName, event.args), start: Date.now() });
+			// Pi is driving the browser: let the user watch.
+			if (event.toolName === "browser" && event.args?.action !== "close") showBrowser(true);
 			setBusy(true, `${event.toolName} ${toolBrief(event.toolName, event.args)}`.slice(0, 60));
 			break;
 		}
@@ -350,6 +352,7 @@ document.addEventListener("click", (event) => {
 	const link = event.target.closest?.(".md a[href]");
 	if (link) {
 		event.preventDefault();
+		showBrowser(true);
 		window.desk.browser("go", link.getAttribute("href"));
 		return;
 	}
@@ -381,8 +384,20 @@ $("back").onclick = () => window.desk.browser("back");
 $("forward").onclick = () => window.desk.browser("forward");
 $("reload").onclick = () => window.desk.browser("reload");
 
+// The panel is closed until it is wanted: the button, Pi using the browser, or a link in the chat.
+function showBrowser(open) {
+	app.classList.toggle("browser-closed", !open);
+	$("toggle-browser").classList.toggle("on", open);
+	setTimeout(sendRect, 0);
+}
+const browserOpen = () => !app.classList.contains("browser-closed");
+$("toggle-browser").onclick = () => showBrowser(!browserOpen());
+$("close-browser").onclick = () => showBrowser(false);
+
 const slot = $("browser-slot");
 const sendRect = () => {
+	// Closed: a zero rect, and the main process hides the native view.
+	if (!browserOpen()) return window.desk.browserRect?.({ x: 0, y: 0, width: 0, height: 0 });
 	const rect = slot.getBoundingClientRect();
 	window.desk.browserRect?.({ x: Math.round(rect.left), y: Math.round(rect.top), width: Math.round(rect.width), height: Math.round(rect.height) });
 };

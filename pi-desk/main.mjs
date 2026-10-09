@@ -52,6 +52,9 @@ let pi;
 /** The native browser view sits exactly over the page's #browser-slot (the page reports it on every resize). */
 function placeView(rect) {
 	if (!view || !rect) return;
+	// The page closed the panel: no native view on top of the chat.
+	if (rect.width < 10 || rect.height < 10) return void view.setVisible(false);
+	view.setVisible(true);
 	view.setBounds({ x: Math.max(0, rect.x), y: Math.max(0, rect.y), width: Math.max(0, rect.width), height: Math.max(0, rect.height) });
 }
 

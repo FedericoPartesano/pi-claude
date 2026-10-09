@@ -39,6 +39,16 @@ test("a whole turn: user bubble, thinking, streamed markdown with a chart, tool 
 		// Nothing hidden takes the clicks (a display rule once beat [hidden] and every click hit the dialog).
 		assert.ok(!/dialog|viewer-bar/.test(await js(`[document.elementFromPoint(40, 26), document.elementFromPoint(300, 400)].map((e) => e?.id || e?.className).join(",")`)));
 		assert.equal(await js(`String(!document.getElementById("empty").hidden)`), "true", "empty state first");
+		// The browser panel starts closed (no wasted space) and reports no area for the native view.
+		assert.equal(await js(`getComputedStyle(document.getElementById("browser")).display`), "none");
+		assert.match(await js(`JSON.stringify(window.lastRect)`), /"width":0/);
+		await js(`document.getElementById("toggle-browser").click(); "ok"`);
+		await wait(50);
+		assert.notEqual(await js(`getComputedStyle(document.getElementById("browser")).display`), "none");
+		assert.ok(Number(await js(`String(window.lastRect.width)`)) > 100);
+		await js(`document.getElementById("close-browser").click(); "ok"`);
+		await wait(50);
+		assert.equal(await js(`getComputedStyle(document.getElementById("browser")).display`), "none");
 		await js(`input.value = "fammi un grafico"; input.dispatchEvent(new Event("input")); input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" })); "ok"`);
 		assert.match(await js(`JSON.stringify(calls)`), /"prompt","fammi un grafico"/);
 		assert.equal(await js(`document.querySelector(".turn-user").textContent`), "fammi un grafico");
@@ -58,6 +68,7 @@ test("a whole turn: user bubble, thinking, streamed markdown with a chart, tool 
 		await js(`emit("pi-event", { type: "message_end", message: { role: "assistant" } });
 			emit("pi-event", { type: "tool_execution_start", toolCallId: "t1", toolName: "browser", args: { action: "open", url: "https://example.com" } }); "ok"`);
 		assert.match(await js(`document.getElementById("status").textContent`), /browser open https:\/\/example.com/);
+		assert.notEqual(await js(`getComputedStyle(document.getElementById("browser")).display`), "none", "opens when Pi uses the browser");
 		assert.equal(await js(`document.querySelector(".step").className`), "step run");
 		await js(`emit("pi-ui", { type: "extension_ui_request", id: "u1", method: "confirm", title: "pi-browser", message: "Aprire https://example.com?" }); "ok"`);
 		await js(`document.querySelector("#dialog-actions .primary").click(); "ok"`);
