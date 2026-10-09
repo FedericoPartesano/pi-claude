@@ -108,6 +108,26 @@ const sameRecord = (a: MemoryRecord | undefined, b: MemoryRecord | undefined) =>
 const idNumber = (id: string) => Number(/^r(\d+)$/.exec(id)?.[1] ?? 0);
 
 /**
+ * One memory changed both by the user (saved) and by the dream (next), from the same starting point (old). The user's
+ * text or status change wins whole (they decided what the memory says); otherwise field by field: what the user changed
+ * (a pin) wins, the rest is the dream's (reinforcement, links, gist, its supersession). Before, the saved copy won
+ * whole, and a pin made while the dream superseded the memory brought the old text back next to its replacement.
+ */
+function threeWay(old: MemoryRecord, saved: MemoryRecord, dream: MemoryRecord): MemoryRecord {
+	if (saved.text !== old.text || saved.status !== old.status) return saved;
+	const result: Record<string, unknown> = { ...dream };
+	for (const key of new Set([...Object.keys(old), ...Object.keys(saved)])) {
+		const was = (old as unknown as Record<string, unknown>)[key];
+		const is = (saved as unknown as Record<string, unknown>)[key];
+		if (JSON.stringify(was) !== JSON.stringify(is)) {
+			if (is === undefined) delete result[key];
+			else result[key] = is;
+		}
+	}
+	return result as unknown as MemoryRecord;
+}
+
+/**
  * /dream reads the store, waits minutes for the model, then saves: whatever was saved meanwhile (an edit, a pin or a
  * deletion in /memory, another session's /dream) must survive. `next` was computed from `previous`; `current` is the
  * store now. Deletions and the user's changes win over the dream; memories added elsewhere are kept with their ids, and
@@ -128,7 +148,7 @@ export function rebaseOnCurrent(previous: MemoryRecord[], current: MemoryRecord[
 			// Existed when the dream started: deleted since → stays deleted; changed since → the change wins.
 			const saved = now.get(record.id);
 			if (!saved) continue;
-			merged.push(sameRecord(saved, old) ? record : saved);
+			merged.push(sameRecord(saved, old) ? record : threeWay(old, saved, record));
 			continue;
 		}
 		// The dream's own addition: a new id if another writer took this one meanwhile.
@@ -141,6 +161,16 @@ export function rebaseOnCurrent(previous: MemoryRecord[], current: MemoryRecord[
 	}
 	// Memories that did not exist when the dream started (another session's /dream, an addition in /memory).
 	for (const record of current) if (!before.has(record.id)) merged.push(record);
+	// A pin given to a memory the dream superseded meanwhile belongs to its replacement.
+	const byId = new Map(merged.map((record) => [record.id, record]));
+	for (const [index, record] of merged.entries()) {
+		const replacement = record.supersededBy ? byId.get(renamed.get(record.supersededBy) ?? record.supersededBy) : undefined;
+		if (record.status !== "superseded" || !record.pinned || !replacement) continue;
+		merged[index] = { ...record, pinned: false };
+		const at = merged.indexOf(replacement);
+		merged[at] = { ...replacement, pinned: true };
+		byId.set(replacement.id, merged[at]);
+	}
 	if (renamed.size === 0) return merged;
 	return merged.map((record) => (record.links?.some((link) => renamed.has(link)) && next.includes(record) ? { ...record, links: record.links.map((link) => renamed.get(link) ?? link) } : record));
 }

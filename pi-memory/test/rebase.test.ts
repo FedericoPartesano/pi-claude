@@ -29,3 +29,36 @@ test("nothing saved meanwhile: the dream's result as is", () => {
 	const next = [rec("r1", "Uno", { confirmations: 2 }), rec("r2", "Nuovo")];
 	assert.deepEqual(rebaseOnCurrent(previous, previous, next), next);
 });
+
+test("a pin made while /dream superseded the memory moves to its replacement: no duplicate comes back", () => {
+	const previous = [rec("r1", "Deploy con script A"), rec("r2", "Altro")];
+	const current = [rec("r1", "Deploy con script A", { pinned: true }), rec("r2", "Altro")];
+	const next = [rec("r1", "Deploy con script A", { status: "superseded", supersededBy: "r3" }), rec("r2", "Altro", { confirmations: 2 }), rec("r3", "Deploy con script B")];
+	const merged = rebaseOnCurrent(previous, current, next);
+	const active = merged.filter((record) => record.status === "active").map((record) => record.text);
+	assert.deepEqual(active.sort(), ["Altro", "Deploy con script B"], "the old text does not come back as active");
+	assert.equal(merged.find((record) => record.id === "r3")?.pinned, true, "the pin follows the replacement");
+	assert.equal(merged.find((record) => record.id === "r1")?.pinned, false);
+	assert.equal(merged.find((record) => record.id === "r2")?.confirmations, 2);
+});
+
+test("field by field: the user's pin and the dream's reinforcement and links both stay", () => {
+	const previous = [rec("r1", "Uno")];
+	const current = [rec("r1", "Uno", { pinned: true })];
+	const next = [rec("r1", "Uno", { confirmations: 3, links: ["r2"], gist: "uno" }), rec("r2", "Due")];
+	const merged = rebaseOnCurrent(previous, current, next);
+	const r1 = merged.find((record) => record.id === "r1")!;
+	assert.equal(r1.pinned, true);
+	assert.equal(r1.confirmations, 3);
+	assert.deepEqual(r1.links, ["r2"]);
+	assert.equal(r1.gist, "uno");
+});
+
+test("a user's text edit still wins whole over the dream's change of the same memory", () => {
+	const previous = [rec("r1", "Uno")];
+	const current = [rec("r1", "Uno corretto dall'utente")];
+	const next = [rec("r1", "Uno", { status: "superseded", supersededBy: "r2" }), rec("r2", "Uno bis")];
+	const merged = rebaseOnCurrent(previous, current, next);
+	assert.equal(merged.find((record) => record.id === "r1")?.text, "Uno corretto dall'utente");
+	assert.equal(merged.find((record) => record.id === "r1")?.status, "active");
+});
