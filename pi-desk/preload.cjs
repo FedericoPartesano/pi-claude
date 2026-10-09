@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld("desk", {
 	closeSession: () => ipcRenderer.invoke("session-close"),
 	resumeSession: (path, cwd) => ipcRenderer.invoke("session-resume", path, cwd),
 	newSession: () => ipcRenderer.invoke("session-new"),
+	linkSession: (pid, path) => ipcRenderer.invoke("session-link", pid, path),
+	sendToSession: (pid, text) => ipcRenderer.invoke("session-send", pid, text),
 	on: (channel, listener) => {
 		const allowed = ["pi-event", "pi-ui", "pi-stderr", "pi-exit", "browser-url", "layout", "project", "session-append"];
 		if (!allowed.includes(channel)) return;

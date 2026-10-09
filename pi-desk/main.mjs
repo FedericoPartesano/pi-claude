@@ -12,6 +12,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PiRpc } from "./rpc.mjs";
 import { listSessions, markRunning, readTranscript, runningPi } from "./sessions.mjs";
+import { linkRequest } from "./link.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, "..");
@@ -136,6 +137,13 @@ app.whenReady().then(() => {
 	ipcMain.handle("sessions", () => markRunning(listSessions(), runningPi(), pi?.pid));
 	ipcMain.handle("session-open", (_event, path) => watch(path));
 	ipcMain.handle("session-close", () => unwatch());
+	// A session running in a terminal Pi: written through that Pi (desk-link), never into its file.
+	ipcMain.handle("session-link", async (_event, pid, path) => {
+		const hello = await linkRequest(pid, { type: "hello" });
+		if (hello.session && hello.session !== path) throw new Error("quel Pi ora lavora su un'altra sessione");
+		return hello;
+	});
+	ipcMain.handle("session-send", (_event, pid, text) => linkRequest(pid, { type: "prompt", text }));
 	// Resume a closed session here: Pi restarts in that session's folder with it loaded.
 	ipcMain.handle("session-resume", (_event, path, cwd) => {
 		unwatch();

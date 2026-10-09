@@ -19,8 +19,11 @@ npm start -- ~/progetti/shop   # oppure in un'altra
   aggiunto con `-e`.
 
 - **Sessioni** (☰ in alto): tutte le sessioni di Pi su questo PC, per progetto, con ricerca.
-  - **In corso** (● pid): i Pi aperti adesso nei terminali, riconosciuti da `/proc` su Linux e WSL. Si aprono in sola
-    lettura e si aggiornano mentre l'altro Pi lavora; scriverci da qui romperebbe la sessione.
+  - **In corso** (● pid): i Pi aperti adesso nei terminali, riconosciuti da `/proc` su Linux e WSL. Si aggiornano mentre
+    l'altro Pi lavora, e **ci puoi scrivere**: il messaggio arriva a quel Pi tramite `desk-link`, un socket locale privato
+    (`~/.pi/agent/desk/<pid>.sock`). Lì compare come scritto da te, e va in coda se Pi sta lavorando. Il file della
+    sessione non viene mai toccato da qui. I Pi avviati prima dell'aggiornamento restano in sola lettura finché non li
+    riavvii.
   - **Chiuse:** si leggono e, con "Riprendi qui", Pi riparte nella loro cartella con quella sessione (`--session`).
   - **＋ Nuova:** riparte con una sessione nuova.
 

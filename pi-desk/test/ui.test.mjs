@@ -78,14 +78,26 @@ test("sessions: running first with badges, a running one read-only and live, a c
 		await js(`[...document.querySelectorAll(".session")].find((b) => b.innerText.includes("carrello")).click(); "ok"`);
 		await wait();
 		assert.equal(await js(`document.getElementById("viewer").hidden`), "false");
-		assert.match(await js(`document.getElementById("viewer-label").textContent`), /sola lettura/);
-		assert.equal(await js(`document.getElementById("viewer-resume").hidden`), "true", "a running session cannot be resumed here");
-		assert.match(await js(`document.getElementById("composer").className`), /readonly/);
+		assert.match(await js(`document.getElementById("viewer-label").textContent`), /scrivi qui/);
+		assert.equal(await js(`document.getElementById("viewer-resume").hidden`), "true", "a running session is not resumed: it is written through its Pi");
+		assert.ok(!/readonly/.test(await js(`document.getElementById("composer").className`)), "writable through desk-link");
+		await js(`input.value = "aggiungi i test"; input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" })); "ok"`);
+		await wait();
+		assert.match(await js(`JSON.stringify(calls)`), /"send",42,"aggiungi i test"/);
+		assert.match(await js(`document.getElementById("viewer").innerText`), /in coda/);
+		assert.ok(!/"prompt","aggiungi i test"/.test(await js(`JSON.stringify(calls)`)), "never sent to this window's Pi");
 		assert.match(await js(`document.getElementById("viewer").innerHTML`), /<strong>fatto<\/strong>/);
 		await js(`emit("session-append", { path: "/s/live", items: [{ role: "assistant", text: "nuovo passo" }] }); "ok"`);
 		assert.match(await js(`document.getElementById("viewer").innerText`), /nuovo passo/);
 		await js(`emit("session-append", { path: "/s/other", items: [{ role: "assistant", text: "di un'altra" }] }); "ok"`);
 		assert.ok(!/di un'altra/.test(await js(`document.getElementById("viewer").innerText`)));
+		// A running Pi without desk-link: read only, with the reason.
+		await js(`document.getElementById("toggle-sessions").click(); "ok"`);
+		await wait();
+		await js(`[...document.querySelectorAll(".session")].find((b) => b.innerText.includes("vecchio pi")).click(); "ok"`);
+		await wait();
+		assert.match(await js(`document.getElementById("viewer-label").textContent`), /sola lettura: .*riavvialo/);
+		assert.match(await js(`document.getElementById("composer").className`), /readonly/);
 		// A closed session: resumed here, its history becomes the chat.
 		await js(`document.getElementById("toggle-sessions").click(); "ok"`);
 		await wait();

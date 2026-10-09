@@ -150,6 +150,23 @@ async function send() {
 	const text = input.value.trim();
 	if (!text) return;
 	input.value = "";
+	// A session running in a terminal Pi: the message goes to that Pi (it shows up there and here when written).
+	if (viewing?.writable) {
+		try {
+			const reply = await window.desk.sendToSession(viewing.running.pid, text);
+			const note = document.createElement("div");
+			note.className = "note";
+			note.textContent = reply.queued ? "inviato: è in coda, Pi lo legge appena finisce il passo in corso" : "inviato al Pi nel terminale";
+			viewer.appendChild(note);
+			viewer.scrollTop = viewer.scrollHeight;
+		} catch (error) {
+			const note = document.createElement("div");
+			note.className = "note";
+			note.textContent = `non inviato: ${error.message}`;
+			viewer.appendChild(note);
+		}
+		return;
+	}
 	add("msg user", escapeHtml(text));
 	try {
 		const result = await window.desk.prompt(text);
@@ -264,12 +281,29 @@ async function openSession(session) {
 	viewer.replaceChildren();
 	for (const item of items) renderItem(viewer, item);
 	viewer.scrollTop = viewer.scrollHeight;
-	$("viewer-label").textContent = session.running ? `● In corso in un altro Pi (pid ${session.running.pid}) · sola lettura, si aggiorna da sola` : `Sessione chiusa · ${session.project} · sola lettura`;
 	$("viewer-resume").hidden = Boolean(session.running);
 	$("viewer-bar").hidden = false;
 	viewer.hidden = false;
 	log.hidden = true;
+	viewing.writable = false;
+	if (!session.running) {
+		$("viewer-label").textContent = `Sessione chiusa · ${session.project} · sola lettura`;
+		$("composer").classList.add("readonly");
+		return;
+	}
+	$("viewer-label").textContent = `● In corso nel terminale (pid ${session.running.pid}) · collegamento…`;
 	$("composer").classList.add("readonly");
+	try {
+		await window.desk.linkSession(session.running.pid, session.path);
+		if (viewing !== session) return;
+		viewing.writable = true;
+		$("viewer-label").textContent = `● In corso nel terminale (pid ${session.running.pid}) · scrivi qui: il messaggio arriva a quel Pi`;
+		$("composer").classList.remove("readonly");
+		input.focus();
+	} catch (error) {
+		if (viewing !== session) return;
+		$("viewer-label").textContent = `● In corso nel terminale (pid ${session.running.pid}) · sola lettura: ${error.message}`;
+	}
 }
 
 window.desk.on("session-append", ({ path, items }) => {
