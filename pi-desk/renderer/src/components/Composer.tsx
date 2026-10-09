@@ -27,7 +27,7 @@ async function toImage(file: File): Promise<Img | undefined> {
 	return { data: btoa(binary), mimeType: "image/jpeg" };
 }
 
-export function Composer(props: { busy: boolean; readonly: boolean; placeholder: string; statuses: string; onSend: (text: string, images: Img[]) => void; onStop: () => void; ref?: (api: { fill: (text: string) => void }) => void }) {
+export function Composer(props: { busy: boolean; readonly: boolean; placeholder: string; statuses: string; onSend: (text: string, images: Img[]) => void; onStop: () => void; ref?: (api: { fill: (text: string) => void; attach: (text: string, image?: Img) => void }) => void }) {
 	const [text, setText] = createSignal("");
 	const [images, setImages] = createSignal<Img[]>([]);
 	const [dragging, setDragging] = createSignal(false);
@@ -50,7 +50,16 @@ export function Composer(props: { busy: boolean; readonly: boolean; placeholder:
 		setImages([]);
 		queueMicrotask(grow);
 	};
-	props.ref?.({ fill: (value) => (setText(value), queueMicrotask(grow), area.focus()) });
+	props.ref?.({
+		fill: (value) => (setText(value), queueMicrotask(grow), area.focus()),
+		// Adds to what is being written (an element picked in the browser, with its picture).
+		attach: (value, image) => {
+			setText(text() ? `${text().trimEnd()}\n\n${value}` : value);
+			if (image) setImages([...images(), image].slice(0, 6));
+			queueMicrotask(grow);
+			area.focus();
+		},
+	});
 
 	return (
 		<form id="composer" classList={{ readonly: props.readonly }} onSubmit={(event) => (event.preventDefault(), send())}>

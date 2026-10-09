@@ -257,3 +257,4 @@ svg.lucide { flex: none; }
 /* PhotoSwipe in Neon Night */
 .pswp { --pswp-bg: #050507; --pswp-icon-color: #dcdfe8; --pswp-icon-color-secondary: #0c0c0c; --pswp-icon-stroke-color: #2ee6ff; }
 .pswp__counter { font: 12px var(--mono); color: var(--accent); }
+#pick.on { color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 10px #2ee6ff55; }

@@ -9,7 +9,8 @@ export interface Desk {
 	abort(): Promise<void>;
 	answer(id: string, fields: object): void;
 	restart(): Promise<void>;
-	browser(action: "go" | "back" | "forward" | "reload", value?: string): void;
+	browser(action: "go" | "back" | "forward" | "reload" | "devtools", value?: string): void;
+	pick(): Promise<{ role: string; name: string; selector: string; url: string; html: string; image?: string } | null>;
 	browserRect(rect: { x: number; y: number; width: number; height: number }): void;
 	clipboardImage(): Promise<Img | undefined>;
 	sessions(): Promise<Session[]>;

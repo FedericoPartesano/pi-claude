@@ -1,7 +1,7 @@
 import { createEffect, createSignal, onMount, Show } from "solid-js";
 import { makePersisted } from "@solid-primitives/storage";
 import { createResizeObserver } from "@solid-primitives/resize-observer";
-import { ArrowLeft, ArrowRight, Globe, Lock, Menu, Plus, RotateCw, TriangleAlert, X } from "lucide-solid";
+import { ArrowLeft, ArrowRight, Bug, Crosshair, Globe, Lock, Menu, Plus, RotateCw, TriangleAlert, X } from "lucide-solid";
 import { clean, desk, type Img, type Session } from "./bridge";
 import { createChat, transcriptTurns, type Turn } from "./state";
 import { Thread } from "./components/Thread";
@@ -28,7 +28,17 @@ export function App() {
 	let scroll!: HTMLDivElement;
 	let chatColumn!: HTMLElement;
 	let slot!: HTMLDivElement;
-	let composer: { fill: (text: string) => void } | undefined;
+	let composer: { fill: (text: string) => void; attach: (text: string, image?: Img) => void } | undefined;
+	const [picking, setPicking] = createSignal(false);
+	async function pick() {
+		setPicking(true);
+		try {
+			const picked = await desk.pick();
+			if (picked) composer?.attach(`Nel browser (${picked.url}) ho indicato questo elemento: ${picked.role}${picked.name ? ` «${picked.name}»` : ""}\nselettore: \`${picked.selector}\``, picked.image ? { data: picked.image, mimeType: "image/png" } : undefined);
+		} finally {
+			setPicking(false);
+		}
+	}
 
 	// ---- Pi events -----------------------------------------------------------------------------------------------
 	const nearEnd = () => scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 80;
@@ -46,6 +56,7 @@ export function App() {
 		if (/\b(error|errore)\b/i.test(text) && !/MODULE_TYPELESS|ExperimentalWarning/.test(text)) chat.addNote(text.trim().slice(0, 240));
 	});
 	desk.on("pi-exit", (code: string) => chat.exited(code));
+	desk.on("download", ({ path, state, bytes }) => chat.addNote(state === "completed" ? `⇣ Scaricato in ${path} (${Math.round(bytes / 1024)} KB)` : `Download non riuscito: ${path}`, state === "completed" ? undefined : "error"));
 	// Image paths in answers resolve against the project (relative) and the home (~).
 	let home = "";
 	desk.on("home", (path: string) => {
@@ -247,6 +258,8 @@ export function App() {
 						<Show when={url().startsWith("https:")}><Lock size={12} class="lock" /></Show>
 						<input id="url" spellcheck={false} placeholder="Indirizzo o ricerca" value={url()} onKeyDown={(event) => event.key === "Enter" && go(event.currentTarget.value)} />
 					</div>
+					<button type="button" id="pick" class="icon" classList={{ on: picking() }} title="Indica a Pi un elemento della pagina (Esc annulla)" onClick={pick}><Crosshair size={16} /></button>
+					<button type="button" id="devtools" class="icon" title="DevTools della pagina" onClick={() => desk.browser("devtools")}><Bug size={15} /></button>
 					<button type="button" id="close-browser" class="icon" title="Chiudi il browser" onClick={() => setBrowserOpen(false)}><X size={16} /></button>
 				</nav>
 				<div id="browser-slot" ref={slot}><div class="slot-hint">Il browser di Pi</div></div>

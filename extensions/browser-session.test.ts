@@ -51,3 +51,18 @@ test("a real headless Chrome: open, act by ref, see only the difference, navigat
 		delete process.env.PI_BROWSER_PROFILE;
 	}
 });
+
+test("downloads are listed newest first from the project's .pi/downloads", async () => {
+	const { mkdtempSync, writeFileSync: write, utimesSync } = await import("node:fs");
+	const dir = mkdtempSync(join(tmpdir(), "dl-"));
+	const session = new BrowserSession({ downloadsDir: dir });
+	assert.match(session.downloads(), /Nessun download/);
+	write(join(dir, "old.pdf"), "x".repeat(2048));
+	utimesSync(join(dir, "old.pdf"), new Date("2026-01-01"), new Date("2026-01-01"));
+	write(join(dir, "report.pdf"), "x".repeat(4096));
+	write(join(dir, "half.pdf.crdownload"), "x");
+	const list = session.downloads();
+	assert.ok(list.indexOf("report.pdf") < list.indexOf("old.pdf"));
+	assert.ok(!list.includes("crdownload"));
+	assert.match(list, /report.pdf · 4 KB/);
+});

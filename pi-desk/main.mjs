@@ -5,9 +5,10 @@
  *
  *   npm start [-- <project folder>]      PI_DESK_PI=<pi command>   PI_DESK_CDP_PORT=9339
  */
-import { app, BrowserWindow, WebContentsView, clipboard, ipcMain } from "electron";
+import { app, BrowserWindow, WebContentsView, clipboard, ipcMain, session as electronSession } from "electron";
+import { PICKER_SCRIPT } from "./picker.mjs";
 import { clipboardImage } from "./clipboard.mjs";
-import { existsSync, readFileSync, unwatchFile, watchFile } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unwatchFile, watchFile } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -139,6 +140,16 @@ app.whenReady().then(() => {
 	});
 	win.loadFile(join(here, "ui-dist", "index.html"), { query: { [UI_MARK]: "1", project } });
 
+	// Downloads from the browser panel: straight into the project's .pi/downloads (no dialog; Pi lists them with
+	// browser downloads), and the chat says so.
+	electronSession.defaultSession.on("will-download", (_event, item) => {
+		const dir = join(project, ".pi", "downloads");
+		mkdirSync(dir, { recursive: true });
+		const path = join(dir, item.getFilename());
+		item.setSavePath(path);
+		item.once("done", (_done, state) => sendToUi("download", { path, state, bytes: item.getReceivedBytes() }));
+	});
+
 	win.webContents.on("did-finish-load", () => {
 		sendToUi("home", homedir());
 		sendToUi("project", project);
@@ -150,6 +161,16 @@ app.whenReady().then(() => {
 	ipcMain.handle("ui-answer", (_event, id, fields) => pi.answer(id, fields));
 	ipcMain.on("browser-rect", (_event, rect) => placeView(rect));
 	ipcMain.handle("clipboard-image", () => clipboardImage(clipboard, wsl));
+	// "Indica a Pi": the user picks an element in the panel; back come what it is and a picture of it.
+	ipcMain.handle("pick", async () => {
+		const contents = ensureView().webContents;
+		contents.focus();
+		const pick = await contents.executeJavaScript(PICKER_SCRIPT, true).catch(() => null);
+		if (!pick) return null;
+		const rect = { x: Math.round(pick.rect.x), y: Math.round(pick.rect.y), width: Math.max(1, Math.round(pick.rect.width)), height: Math.max(1, Math.round(pick.rect.height)) };
+		const image = await contents.capturePage(rect).catch(() => undefined);
+		return { ...pick, image: image && !image.isEmpty() ? image.toPNG().toString("base64") : undefined };
+	});
 	ipcMain.handle("restart", () => {
 		pi.stop();
 		startPi();
@@ -182,6 +203,7 @@ app.whenReady().then(() => {
 		else if (action === "back" && contents.navigationHistory.canGoBack()) contents.navigationHistory.goBack();
 		else if (action === "forward" && contents.navigationHistory.canGoForward()) contents.navigationHistory.goForward();
 		else if (action === "reload") contents.reload();
+		else if (action === "devtools") contents.openDevTools({ mode: "detach" });
 	});
 });
 

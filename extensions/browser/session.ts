@@ -2,7 +2,7 @@
  * One browser session: a Chrome (started or attached), its page, the ref table and the last snapshot. Every method
  * returns the text the model reads: a compact snapshot after opening a page, only the difference after an action.
  */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { CdpPage, pageTarget } from "./cdp.ts";
@@ -34,9 +34,31 @@ export class BrowserSession {
 	private url = "";
 	private logLines: string[] = [];
 	readonly shotsDir: string;
+	/** Where downloads land (the project's .pi/downloads): no dialog, and Pi can list them. */
+	readonly downloadsDir?: string;
 
-	constructor(options: { shotsDir?: string } = {}) {
+	constructor(options: { shotsDir?: string; downloadsDir?: string } = {}) {
 		this.shotsDir = options.shotsDir ?? join(homedir(), ".cache", "pi-browser", "shots");
+		this.downloadsDir = options.downloadsDir;
+	}
+
+	/** Files downloaded so far, newest first (size, time). */
+	downloads(): string {
+		if (!this.downloadsDir) return "(cartella dei download non impostata)";
+		let files: { name: string; size: number; time: number }[] = [];
+		try {
+			files = readdirSync(this.downloadsDir)
+				.filter((name) => !name.endsWith(".crdownload"))
+				.map((name) => {
+					const stat = statSync(join(this.downloadsDir!, name));
+					return { name, size: stat.size, time: stat.mtimeMs };
+				})
+				.sort((a, b) => b.time - a.time);
+		} catch {
+			// Nothing downloaded yet.
+		}
+		if (!files.length) return `Nessun download in ${this.downloadsDir}`;
+		return files.slice(0, 30).map((file) => `${join(this.downloadsDir!, file.name)} · ${Math.max(1, Math.round(file.size / 1024))} KB · ${new Date(file.time).toLocaleString("it-IT")}`).join("\n");
 	}
 
 	get attached(): boolean {
@@ -64,6 +86,11 @@ export class BrowserSession {
 		page.on("Log.entryAdded", (event) => {
 			if (event.entry?.level === "error") log(`${event.entry.source}: ${event.entry.text}${event.entry.url ? ` (${event.entry.url})` : ""}`);
 		});
+		if (this.downloadsDir) {
+			mkdirSync(this.downloadsDir, { recursive: true });
+			// Chrome: save without asking (Pi Desk sets this itself; there the Browser domain may be missing).
+			await page.send("Browser.setDownloadBehavior", { behavior: "allow", downloadPath: this.downloadsDir }).catch(() => undefined);
+		}
 		this.page = page;
 		this.url = target.url;
 		return page;
@@ -133,6 +160,7 @@ export class BrowserSession {
 		const backendNodeId = this.refs.backendId(ref);
 		if (backendNodeId === undefined) throw new Error(`Riferimento ${ref} sconosciuto: rileggi la pagina con snapshot.`);
 		const before = this.url;
+		await this.show(backendNodeId);
 		const navigated = page.once("Page.frameNavigated", 1200);
 		if (kind === "click" || kind === "hover") {
 			await page.send("DOM.scrollIntoViewIfNeeded", { backendNodeId }).catch(() => undefined);
@@ -181,6 +209,27 @@ export class BrowserSession {
 		const diff = diffSnapshot(this.last, now);
 		this.last = now;
 		return `${this.header()}\n${diff}`;
+	}
+
+	/**
+	 * The element Pi is about to act on, lit up for a moment so whoever watches the window sees it (cyan, Neon Night).
+	 * Only with a visible window; PI_BROWSER_SHOW=0 turns it off. Never fails the action.
+	 */
+	private async show(backendNodeId: number): Promise<void> {
+		if (process.env.PI_BROWSER_HEADLESS === "1" || process.env.PI_BROWSER_SHOW === "0") return;
+		const page = this.page!;
+		try {
+			await page.send("DOM.scrollIntoViewIfNeeded", { backendNodeId }).catch(() => undefined);
+			await page.send("Overlay.enable");
+			await page.send("Overlay.highlightNode", {
+				backendNodeId,
+				highlightConfig: { contentColor: { r: 46, g: 230, b: 255, a: 0.22 }, borderColor: { r: 46, g: 230, b: 255, a: 0.95 }, paddingColor: { r: 255, g: 63, b: 216, a: 0.12 }, showInfo: false },
+			});
+			await new Promise((resolve) => setTimeout(resolve, Number(process.env.PI_BROWSER_SHOW_MS ?? 450)));
+			await page.send("Overlay.hideHighlight");
+		} catch {
+			// No overlay domain (some embedders): act anyway.
+		}
 	}
 
 	async evaluate(expression: string): Promise<string> {
