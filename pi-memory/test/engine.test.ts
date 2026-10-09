@@ -118,3 +118,20 @@ test("core: the project overview (gist.md) plus pinned memories not already in i
 	assert.equal(core.match(/date in UTC/gi)?.length, 1, "a pinned memory already in the overview is not repeated");
 	assert.ok(core.length <= 1700);
 });
+
+test("forFile: active memories that cite a file (by its path in the project), strongest first, at most 3", () => {
+	const project = join(tmp(), "p");
+	saveStore(project, {
+		records: [
+			rec("r1", "builder.ts non deve caricare tutte le righe in memoria", { entities: ["src/report/builder.ts"], confirmations: 3 }),
+			rec("r2", "I test di builder.ts usano fixture in tests/report", { entities: ["src/report/builder.ts"] }),
+			rec("r3", "Vecchia nota su builder.ts", { entities: ["src/report/builder.ts"], state: "dormant" }),
+			rec("r4", "Le date in UTC", { entities: ["src/date.ts"] }),
+		],
+		vectors: new Map(),
+	});
+	const recaller = new Recaller();
+	assert.deepEqual(recaller.forFile({ project }, "src/report/builder.ts", "2026-10-09").map((record) => record.id), ["r1", "r2"]);
+	assert.deepEqual(recaller.forFile({ project }, "/abs/repo/src/report/builder.ts", "2026-10-09").map((record) => record.id), ["r1", "r2"], "absolute paths match by their tail");
+	assert.deepEqual(recaller.forFile({ project }, "src/other.ts", "2026-10-09"), []);
+});

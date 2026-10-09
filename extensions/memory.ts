@@ -13,7 +13,7 @@
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative as relativePath, resolve as resolvePath } from "node:path";
 import type { BeforeAgentStartEvent, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	applyProposal,
@@ -213,6 +213,12 @@ export function dashboardSource(ctx: ExtensionContext): MemoryDashboardSource {
 	};
 }
 
+/** The note appended to a read/edit/write result: what the memory knows about that file (≤ 3 short lines). */
+export function fileNote(records: { id: string; type: string; text: string }[]): string {
+	const clipLine = (text: string) => (text.length > 150 ? `${text.slice(0, 149)}…` : text);
+	return ["[memoria su questo file]", ...records.map((record) => `- [${record.type}] ${clipLine(record.text)} #${record.id}`)].join("\n");
+}
+
 /**
  * The project's memory (.pi/) stays out of git without touching the project's .gitignore: a line in the local
  * .git/info/exclude (never committed). Projects outside git are left alone.
@@ -287,6 +293,29 @@ export default function (pi: ExtensionAPI) {
 		showStatus(ctx, { recalled: run.ids.length });
 		if (!run.text) return;
 		return { message: { customType: "memory-recall", content: recallMessage(run.text, event.prompt), display: false } };
+	});
+
+	// While working: reading or editing a file brings what the memory knows about it (once per file and session, and
+	// again after a compaction). Nothing when no memory cites the file: an entity lookup in the worker.
+	const notedFiles = new Set<string>();
+	pi.on("session_compact", () => notedFiles.clear());
+	pi.on("tool_result", async (event, ctx) => {
+		if (!deepMode() || process.env.PI_MEMORY_CONTEXT === "0" || event.isError || !["read", "edit", "write"].includes(event.toolName)) return undefined;
+		const path = String((event.input as { path?: string }).path ?? "");
+		if (!path) return undefined;
+		const absolute = resolvePath(ctx.cwd, path);
+		if (notedFiles.has(absolute)) return undefined;
+		notedFiles.add(absolute);
+		const dirs = deepDirs(ctx.cwd);
+		if (!hasStore(dirs)) return undefined;
+		const records = await memoryWorker.forFile(dirs, relativePath(ctx.cwd, absolute), today()).catch(() => []);
+		if (records.length === 0) return undefined;
+		try {
+			appendRecallEvent(dirs.project, { at: new Date().toISOString(), query: `file: ${path}`.slice(0, 300), hits: records.map((record) => ({ id: record.id, score: 1 })), ms: 0 });
+		} catch {
+			// Usage is a hint.
+		}
+		return { content: [...event.content, { type: "text" as const, text: fileNote(records) }] };
 	});
 
 	/** The ricorda tool costs tokens on every request: active only where there are memories to open. */

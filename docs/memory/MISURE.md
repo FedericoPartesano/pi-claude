@@ -73,6 +73,15 @@ Esempio (export delle fatture lento, "posso parallelizzarlo di più?"): la memor
 "l'export usa ReportBuilder" e il modello consigliava più worker thread; la nuova richiama la catena fino a "la coda
 resta a concorrenza 1: il pod ha 512MB" e il modello risponde di non farlo.
 
+Nota sui file (dal vivo): Pi legge `src/report/builder.ts`, la memoria aggiunge "builder.ts non deve caricare tutte le
+righe in memoria: … OOM"; alla richiesta "rendilo adatto a 1 milione di righe" il modello propone lo streaming "in linea
+con la decisione #r1 sull'OOM", senza che la richiesta nominasse la memoria.
+
+`/dream` dal vivo su 6 sessioni reali del progetto (modello vero, cartella isolata): decisioni, correzioni ed episodi
+con la lezione salvati; il quadro del progetto scritto; le due preferenze personali ("rispondere in italiano",
+"aggiornare i todo man mano") spostate nella memoria globale; link tra ricordi nuovi della stessa risposta (dopo aver
+aggiunto i riferimenti n<k>: prima nessun link, perché si poteva puntare solo a ricordi già esistenti).
+
 ## 5. Costi fissi
 
 | | Token per richiesta |

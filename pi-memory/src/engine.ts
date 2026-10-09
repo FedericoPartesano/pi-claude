@@ -130,6 +130,27 @@ export class Recaller {
 		return neighbours.length ? `${head}\nCollegati:\n${neighbours.map((other) => `- #${other.id} [${other.type}] ${other.text}`).join("\n")}` : head;
 	}
 
+	/**
+	 * Memories that cite a file, for the note added when Pi reads or edits it: active ones, strongest first. The path
+	 * may be absolute: its tails ("src/report/builder.ts", "report/builder.ts", …) are looked up in the entity index.
+	 */
+	forFile(dirs: StoreDirs, path: string, today: string, limit = 3): MemoryRecord[] {
+		const { index } = this.indexFor(dirs);
+		const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
+		const positions = new Set<number>();
+		for (let start = 0; start < parts.length; start++) {
+			const tail = parts.slice(start).join("/");
+			// A bare file name only when nothing longer matched: "index.ts" alone is in every project.
+			if (start === parts.length - 1 && positions.size > 0) break;
+			for (const key of new Set([tail, tail.toLowerCase()])) for (const position of index.withEntity(key)) positions.add(position);
+		}
+		return [...positions]
+			.map((position) => index.records[position])
+			.filter((record) => record.status === "active" && record.state !== "dormant")
+			.sort((a, b) => index.strengthOf(b, today) - index.strengthOf(a, today) || b.last.localeCompare(a.last))
+			.slice(0, limit);
+	}
+
 	/** True when some store already has embeddings (otherwise waiting for the model would bring nothing). */
 	hasVectors(dirs: StoreDirs): boolean {
 		return this.all(dirs).some((part) => part.vectors.size > 0);

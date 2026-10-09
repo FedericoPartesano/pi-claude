@@ -6,6 +6,7 @@
 import type { EmbedKind, Embedder, ModelProfile } from "./embed.ts";
 import { DEFAULT_MODEL, MODELS } from "./embed.ts";
 import type { RecallRun, StoreDirs } from "./engine.ts";
+import type { MemoryRecord } from "./store.ts";
 import { createHandlers, type Handlers, type RunOptions } from "./memory-handlers.ts";
 
 type Method = keyof Handlers;
@@ -133,6 +134,11 @@ export class MemoryWorker implements Embedder {
 	recall(query: string, dirs: StoreDirs, today: string, options: RunOptions = {}): Promise<RecallRun> {
 		if (this.modelReady) this.touch();
 		return this.call<RecallRun>("recall", query, dirs, today, options);
+	}
+
+	/** Memories citing a file (the note added when Pi reads or edits it). */
+	forFile(dirs: StoreDirs, path: string, today: string): Promise<MemoryRecord[]> {
+		return this.call("forFile", dirs, path, today);
 	}
 
 	/** One memory in full with its neighbours in the graph (the `ricorda` tool). */

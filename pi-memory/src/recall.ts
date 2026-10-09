@@ -336,6 +336,11 @@ export class RecallIndex {
 		return out;
 	}
 
+	/** Positions of the records citing exactly this entity. */
+	withEntity(entity: string): Int32Array {
+		return this.entityIndex.get(entity);
+	}
+
 	/**
 	 * Graph for the walk, over memory positions: explicit links, and memories sharing a specific entity (one used by at
 	 * most HUB_DEGREE memories) are direct neighbours — a chain through a shared file is as short as a linked one.
