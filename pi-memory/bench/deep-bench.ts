@@ -12,7 +12,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const writeVectors = (file: string, list: Float32Array[]) => {
+const writeVectors = (file: string, list: Float32Array<ArrayBuffer>[]) => {
 	const all = new Float32Array(list.length * list[0].length);
 	list.forEach((vector, i) => all.set(vector, i * vector.length));
 	writeFileSync(file, Buffer.from(all.buffer));
@@ -48,7 +48,7 @@ for (const size of sizes) {
 			const batch = corpus.records.slice(i, i + 64);
 			(await embedder.embed(batch.map(embedText), "passage")).forEach((vector, j) => vectors!.set(batch[j].id, vector));
 		}
-		if (cacheFile) writeVectors(cacheFile, corpus.records.map((record) => vectors!.get(record.id)!));
+		if (cacheFile) writeVectors(cacheFile, corpus.records.map((record) => vectors!.get(record.id)! as unknown as Float32Array<ArrayBuffer>));
 	}
 	const embedMs = performance.now() - started;
 	global.gc?.();

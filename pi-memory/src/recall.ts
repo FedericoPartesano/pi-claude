@@ -3,7 +3,6 @@ import { strength } from "./strength.ts";
 import type { MemoryRecord } from "./store.ts";
 import { extractEntities } from "./entities.ts";
 import { classifyRequest } from "./request.ts";
-import { buildGraph, type MemoryGraph } from "./graph.ts";
 import { pushPpr } from "./ppr.ts";
 import { VectorIndex } from "./vector-index.ts";
 
@@ -64,47 +63,125 @@ export const DEPTH = {
 	minMass: 1e-3,
 };
 
+/**
+ * Many lists of positions in one block (CSR): a key → its slice of a single Int32Array. One object per index instead of
+ * one per term or entity: at 100k memories that is tens of thousands of objects fewer.
+ */
+class Lists {
+	private keys = new Map<string, number>();
+	private starts: Int32Array;
+	readonly data: Int32Array;
+	/** Optional per-item byte (term frequency for postings). */
+	readonly extra?: Uint8Array;
+
+	constructor(map: Map<string, number[]>, withExtra = false) {
+		let size = 0;
+		for (const list of map.values()) size += withExtra ? list.length / 2 : list.length;
+		this.starts = new Int32Array(map.size + 1);
+		this.data = new Int32Array(size);
+		if (withExtra) this.extra = new Uint8Array(size);
+		let offset = 0;
+		let k = 0;
+		for (const [key, list] of map) {
+			this.keys.set(key, k);
+			this.starts[k] = offset;
+			if (withExtra) for (let i = 0; i < list.length; i += 2) {
+				this.data[offset] = list[i];
+				this.extra![offset++] = list[i + 1];
+			}
+			else for (const value of list) this.data[offset++] = value;
+			k++;
+		}
+		this.starts[k] = offset;
+	}
+
+	/** [start, end) of a key's slice in data/extra; [0, 0] when absent. */
+	range(key: string): [number, number] {
+		const k = this.keys.get(key);
+		return k === undefined ? [0, 0] : [this.starts[k], this.starts[k + 1]];
+	}
+
+	get(key: string): Int32Array {
+		const [start, end] = this.range(key);
+		return this.data.subarray(start, end);
+	}
+}
+
 export class RecallIndex {
 	readonly records: MemoryRecord[];
-	private postings = new Map<string, Map<number, number>>();
-	private lengths: number[] = [];
+	private postings: Lists;
+	private lengths: Uint16Array;
 	private average = 1;
-	private entityStems: Set<string>[][];
-	private entityIndex = new Map<string, number[]>();
+	private entityIndex: Lists;
 	/** Entity stem → positions of records with an entity containing it: entity matching without a full scan. */
-	private entityTokens = new Map<string, number[]>();
-	readonly graph: MemoryGraph;
+	private entityTokens: Lists;
+	/** Explicit links by position, both ways (only records that have some). */
+	private links = new Map<number, Int32Array>();
 	readonly positions: Map<string, number>;
 	private vectorIndexes = new WeakMap<Map<string, Float32Array>, VectorIndex>();
+	/** stems() of entities, for the few hundred candidates of a request (bounded). */
+	private entityStemCache = new Map<string, string[]>();
 
 	constructor(records: MemoryRecord[]) {
 		this.records = records;
-		this.graph = buildGraph(records);
 		this.positions = new Map(records.map((record, position) => [record.id, position]));
+		this.lengths = new Uint16Array(records.length);
+		const postings = new Map<string, number[]>();
+		const entityIndex = new Map<string, number[]>();
+		const entityTokens = new Map<string, number[]>();
+		const links = new Map<number, Set<number>>();
+		const link = (from: number, to: number) => {
+			const set = links.get(from) ?? new Set<number>();
+			set.add(to);
+			links.set(from, set);
+		};
+		let total = 0;
 		records.forEach((record, position) => {
+			const counts = new Map<string, number>();
 			const terms = stems(record.text);
-			this.lengths.push(terms.length);
-			for (const term of terms) {
-				const posting = this.postings.get(term) ?? new Map<number, number>();
-				posting.set(position, (posting.get(position) ?? 0) + 1);
-				this.postings.set(term, posting);
+			for (const term of terms) counts.set(term, (counts.get(term) ?? 0) + 1);
+			this.lengths[position] = Math.min(65535, terms.length);
+			total += terms.length;
+			// Pairs (position, frequency) flattened in one array per term.
+			for (const [term, frequency] of counts) {
+				const list = postings.get(term) ?? [];
+				list.push(position, Math.min(255, frequency));
+				postings.set(term, list);
 			}
-		});
-		this.average = this.lengths.reduce((sum, length) => sum + length, 0) / (records.length || 1) || 1;
-		this.entityStems = records.map((record) => record.entities.map((entity) => new Set(stems(entity))));
-		records.forEach((record, position) => {
+			const tokens = new Set<string>();
 			for (const entity of record.entities) {
-				const list = this.entityIndex.get(entity) ?? [];
+				const list = entityIndex.get(entity) ?? [];
 				list.push(position);
-				this.entityIndex.set(entity, list);
+				entityIndex.set(entity, list);
+				for (const token of stems(entity)) tokens.add(token);
 			}
-			const tokens = new Set(this.entityStems[position].flatMap((set) => [...set]));
 			for (const token of tokens) {
-				const list = this.entityTokens.get(token) ?? [];
+				const list = entityTokens.get(token) ?? [];
 				list.push(position);
-				this.entityTokens.set(token, list);
+				entityTokens.set(token, list);
+			}
+			for (const id of record.links ?? []) {
+				const other = this.positions.get(id);
+				if (other === undefined || other === position) continue;
+				link(position, other);
+				link(other, position);
 			}
 		});
+		this.average = total / (records.length || 1) || 1;
+		this.postings = new Lists(postings, true);
+		this.entityIndex = new Lists(entityIndex);
+		this.entityTokens = new Lists(entityTokens);
+		for (const [position, set] of links) this.links.set(position, Int32Array.from(set));
+	}
+
+	private entityStems(entity: string): string[] {
+		let value = this.entityStemCache.get(entity);
+		if (!value) {
+			if (this.entityStemCache.size > 5000) this.entityStemCache.clear();
+			value = stems(entity);
+			this.entityStemCache.set(entity, value);
+		}
+		return value;
 	}
 
 	private strengthCache = new WeakMap<MemoryRecord, { day: string; last: string; confirmations: number; value: number }>();
@@ -137,15 +214,18 @@ export class RecallIndex {
 		/** Per record: how many query terms it shares, and whether one of them is rare. */
 		const evidence = new Map<number, { terms: number; rare: boolean }>();
 		for (const term of new Set(stems(query))) {
-			const posting = this.postings.get(term);
-			if (!posting || posting.size > common) continue;
-			const idf = Math.log(1 + (n - posting.size + 0.5) / (posting.size + 0.5));
-			for (const [position, frequency] of posting) {
+			const [start, end] = this.postings.range(term);
+			const size = end - start;
+			if (size === 0 || size > common) continue;
+			const idf = Math.log(1 + (n - size + 0.5) / (size + 0.5));
+			for (let i = start; i < end; i++) {
+				const position = this.postings.data[i];
+				const frequency = this.postings.extra![i];
 				const part = idf * ((frequency * (K1 + 1)) / (frequency + K1 * (1 - B + (B * this.lengths[position]) / this.average)));
 				out.set(position, (out.get(position) ?? 0) + part);
 				const seen = evidence.get(position) ?? { terms: 0, rare: false };
 				seen.terms++;
-				seen.rare ||= posting.size <= rare;
+				seen.rare ||= size <= rare;
 				evidence.set(position, seen);
 			}
 		}
@@ -163,19 +243,19 @@ export class RecallIndex {
 		const mentioned = new Set(extractEntities(query));
 		const queryStems = new Set(stems(query));
 		const candidates = new Set<number>();
-		for (const entity of mentioned) for (const position of this.entityIndex.get(entity) ?? []) candidates.add(position);
+		for (const entity of mentioned) for (const position of this.entityIndex.get(entity)) candidates.add(position);
 		const common = Math.max(HUB_DEGREE * 10, this.records.length * 0.01);
 		for (const token of queryStems) {
-			const list = this.entityTokens.get(token) ?? [];
+			const list = this.entityTokens.get(token);
 			// A token in thousands of entities (a domain name) identifies nothing; BM25 still weighs it.
 			if (list.length <= common) for (const position of list) candidates.add(position);
 		}
 		for (const position of candidates) {
 			let matches = 0;
-			this.records[position].entities.forEach((entity, k) => {
-				const tokens = this.entityStems[position][k];
-				if (mentioned.has(entity) || (tokens.size > 0 && [...tokens].every((token) => queryStems.has(token)))) matches++;
-			});
+			for (const entity of this.records[position].entities) {
+				const tokens = this.entityStems(entity);
+				if (mentioned.has(entity) || (tokens.length > 0 && tokens.every((token) => queryStems.has(token)))) matches++;
+			}
 			if (matches > 0) out.set(position, Math.min(1, 0.6 + 0.2 * (matches - 1)));
 		}
 		return out;
@@ -189,12 +269,9 @@ export class RecallIndex {
 		const position = Number(node.slice(1));
 		const record = this.records[position];
 		const out = new Set<number>();
-		for (const id of this.graph.links(record.id)) {
-			const other = this.positions.get(id);
-			if (other !== undefined) out.add(other);
-		}
+		for (const other of this.links.get(position) ?? []) out.add(other);
 		for (const entity of record.entities) {
-			const members = this.entityIndex.get(entity) ?? [];
+			const members = this.entityIndex.get(entity);
 			if (members.length > HUB_DEGREE) continue;
 			for (const other of members) if (other !== position) out.add(other);
 		}
