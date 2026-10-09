@@ -3,7 +3,8 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from "n
 import { join } from "node:path";
 import type { Embedder } from "./embed.ts";
 import { CORE_BUDGET_CHARS, RecallIndex, coreIds, coreSection, cueLimit, recall, renderCues, type Scored } from "./recall.ts";
-import { embedText, loadStore, missingVectors, saveStore, type MemoryRecord } from "./store.ts";
+import { withStoreLock } from "./lock.ts";
+import { embedText, loadStore, missingVectors, saveVectors, type MemoryRecord } from "./store.ts";
 
 export interface StoreDirs {
 	project: string;
@@ -19,13 +20,28 @@ export async function fillVectors(dir: string, embedder: Embedder): Promise<numb
 	if (store.model !== embedder.model) store.vectors.clear();
 	const todo = missingVectors(store);
 	if (todo.length === 0) return 0;
+	const fresh = new Map<string, { text: string; vector: Float32Array }>();
 	for (let start = 0; start < todo.length; start += 32) {
 		const batch = todo.slice(start, start + 32);
 		const vectors = await embedder.embed(batch.map(embedText), "passage");
-		batch.forEach((record, i) => store.vectors.set(record.id, vectors[i]));
+		batch.forEach((record, i) => fresh.set(record.id, { text: embedText(record), vector: vectors[i] }));
 	}
-	saveStore(dir, { ...store, model: embedder.model });
-	return todo.length;
+	// Embedding takes a while and the store may have been saved meanwhile (an edit, a /dream): re-read it and write only
+	// the vectors, for records whose text is still the one embedded. The memories themselves are never rewritten here.
+	return withStoreLock(dir, () => {
+		const current = loadStore(dir);
+		const vectors = current.model === embedder.model ? current.vectors : new Map<string, Float32Array>();
+		let added = 0;
+		for (const record of current.records) {
+			const computed = fresh.get(record.id);
+			if (computed && computed.text === embedText(record)) {
+				vectors.set(record.id, computed.vector);
+				added++;
+			}
+		}
+		saveVectors(dir, current.records, vectors, embedder.model);
+		return added;
+	});
 }
 
 export interface RecallRun {

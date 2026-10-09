@@ -11,7 +11,7 @@
  *   PI_MEMORY_RECALL_LOG=1  append one JSON line per request to <cwd>/.pi/memory/recall-log.jsonl (evaluation)
  *   PI_MEMORY_MODEL         embedding model: e5 (default, deeper recall at scale) | minilm
  */
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, relative as relativePath, resolve as resolvePath } from "node:path";
 import type { BeforeAgentStartEvent, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -37,7 +37,9 @@ import {
 import { MemoryWorker } from "../pi-memory/src/memory-worker-client.ts";
 import { appendRecallLog, type StoreDirs } from "../pi-memory/src/engine.ts";
 import { isSmallTalk, recallMessage } from "../pi-memory/src/recall.ts";
-import { entriesToRecords, movePersonal, recordsToEntries } from "../pi-memory/src/reconcile.ts";
+import { entriesToRecords, movePersonal, rebaseOnCurrent, recordsToEntries } from "../pi-memory/src/reconcile.ts";
+import { withStoreLock } from "../pi-memory/src/lock.ts";
+import { renderVault } from "../pi-memory/src/vault.ts";
 import { loadStore, migrateLegacy, pruneVectors, saveStore, storeExists, type MemoryRecord } from "../pi-memory/src/store.ts";
 import { applyUsage, lifecycle } from "../pi-memory/src/forget.ts";
 import { applyAction, dreamEntry, memoryStatus, recordLabel, recordPreview, summarize, type DreamEntry, type MemoryAction } from "../pi-memory/src/dashboard.ts";
@@ -204,9 +206,11 @@ export function dashboardSource(ctx: ExtensionContext): MemoryDashboardSource {
 			const global = id.startsWith("g:");
 			const dir = global ? dirs.global : dirs.project;
 			if (!dir || !storeExists(dir)) return;
-			const store = loadStore(dir);
-			const next = applyAction(store.records, global ? id.slice(2) : id, action, today());
-			saveStore(dir, { records: next, vectors: pruneVectors(store.records, next, store.vectors), model: store.model });
+			withStoreLock(dir, () => {
+				const store = loadStore(dir);
+				const next = applyAction(store.records, global ? id.slice(2) : id, action, today());
+				saveStore(dir, { records: next, vectors: pruneVectors(store.records, next, store.vectors), model: store.model });
+			});
 			// An edited text needs its embedding again to be recalled semantically.
 			if (shared?.ready) await shared.fillVectors(dir).catch(() => 0);
 		},
@@ -555,6 +559,7 @@ export default function (pi: ExtensionAPI) {
 		const result = { ...applied, memory: capped.memory, archive: capped.archive };
 		let deepRecords: ReturnType<typeof entriesToRecords> | undefined;
 		let lifecycleNote = "";
+		let movedToGlobal = false;
 		if (deep && previous) {
 			deepRecords = entriesToRecords(result.memory, result.archive, previous.records, date);
 			// Long term: what was recalled counts as used; unused memories go dormant, then are forgotten (kept aside).
@@ -568,17 +573,29 @@ export default function (pi: ExtensionAPI) {
 				if (cycle.forgotten.length) appendFileSync(join(storeDir, "forgotten.jsonl"), cycle.forgotten.map((record) => `${JSON.stringify({ ...record, forgottenAt: date })}\n`).join(""));
 				lifecycleNote = [cycle.dormant.length ? `${cycle.dormant.length} addormentati` : "", cycle.woken.length ? `${cycle.woken.length} risvegliati` : "", cycle.forgotten.length ? `${cycle.forgotten.length} dimenticati (recuperabili)` : ""].filter(Boolean).join(" · ");
 			}
-			// Personal preferences found in a project's sessions hold everywhere: to the global store.
+			// Personal preferences found in a project's sessions hold everywhere: to the global store (re-read under its lock).
 			if (!global && dirs.global) {
-				const globalStore = storeExists(dirs.global) ? loadStore(dirs.global) : { records: [], vectors: new Map<string, Float32Array>() };
-				const split = movePersonal(deepRecords, globalStore.records);
+				const globalDir = dirs.global;
+				const split = movePersonal(deepRecords, []);
 				if (split.moved) {
+					const personal = deepRecords.filter((record) => !split.project.includes(record));
 					deepRecords = split.project;
-					saveStore(dirs.global, { ...globalStore, records: split.global });
+					withStoreLock(globalDir, () => {
+						const current = storeExists(globalDir) ? loadStore(globalDir) : { records: [], vectors: new Map<string, Float32Array>(), model: undefined };
+						saveStore(globalDir, { ...current, records: movePersonal(personal, current.records).global });
+					});
+					movedToGlobal = true;
 					lifecycleNote = [lifecycleNote, `${split.moved} nella memoria personale`].filter(Boolean).join(" · ");
 				}
 			}
-			saveStore(storeDir, { records: deepRecords, vectors: pruneVectors(previous.records, deepRecords, previous.vectors), model: previous.model });
+			// The model took minutes: rebase on what was saved meanwhile (an edit in /memory, another session's /dream),
+			// one writer at a time.
+			deepRecords = withStoreLock(storeDir, () => {
+				const current = storeExists(storeDir) ? loadStore(storeDir) : { records: [], vectors: new Map<string, Float32Array>(), model: previous.model };
+				const rebased = rebaseOnCurrent(previous.records, current.records, deepRecords!);
+				saveStore(storeDir, { records: rebased, vectors: pruneVectors(current.records, rebased, current.vectors), model: current.model ?? previous.model });
+				return rebased;
+			});
 			// The overview in the system prompt: rewritten only when the model proposes a new one.
 			if (!global && approved.quadro) write(join(storeDir, "gist.md"), `${approved.quadro}\n`);
 		} else {
@@ -603,7 +620,11 @@ export default function (pi: ExtensionAPI) {
 			// New or edited memories get their embedding now, so the next request can recall them semantically.
 			ctx.ui.notify("Calcolo gli embedding dei ricordi nuovi…", "info");
 			activateRecallTool(ctx);
-			if (await memoryWorker.start()) await memoryWorker.fillVectors(storeDir).catch(() => 0);
+			if (await memoryWorker.start()) {
+				await memoryWorker.fillVectors(storeDir).catch(() => 0);
+				// Memories just moved to the personal store need their vectors there too.
+				if (movedToGlobal && dirs.global) await memoryWorker.fillVectors(dirs.global).catch(() => 0);
+			}
 			// The result stays in the chat (a notification disappears and leaves the user unsure it was saved).
 			const active = deepRecords?.filter((record) => record.status === "active") ?? [];
 			pi.appendEntry("memory-dream", dreamEntry(result.counts, [...describe(memory, approved), ...filtered.dropped.slice(0, 3), ...(lifecycleNote ? [`… ${lifecycleNote}`] : [])], { active: active.length, pinned: active.filter((record) => record.pinned).length, pending: batch.pending }));
@@ -615,8 +636,18 @@ export default function (pi: ExtensionAPI) {
 
 	/** /memory: summary on top, every memory with its preview; Enter → pin, edit, mark superseded or delete. */
 	pi.registerCommand("memory", {
-		description: "Dashboard della memoria: ricordi, cronologia dei /dream, richiami, e domande alla memoria",
-		handler: async (_args, ctx) => {
+		description: "Dashboard della memoria: ricordi, cronologia dei /dream, richiami, domande · /memory export: vault Obsidian del grafo",
+		handler: async (args, ctx) => {
+			if (args.trim() === "export" && deepMode()) {
+				// The graph as an Obsidian vault (a view; the store stays the source of truth).
+				const dirs = deepDirs(ctx.cwd);
+				if (!hasStore(dirs)) return ctx.ui.notify("Nessun ricordo da esportare.", "info");
+				const out = join(dirs.project, "vault");
+				rmSync(out, { recursive: true, force: true });
+				const files = renderVault(loadStore(dirs.project).records);
+				for (const [name, content] of files) write(join(out, name), `${content}\n`);
+				return ctx.ui.notify(`Vault Obsidian in ${out} (${files.size} note): apri la cartella in Obsidian → vista Grafo.`, "info");
+			}
 			if (!deepMode()) return ctx.ui.notify("La dashboard serve la memoria profonda (il default; ora PI_MEMORY_MODE=capped): i ricordi sono in .pi/memory.md.", "info");
 			migrate(ctx.cwd, today());
 			const source = dashboardSource(ctx);

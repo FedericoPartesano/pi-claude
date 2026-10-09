@@ -135,3 +135,23 @@ test("forFile: active memories that cite a file (by its path in the project), st
 	assert.deepEqual(recaller.forFile({ project }, "/abs/repo/src/report/builder.ts", "2026-10-09").map((record) => record.id), ["r1", "r2"], "absolute paths match by their tail");
 	assert.deepEqual(recaller.forFile({ project }, "src/other.ts", "2026-10-09"), []);
 });
+
+test("fillVectors never overwrites memories saved while it was embedding (an edit in /memory was lost)", async () => {
+	const dir = join(tmp(), "p");
+	saveStore(dir, { records: [rec("r1", "Testo vecchio"), rec("r2", "Le date in UTC")], vectors: new Map() });
+	const slow = createFakeEmbedder();
+	const embedder = {
+		...slow,
+		model: "fake",
+		async embed(texts: string[], kind?: "query" | "passage") {
+			// While embedding, the user edits r1 and adds r3 (another writer).
+			saveStore(dir, { records: [rec("r1", "Testo nuovo"), rec("r2", "Le date in UTC"), rec("r3", "Aggiunto nel frattempo")], vectors: new Map() });
+			return slow.embed(texts, kind);
+		},
+	};
+	await fillVectors(dir, embedder);
+	const after = loadStore(dir);
+	assert.deepEqual(after.records.map((record) => record.text), ["Testo nuovo", "Le date in UTC", "Aggiunto nel frattempo"]);
+	assert.ok(after.vectors.has("r2"), "the unchanged memory got its vector");
+	assert.ok(!after.vectors.has("r1"), "no vector of the old text on the edited memory");
+});

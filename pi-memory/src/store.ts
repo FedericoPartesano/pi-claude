@@ -96,24 +96,33 @@ export function loadStore(dir: string, idPrefix = ""): Store {
 	return { records, vectors, model };
 }
 
+/** Atomic replace; the temp name carries the pid so two writers (two Pi sessions) never share it. */
 const writeAtomic = (path: string, text: string) => {
-	writeFileSync(`${path}.tmp`, text);
-	renameSync(`${path}.tmp`, path);
+	const temp = `${path}.${process.pid}.tmp`;
+	writeFileSync(temp, text);
+	renameSync(temp, path);
 };
 
 export function saveStore(dir: string, store: Store) {
 	mkdirSync(dir, { recursive: true });
-	const { jsonl, vectors, bin, idx } = paths(dir);
-	writeAtomic(jsonl, store.records.map((record) => `${JSON.stringify(record)}\n`).join(""));
-	const known = new Set(store.records.map((record) => record.id));
-	const kept = [...store.vectors].filter(([id]) => known.has(id));
+	writeAtomic(paths(dir).jsonl, store.records.map((record) => `${JSON.stringify(record)}\n`).join(""));
+	saveVectors(dir, store.records, store.vectors, store.model);
+}
+
+/** Only the vector files (the memories are not rewritten): vectors of records that exist, one dimension. */
+export function saveVectors(dir: string, records: Pick<MemoryRecord, "id">[], vectorsById: Map<string, Float32Array>, model: string | undefined) {
+	mkdirSync(dir, { recursive: true });
+	const { vectors, bin, idx } = paths(dir);
+	const known = new Set(records.map((record) => record.id));
+	const kept = [...vectorsById].filter(([id]) => known.has(id));
 	const dim = kept[0]?.[1].length ?? 0;
 	const same = kept.filter(([, vector]) => vector.length === dim);
 	const data = new Float32Array(same.length * dim);
 	same.forEach(([, vector], position) => data.set(vector, position * dim));
-	writeFileSync(`${bin}.tmp`, Buffer.from(data.buffer, data.byteOffset, data.byteLength));
-	renameSync(`${bin}.tmp`, bin);
-	writeAtomic(idx, JSON.stringify({ model: store.model, dim, ids: same.map(([id]) => id) }));
+	const temp = `${bin}.${process.pid}.tmp`;
+	writeFileSync(temp, Buffer.from(data.buffer, data.byteOffset, data.byteLength));
+	renameSync(temp, bin);
+	writeAtomic(idx, JSON.stringify({ model, dim, ids: same.map(([id]) => id) }));
 	if (existsSync(vectors)) rmSync(vectors, { force: true });
 }
 

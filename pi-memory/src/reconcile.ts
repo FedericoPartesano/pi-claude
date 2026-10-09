@@ -82,3 +82,44 @@ export function movePersonal(project: MemoryRecord[], global: MemoryRecord[]): {
 	const moved = personal.map(({ links: _links, ...record }) => ({ ...record, id: `r${++counter}` }));
 	return { project: project.filter((record) => !personal.includes(record)), global: [...global, ...moved], moved: moved.length };
 }
+
+const sameRecord = (a: MemoryRecord | undefined, b: MemoryRecord | undefined) => JSON.stringify(a) === JSON.stringify(b);
+const idNumber = (id: string) => Number(/^r(\d+)$/.exec(id)?.[1] ?? 0);
+
+/**
+ * /dream reads the store, waits minutes for the model, then saves: whatever was saved meanwhile (an edit, a pin or a
+ * deletion in /memory, another session's /dream) must survive. `next` was computed from `previous`; `current` is the
+ * store now. Deletions and the user's changes win over the dream; memories added elsewhere are kept with their ids, and
+ * the dream's own new memories are renumbered if their ids are taken.
+ */
+export function rebaseOnCurrent(previous: MemoryRecord[], current: MemoryRecord[], next: MemoryRecord[]): MemoryRecord[] {
+	const before = new Map(previous.map((record) => [record.id, record]));
+	const now = new Map(current.map((record) => [record.id, record]));
+	if (previous.length === current.length && previous.every((record) => sameRecord(record, now.get(record.id)))) return next;
+	const merged: MemoryRecord[] = [];
+	const renamed = new Map<string, string>();
+	let counter = 0;
+	for (const record of [...current, ...next]) counter = Math.max(counter, idNumber(record.id));
+	const taken = new Set(current.map((record) => record.id));
+	for (const record of next) {
+		const old = before.get(record.id);
+		if (old) {
+			// Existed when the dream started: deleted since → stays deleted; changed since → the change wins.
+			const saved = now.get(record.id);
+			if (!saved) continue;
+			merged.push(sameRecord(saved, old) ? record : saved);
+			continue;
+		}
+		// The dream's own addition: a new id if another writer took this one meanwhile.
+		if (taken.has(record.id)) {
+			const id = `r${++counter}`;
+			renamed.set(record.id, id);
+			merged.push({ ...record, id });
+		} else merged.push(record);
+		taken.add(merged[merged.length - 1].id);
+	}
+	// Memories that did not exist when the dream started (another session's /dream, an addition in /memory).
+	for (const record of current) if (!before.has(record.id)) merged.push(record);
+	if (renamed.size === 0) return merged;
+	return merged.map((record) => (record.links?.some((link) => renamed.has(link)) && next.includes(record) ? { ...record, links: record.links.map((link) => renamed.get(link) ?? link) } : record));
+}
