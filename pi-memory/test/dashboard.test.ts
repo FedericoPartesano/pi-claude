@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { applyAction, dreamEntry, memoryStatus, recordLabel, recordPreview, summarize } from "../src/dashboard.ts";
+import { applyAction, dreamEntry, memoryStatus, progressText, recordLabel, recordPreview, summarize } from "../src/dashboard.ts";
 import type { MemoryRecord } from "../src/store.ts";
 
 const rec = (id: string, text: string, extra: Partial<MemoryRecord> = {}): MemoryRecord => ({ id, type: "preferenza", text, pinned: false, confirmations: 1, created: "2026-10-01", last: "2026-10-06", status: "active", entities: [], ...extra });
@@ -59,4 +59,14 @@ test("the /dream result as a lasting chat entry", () => {
 	assert.match(entry.title, /12 ricordi \(2 📌\)/);
 	assert.deepEqual(entry.lines, ["+ [preferenza] Usa pnpm."]);
 	assert.match(entry.footer ?? "", /restano 4 sessioni: rilancia \/dream · \/memory per vederli/);
+});
+
+test("progressText: what the memory is doing, with numbers", () => {
+	assert.equal(progressText({ phase: "download", loaded: 58 * 1048576, total: 130 * 1048576 }), "⠋ memoria: modello 45% · 58/130 MB");
+	assert.equal(progressText({ phase: "download", loaded: 443, total: 443 }), "⠋ memoria: carico il modello…", "a few-KB config file is not a download to show");
+	assert.equal(progressText({ phase: "load" }), "⠋ memoria: carico il modello…");
+	assert.equal(progressText({ phase: "vectors", done: 40, total: 103 }), "⠋ memoria: vettori 40/103");
+	assert.equal(progressText({ phase: "index", total: 1203 }), "⠋ memoria: indicizzo 1.203 ricordi");
+	assert.equal(progressText({ phase: "failed", message: "rete assente" }), "⚠ memoria senza modello (rete assente)");
+	for (const progress of [{ phase: "download" as const, loaded: 128 * 1048576, total: 130 * 1048576 }, { phase: "vectors" as const, done: 12345, total: 23456 }]) assert.ok(progressText(progress)!.length <= 38, progressText(progress));
 });

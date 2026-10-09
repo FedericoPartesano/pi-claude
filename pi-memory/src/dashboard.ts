@@ -79,7 +79,41 @@ export function applyAction(records: MemoryRecord[], id: string, action: MemoryA
 }
 
 /** Status text for the footer and the panel (setStatus "memory"); undefined when there is no memory. */
-export function memoryStatus(state: { loading?: boolean; dreaming?: boolean; active?: number; pinned?: number; recalled?: number }): string | undefined {
+/** What the memory worker is doing, as it reports it (download, loading the model, vectors, index) or a failure. */
+export type MemoryProgress =
+	| { phase: "download"; loaded: number; total: number }
+	| { phase: "load" }
+	| { phase: "vectors"; done: number; total: number }
+	| { phase: "index"; total: number }
+	| { phase: "failed"; message: string }
+	| { phase: "idle" };
+
+const mb = (bytes: number) => Math.round(bytes / 1048576);
+
+/** The status line for a progress event (footer and session panel). */
+export function progressText(progress: MemoryProgress): string | undefined {
+	switch (progress.phase) {
+		// Short: the session panel is ~38 columns wide.
+		case "download":
+			// Config files of a few KB come first: only real downloads are shown.
+			if (progress.total < 1048576) return "⠋ memoria: carico il modello…";
+			return `⠋ memoria: modello ${Math.round((progress.loaded / progress.total) * 100)}% · ${mb(progress.loaded)}/${mb(progress.total)} MB`;
+		case "load":
+			return "⠋ memoria: carico il modello…";
+		case "vectors":
+			return `⠋ memoria: vettori ${progress.done}/${progress.total}`;
+		case "index":
+			return `⠋ memoria: indicizzo ${String(progress.total).replace(/\B(?=(\d{3})+(?!\d))/g, ".")} ricordi`;
+		case "failed":
+			return `⚠ memoria senza modello (${progress.message})`;
+		default:
+			return undefined;
+	}
+}
+
+export function memoryStatus(state: { loading?: boolean; dreaming?: boolean; active?: number; pinned?: number; recalled?: number; busy?: string }): string | undefined {
+	// What the worker reports (download, vectors, index) wins over the generic lines.
+	if (state.busy) return state.busy;
 	if (state.dreaming) return "⠋ consolido la memoria…";
 	if (state.loading) return "⠋ carico la memoria…";
 	if (!state.active) return undefined;

@@ -171,3 +171,11 @@ test("the merged index is built once for project + global, whatever the model as
 	await recaller.run("esportazioni excel", { project, global }, "2026-10-09");
 	assert.equal(RecallIndex.builds - before, 1);
 });
+
+test("fillVectors reports its progress batch by batch", async () => {
+	const dir = join(tmp(), "p");
+	saveStore(dir, { records: Array.from({ length: 70 }, (_, i) => rec(`r${i}`, `Ricordo numero ${i}`)), vectors: new Map() });
+	const seen: string[] = [];
+	await fillVectors(dir, createFakeEmbedder(), (progress) => seen.push(`${progress.done}/${progress.total}`));
+	assert.deepEqual(seen, ["32/70", "64/70", "70/70"]);
+});

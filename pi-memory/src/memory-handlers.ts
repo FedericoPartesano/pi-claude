@@ -6,6 +6,7 @@ import { BackgroundEmbedder, createFakeEmbedder, type EmbedKind, type Embedder, 
 import { Recaller, fillVectors, type StoreDirs } from "./engine.ts";
 import { EpisodeSearch } from "./episodes.ts";
 import type { RecallOptions } from "./recall.ts";
+import type { MemoryProgress } from "./dashboard.ts";
 
 export interface HandlerOptions {
 	profile: ModelProfile;
@@ -18,7 +19,7 @@ export type RunOptions = Pick<RecallOptions, "includeSuperseded" | "threshold" |
 	waitModelMs?: number;
 };
 
-export function createHandlers(options: HandlerOptions) {
+export function createHandlers(options: HandlerOptions, emit: (progress: MemoryProgress) => void = () => undefined) {
 	const recaller = new Recaller();
 	const episodes = new EpisodeSearch();
 	let model: Embedder | undefined;
@@ -27,9 +28,10 @@ export function createHandlers(options: HandlerOptions) {
 		if (model) return Promise.resolve(true);
 		loading ??= (async () => {
 			try {
-				const candidate: Embedder & { start?: () => Promise<boolean> } = options.fake ? { ...createFakeEmbedder(384), model: options.profile.name } : new BackgroundEmbedder(options.profile);
+				const candidate: Embedder & { start?: () => Promise<boolean> } = options.fake ? { ...createFakeEmbedder(384), model: options.profile.name } : new BackgroundEmbedder(options.profile, { onProgress: emit });
 				const ok = candidate.start ? await candidate.start() : true;
 				if (ok) model = candidate;
+				emit({ phase: "idle" });
 				return ok;
 			} catch {
 				return false;
@@ -72,6 +74,9 @@ export function createHandlers(options: HandlerOptions) {
 		async open(dirs: StoreDirs, id: string) {
 			return recaller.open(dirs, id);
 		},
+		async counts(dirs: StoreDirs) {
+			return recaller.counts(dirs);
+		},
 		async core(dirs: StoreDirs) {
 			return recaller.core(dirs);
 		},
@@ -79,12 +84,18 @@ export function createHandlers(options: HandlerOptions) {
 			return recaller.hasVectors(dirs);
 		},
 		async fillVectors(dir: string) {
-			return fillVectors(dir, await withModel());
+			try {
+				return await fillVectors(dir, await withModel(), emit);
+			} finally {
+				emit({ phase: "idle" });
+			}
 		},
 		/** Builds the index (and the vector index when the model is loaded) before the first request needs it. */
 		async warm(dirs: StoreDirs) {
+			emit({ phase: "index", total: recaller.countRecords(dirs) });
 			const { index, vectors } = recaller.indexFor(dirs, model?.model);
 			if (vectors.size > 0) index.vectorsFor(vectors);
+			emit({ phase: "idle" });
 			return index.records.length;
 		},
 	};

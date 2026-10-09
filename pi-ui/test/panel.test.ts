@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { parseAheadBehind, parseNumstat, parsePorcelain, renderPanel, type PanelInfo } from "../src/panel.ts";
+import { parseAheadBehind, parseNumstat, parsePorcelain, renderPanel, statusesChanged, type PanelInfo } from "../src/panel.ts";
 
 const strip = (text: string) => text.replace(/\x1b\[[0-9;]*m/g, "");
 const info: PanelInfo = {
@@ -144,4 +144,11 @@ test("the GOAL section: state, progress checklist, round, time and last event, r
 	assert.match(paused, /GOAL ─+ ⏸ in pausa/);
 	assert.match(paused, /serve una tua decisione/);
 	assert.match(paused, /\/goal resume/);
+});
+
+test("statusesChanged: the panel refreshes when an extension status changes (the memory line stayed on 'carico…')", () => {
+	const before = new Map([["memory", "⠋ carico la memoria…"], ["goal", "goal 1/3"]]);
+	assert.equal(statusesChanged(before, new Map(before)), false);
+	assert.equal(statusesChanged(before, new Map([["memory", "◇ 103 ricordi"], ["goal", "goal 1/3"]])), true);
+	assert.equal(statusesChanged(before, new Map([["memory", "⠋ carico la memoria…"]])), true);
 });

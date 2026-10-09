@@ -42,7 +42,7 @@ import { withStoreLockAsync } from "../pi-memory/src/lock.ts";
 import { renderVault } from "../pi-memory/src/vault.ts";
 import { lastId, loadStore, migrateLegacy, pruneVectors, saveStore, storeExists, type MemoryRecord } from "../pi-memory/src/store.ts";
 import { applyUsage, lifecycle, newestEvent } from "../pi-memory/src/forget.ts";
-import { applyAction, dreamEntry, memoryStatus, recordLabel, recordPreview, summarize, type DreamEntry, type MemoryAction } from "../pi-memory/src/dashboard.ts";
+import { applyAction, dreamEntry, memoryStatus, progressText, recordLabel, recordPreview, summarize, type DreamEntry, type MemoryAction } from "../pi-memory/src/dashboard.ts";
 import type { DashboardResult, View } from "../pi-memory/src/dashboard-tui.ts";
 import { answerPrompt, appendDreamRun, logUsage, readDreamRuns, readRecallEvents, type MemoryDashboardSource, type SearchHit } from "../pi-memory/src/dashboard-data.ts";
 
@@ -260,15 +260,33 @@ export default function (pi: ExtensionAPI) {
 	shared = memoryWorker;
 	const logRecall = process.env.PI_MEMORY_RECALL_LOG === "1";
 	/** Footer/panel line about memory (pi-ui shows it): loading, consolidating, or how many memories and recalled. */
-	const showStatus = (ctx: ExtensionContext, extra: { loading?: boolean; dreaming?: boolean; recalled?: number } = {}) => {
+	const showStatus = (ctx: ExtensionContext, extra: { loading?: boolean; dreaming?: boolean; recalled?: number; busy?: string } = {}) => {
 		if (!ctx.hasUI) return;
-		try {
-			const counts = deepMode() ? totals(allRecords(deepDirs(ctx.cwd))) : { active: parseMemory(read(projectFiles(ctx.cwd).memory)).length, pinned: 0 };
-			ctx.ui.setStatus("memory", memoryStatus({ ...counts, ...extra }));
-		} catch {
-			// A store being written by /dream in another session: try again at the next event.
-		}
+		// Work in progress (download, vectors, /dream): the line says so, nothing to count.
+		if (extra.busy || extra.dreaming || extra.loading) return ctx.ui.setStatus("memory", memoryStatus(extra));
+		if (!deepMode()) return ctx.ui.setStatus("memory", memoryStatus({ active: parseMemory(read(projectFiles(ctx.cwd).memory)).length, pinned: 0, ...extra }));
+		const dirs = deepDirs(ctx.cwd);
+		if (!hasStore(dirs)) return ctx.ui.setStatus("memory", undefined);
+		// Counted in the worker: the UI thread never loads a store for a status line.
+		void memoryWorker
+			.counts(dirs)
+			.then((counts) => ctx.ui.setStatus("memory", memoryStatus({ ...counts, ...extra })))
+			.catch(() => undefined);
 	};
+	// What the worker reports (model download, vectors, index), at most 4 times a second for the download.
+	let statusCtx: ExtensionContext | undefined;
+	let lastProgress = 0;
+	memoryWorker.onProgress((progress) => {
+		if (!statusCtx) return;
+		const now = Date.now();
+		if (progress.phase === "download" && now - lastProgress < 250) return;
+		lastProgress = now;
+		const text = progressText(progress);
+		showStatus(statusCtx, text ? { busy: text } : {});
+	});
+	pi.on("session_start", (_event, ctx) => {
+		if (ctx.hasUI) statusCtx = ctx;
+	});
 
 	// Deep memory: the pinned core goes in the system prompt (small, stable → cached); everything else is recalled
 	// per request and appended after it as a message, only when relevant. No store → nothing, at no cost.
