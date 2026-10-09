@@ -51,3 +51,16 @@ test("blocks: split at blank lines but never inside a fence or a list; same bloc
 	assert.notEqual(second[3], first[3]);
 	assert.match(first[2], /<ol><li>uno<\/li><li>due<\/li><\/ol>/);
 });
+
+test("images in answers: markdown images inline, image paths and URLs in the text as thumbnails, resolved against the project", async () => {
+	const { markdown, answerBlocks, setImageBase } = await import("../renderer/src/render.ts");
+	setImageBase({ project: "/p/shop", home: "/home/fede" });
+	assert.match(markdown("ecco ![lo schema](docs/schema.png)"), /<img class="md-img" src="file:\/\/\/p\/shop\/docs\/schema.png" alt="lo schema"/);
+	assert.match(markdown("![x](https://a.it/x.webp)"), /<img class="md-img" src="https:\/\/a.it\/x.webp"/);
+	assert.match(markdown("![x](javascript:alert(1))"), /&lt;|!\[x\]/, "no other schemes");
+	const { blocks } = answerBlocks("Ho salvato lo screenshot in ~/shots/login.png e quello vecchio in /tmp/a b.png e `src/x.ts`.\n\nAltro: https://cdn.it/foto.jpg.");
+	assert.match(blocks[0], /<div class="thumbs"><img src="file:\/\/\/home\/fede\/shots\/login.png"/);
+	assert.ok(!/x\.ts/.test(blocks[0].split('<div class="thumbs">')[1] ?? ""), "only images");
+	assert.match(blocks[1], /<img src="https:\/\/cdn.it\/foto.jpg"/);
+	assert.ok(!/thumbs/.test(answerBlocks("niente immagini qui").blocks[0]));
+});

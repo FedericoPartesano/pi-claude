@@ -5,6 +5,7 @@ import { ArrowLeft, ArrowRight, Globe, Lock, Menu, Plus, RotateCw, TriangleAlert
 import { clean, desk, type Img, type Session } from "./bridge";
 import { createChat, transcriptTurns, type Turn } from "./state";
 import { Thread } from "./components/Thread";
+import { setImageBase } from "./render";
 import { Composer } from "./components/Composer";
 import { Sidebar } from "./components/Sidebar";
 import { ExtensionDialog } from "./components/ExtensionDialog";
@@ -45,7 +46,21 @@ export function App() {
 		if (/\b(error|errore)\b/i.test(text) && !/MODULE_TYPELESS|ExperimentalWarning/.test(text)) chat.addNote(text.trim().slice(0, 240));
 	});
 	desk.on("pi-exit", (code: string) => chat.exited(code));
-	desk.on("project", (path: string) => setProject(path));
+	// Image paths in answers resolve against the project (relative) and the home (~).
+	let home = "";
+	desk.on("home", (path: string) => {
+		home = path;
+		setImageBase({ project: project(), home });
+	});
+	desk.on("project", (path: string) => {
+		setProject(path);
+		setImageBase({ project: path, home });
+	});
+	// An image that does not exist (a path Pi mentioned and then removed): hidden, not a broken icon.
+	onMount(() => document.addEventListener("error", (event) => {
+		const target = event.target as HTMLElement;
+		if (target instanceof HTMLImageElement && target.closest(".md")) target.classList.add("broken");
+	}, true));
 	desk.on("browser-url", ({ url: next, title, back, forward }) => {
 		setUrl(!next || next.startsWith("data:") ? "" : next);
 		setNav({ back, forward, title: title ?? "" });

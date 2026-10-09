@@ -4,6 +4,35 @@
 
 const escapeHtml = (text) => String(text).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
 
+// ---- Images: where a path points, and which words are images (the same patterns as pi-ui in the terminal) -------
+const imageBase = { project: "", home: "" };
+/** Relative paths in answers are the project's; ~ is the user's home. Changing them invalidates the cache. */
+function setImageBase(base) {
+	imageBase.project = (base.project ?? "").replace(/\/+$/, "");
+	imageBase.home = (base.home ?? "").replace(/\/+$/, "");
+	cache.clear();
+}
+const fileUrl = (path) => `file://${encodeURI(path.replace(/\\/g, "/").replace(/^([A-Za-z]):/, "/$1:"))}`;
+function resolveImage(ref) {
+	if (/^(https?:\/\/|data:image\/|file:\/\/)/i.test(ref)) return ref;
+	if (/^[a-z][\w+.-]*:(?![\\/])/i.test(ref)) return undefined; // another scheme (javascript:, …)
+	if (ref.startsWith("~/")) return imageBase.home ? fileUrl(`${imageBase.home}/${ref.slice(2)}`) : undefined;
+	if (ref.startsWith("/") || /^[A-Za-z]:[\\/]/.test(ref)) return fileUrl(ref);
+	return imageBase.project ? fileUrl(`${imageBase.project}/${ref.replace(/^\.\//, "")}`) : undefined;
+}
+const IMAGE_EXT = "png|jpe?g|gif|webp|svg|bmp|avif";
+const URL_IMAGE = new RegExp(`https?://[^\\s)"'<>\`]+?\\.(?:${IMAGE_EXT})(?:\\?[^\\s)"'<>\`]*)?(?=$|[\\s)"'<>\`]|[.,;:!?](?:\\s|$))`, "gi");
+const PATH_IMAGE = new RegExp(`(?:^|[\\s(\\[\`'"])((?:~|\\.{1,2})?/?(?:[\\w@.-]+/)*[\\w@-][\\w@.-]*\\.(?:${IMAGE_EXT}))(?=$|[\\s)\\]\`'"]|[.,;:!?](?:\\s|$))`, "gim");
+/** Image paths and URLs written in a block (not inside markdown images or code spans with spaces). */
+function imageRefs(text) {
+	const plain = text.replace(/!\[[^\]\n]*\]\([^)\s]+\)/g, " ").replace(/`[^`\n]*\s[^`\n]*`/g, " ");
+	const refs = [];
+	for (const match of plain.matchAll(URL_IMAGE)) refs.push({ at: match.index ?? 0, ref: match[0].replace(/[.,;:!?]+$/, "") });
+	const withoutUrls = plain.replace(URL_IMAGE, (url) => " ".repeat(url.length));
+	for (const match of withoutUrls.matchAll(PATH_IMAGE)) refs.push({ at: (match.index ?? 0) + match[0].indexOf(match[1]), ref: match[1] });
+	return [...new Set(refs.sort((a, b) => a.at - b.at).map((entry) => entry.ref))];
+}
+
 // ---- Inline ---------------------------------------------------------------------------------------------------
 function inline(raw) {
 	const codes = [];
@@ -12,6 +41,10 @@ function inline(raw) {
 		return `\u0000${codes.length - 1}\u0000`;
 	});
 	text = text
+		.replace(/!\[([^\]\n]*)\]\(([^)\s]+)\)/g, (whole, alt, ref) => {
+			const src = resolveImage(ref.replace(/&amp;/g, "&"));
+			return src ? `<img class="md-img" src="${escapeHtml(src)}" alt="${alt}" loading="lazy">` : whole;
+		})
 		.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" title="$2">$1</a>')
 		.replace(/(^|[\s(])(https?:\/\/[^\s<)]+[^\s<).,;:!?])/g, '$1<a href="$2">$2</a>')
 		.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
@@ -307,14 +340,21 @@ function splitBlocks(text) {
 }
 
 /** An answer as a list of block HTML strings (memoised) and its suggestions. */
+/** Thumbnails for the images a block mentions (outside code blocks). */
+function thumbs(block) {
+	if (/^\s*(```|~~~)/.test(block)) return "";
+	const images = imageRefs(block).map((ref) => [ref, resolveImage(ref)]).filter(([, src]) => src);
+	return images.length ? `<div class="thumbs">${images.map(([ref, src]) => `<img src="${escapeHtml(src)}" alt="${escapeHtml(ref)}" title="${escapeHtml(ref)}" loading="lazy">`).join("")}</div>` : "";
+}
+
 function answerBlocks(source) {
 	const { marked, suggestions, charts } = extract(source);
 	const html = splitBlocks(marked).map((block) =>
-		memo(block, () => markdown(block.replace(/<!--chart:(\d+)-->/g, "@@CHART$1@@")).replace(/<p>@@CHART(\d+)@@<\/p>|@@CHART(\d+)@@/g, (_, a, b) => chartSvg(charts[Number(a ?? b)]))),
+		memo(block, () => markdown(block.replace(/<!--chart:(\d+)-->/g, "@@CHART$1@@")).replace(/<p>@@CHART(\d+)@@<\/p>|@@CHART(\d+)@@/g, (_, a, b) => chartSvg(charts[Number(a ?? b)])) + thumbs(block)),
 	);
 	return { blocks: html, suggestions };
 }
 
 
-export { escapeHtml, markdown, extract, chartSvg, answer, answerBlocks, splitBlocks };
+export { escapeHtml, markdown, extract, chartSvg, answer, answerBlocks, splitBlocks, setImageBase };
 export type ChartSpec = { type: "bar" | "hbar" | "line"; title: string; labels: string[]; series: { name: string; values: number[] }[]; unit: string };

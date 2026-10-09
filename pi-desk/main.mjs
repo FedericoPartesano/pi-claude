@@ -138,7 +138,10 @@ app.whenReady().then(() => {
 	});
 	win.loadFile(join(here, "ui-dist", "index.html"), { query: { [UI_MARK]: "1", project } });
 
-	win.webContents.on("did-finish-load", () => sendToUi("project", project));
+	win.webContents.on("did-finish-load", () => {
+		sendToUi("home", homedir());
+		sendToUi("project", project);
+	});
 	startPi();
 
 	ipcMain.handle("prompt", (_event, text, images) => pi.prompt(text, images));

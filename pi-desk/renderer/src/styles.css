@@ -254,3 +254,6 @@ svg.lucide { flex: none; }
 #browserbar .lock { color: var(--ok); }
 .error-card button { margin-left: 8px; border: 1px solid #ff4d6d66; background: transparent; color: inherit; border-radius: 7px; padding: 1px 8px; }
 .error-card svg { vertical-align: -2px; }
+.md .md-img { display: block; margin: .5em 0; max-height: 420px; }
+.md .thumbs { padding: 6px 0 2px; }
+.md img.broken { display: none; }
