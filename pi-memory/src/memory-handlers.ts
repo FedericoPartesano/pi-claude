@@ -24,11 +24,17 @@ export function createHandlers(options: HandlerOptions) {
 	const start = (): Promise<boolean> => {
 		if (model) return Promise.resolve(true);
 		loading ??= (async () => {
-			const candidate: Embedder & { start?: () => Promise<boolean> } = options.fake ? { ...createFakeEmbedder(384), model: options.profile.name } : new BackgroundEmbedder(options.profile);
-			const ok = candidate.start ? await candidate.start() : true;
-			if (ok) model = candidate;
-			loading = undefined;
-			return ok;
+			try {
+				const candidate: Embedder & { start?: () => Promise<boolean> } = options.fake ? { ...createFakeEmbedder(384), model: options.profile.name } : new BackgroundEmbedder(options.profile);
+				const ok = candidate.start ? await candidate.start() : true;
+				if (ok) model = candidate;
+				return ok;
+			} catch {
+				return false;
+			} finally {
+				// A failed load is retried on the next start (it stayed cached as failed forever).
+				loading = undefined;
+			}
 		})();
 		return loading;
 	};
@@ -47,7 +53,11 @@ export function createHandlers(options: HandlerOptions) {
 			return (await withModel()).embed(texts, kind);
 		},
 		async recall(query: string, dirs: StoreDirs, today: string, runOptions: RunOptions = {}) {
-			if (!model && runOptions.waitModelMs && recaller.hasVectors(dirs)) await Promise.race([start(), new Promise((resolve) => setTimeout(resolve, runOptions.waitModelMs))]);
+			if (!model && runOptions.waitModelMs && recaller.hasVectors(dirs)) {
+				let timer: ReturnType<typeof setTimeout> | undefined;
+				await Promise.race([start(), new Promise((resolve) => (timer = setTimeout(resolve, runOptions.waitModelMs)))]);
+				clearTimeout(timer);
+			}
 			return recaller.run(query, dirs, today, model, runOptions);
 		},
 		async forFile(dirs: StoreDirs, path: string, today: string) {

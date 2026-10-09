@@ -397,7 +397,11 @@ export default function (pi: ExtensionAPI) {
 				// Up to 3 batches (a project with many sessions); the rest on the next day or with /dream.
 				void (async () => {
 					for (let run = 0; run < 3; run++) {
+						lastDreamSaved = false;
 						await dream("", ctx, { auto: true });
+						// Only after a consolidation that was saved: an early return (invalid or empty reply) left an old
+						// "pending" behind and the loop paid the same model call again.
+						if (!lastDreamSaved) break;
 						let pending = 0;
 						try {
 							pending = JSON.parse(readFileSync(projectFiles(ctx.cwd).last, "utf8")).pending ?? 0;
@@ -469,6 +473,7 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
+	let lastDreamSaved = false;
 	const dream = async (args: string, ctx: ExtensionContext, options: { auto?: boolean } = {}) => {
 		const global = /--global\b/.test(args);
 		const globalTarget = globalFiles();
@@ -605,6 +610,7 @@ export default function (pi: ExtensionAPI) {
 		}
 		const now = batch.until;
 		write(target.state, JSON.stringify({ lastConsolidated: now }));
+		lastDreamSaved = true;
 		if (global) write(stateFile, JSON.stringify({ ...state, lastConsolidated: state.lastConsolidated ?? "" }));
 		const contextChars = deep ? 0 : fitBudget(result.memory, CONTEXT_BUDGET_CHARS).map(contextLine).join("\n").length;
 		const summary = { ...result.counts, overCap: capped.moved, pending: batch.pending, entries: result.memory.length, contextTokens: Math.round(contextChars / 3.6), usage: answer.usage };

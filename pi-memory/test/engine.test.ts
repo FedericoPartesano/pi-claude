@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { createFakeEmbedder } from "../src/embed.ts";
 import { saveStore, loadStore, type MemoryRecord } from "../src/store.ts";
 import { Recaller, fillVectors, appendRecallLog } from "../src/engine.ts";
+import { RecallIndex } from "../src/recall.ts";
 
 const rec = (id: string, text: string, extra: Partial<MemoryRecord> = {}): MemoryRecord => ({ id, type: "fatto", text, pinned: false, confirmations: 1, created: "2026-10-01", last: "2026-10-06", status: "active", entities: [], ...extra });
 const tmp = () => mkdtempSync(join(tmpdir(), "pi-engine-"));
@@ -154,4 +155,19 @@ test("fillVectors never overwrites memories saved while it was embedding (an edi
 	assert.deepEqual(after.records.map((record) => record.text), ["Testo nuovo", "Le date in UTC", "Aggiunto nel frattempo"]);
 	assert.ok(after.vectors.has("r2"), "the unchanged memory got its vector");
 	assert.ok(!after.vectors.has("r1"), "no vector of the old text on the edited memory");
+});
+
+test("the merged index is built once for project + global, whatever the model asking", async () => {
+	const project = join(tmp(), "p");
+	const global = join(tmp(), "g");
+	saveStore(project, { records: [rec("r1", "Le esportazioni Excel usano exceljs")], vectors: new Map() });
+	saveStore(global, { records: [rec("r1", "Rispondi in italiano")], vectors: new Map() });
+	const recaller = new Recaller();
+	const before = RecallIndex.builds;
+	recaller.indexFor({ project, global }, "a");
+	recaller.indexFor({ project, global }, "b");
+	recaller.indexFor({ project, global });
+	recaller.core({ project, global });
+	await recaller.run("esportazioni excel", { project, global }, "2026-10-09");
+	assert.equal(RecallIndex.builds - before, 1);
 });

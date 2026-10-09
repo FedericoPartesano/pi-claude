@@ -55,7 +55,7 @@ export interface RecallRun {
 }
 
 export class Recaller {
-	private cache = new Map<string, { stamp: string; index: RecallIndex; vectors: Map<string, Float32Array>; model?: string; records: MemoryRecord[] }>();
+	private cache = new Map<string, { stamp: string; vectors: Map<string, Float32Array>; model?: string; records: MemoryRecord[] }>();
 
 	private load(dir: string, prefix: string) {
 		const key = `${prefix}${dir}`;
@@ -63,7 +63,8 @@ export class Recaller {
 		const cached = this.cache.get(key);
 		if (cached?.stamp === current) return cached;
 		const store = loadStore(dir, prefix);
-		const entry = { stamp: current, index: new RecallIndex(store.records), vectors: store.vectors, model: store.model, records: store.records };
+		// Records only: the index is built once over all stores (indexFor), not per store.
+		const entry = { stamp: current, vectors: store.vectors, model: store.model, records: store.records };
 		this.cache.set(key, entry);
 		return entry;
 	}
@@ -100,25 +101,33 @@ export class Recaller {
 		return index;
 	}
 
-	private merged = new Map<string, { key: string; index: RecallIndex; vectors: Map<string, Float32Array> }>();
+	private merged = new Map<string, { key: string; index: RecallIndex }>();
+	private vectorSets = new Map<string, { key: string; result: { index: RecallIndex; vectors: Map<string, Float32Array> } }>();
 
 	/**
-	 * The index over all stores (project + global) and the vectors of the given model, built once and reused until a
-	 * store changes: rebuilding them per request cost seconds at 100k memories.
+	 * The index over all stores (project + global), built once and reused until a store changes, whatever the model;
+	 * the vectors of a model kept apart (rebuilding either per request cost seconds at 100k memories).
 	 */
 	indexFor(dirs: StoreDirs, model?: string): { index: RecallIndex; vectors: Map<string, Float32Array> } {
 		const parts = this.all(dirs);
-		const slot = `${dirs.project}|${dirs.global ?? ""}|${model ?? ""}`;
+		const slot = `${dirs.project}|${dirs.global ?? ""}`;
 		const key = parts.map((part) => part.stamp).join("|");
-		const cached = this.merged.get(slot);
-		if (cached?.key === key) return cached;
-		const vectors = new Map<string, Float32Array>();
-		for (const part of parts) if (model && part.model === model) for (const [id, vector] of part.vectors) vectors.set(id, vector);
-		const index = parts.length === 1 ? parts[0].index : new RecallIndex(parts.flatMap((part) => part.records));
-		const entry = { key, index, vectors };
-		this.merged.set(slot, entry);
-		return entry;
+		let merged = this.merged.get(slot);
+		if (merged?.key !== key) {
+			merged = { key, index: new RecallIndex(parts.length === 1 ? parts[0].records : parts.flatMap((part) => part.records)) };
+			this.merged.set(slot, merged);
+		}
+		const vectorSlot = `${slot}|${model ?? ""}`;
+		let set = this.vectorSets.get(vectorSlot);
+		if (set?.key !== key || set.result.index !== merged.index) {
+			const vectors = new Map<string, Float32Array>();
+			for (const part of parts) if (model && part.model === model) for (const [id, vector] of part.vectors) vectors.set(id, vector);
+			set = { key, result: { index: merged.index, vectors } };
+			this.vectorSets.set(vectorSlot, set);
+		}
+		return set.result;
 	}
+
 
 	private all(dirs: StoreDirs) {
 		const parts = [this.load(dirs.project, "")];
@@ -177,13 +186,26 @@ export class Recaller {
 	 * pinned memories not already in it. Stable between two /dream, so the prompt prefix stays cached.
 	 */
 	core(dirs: StoreDirs): string | undefined {
+		const { quadro, pinned } = this.coreParts(dirs);
+		const section = coreSection(pinned);
+		const parts = [quadro ? `Quadro del progetto (da sessioni precedenti):\n${quadro}` : "", section ?? ""].filter(Boolean);
+		return parts.length ? parts.join("\n\n") : undefined;
+	}
+
+	/** The overview and the pinned memories eligible for the core (the ones not already in the overview). */
+	private coreParts(dirs: StoreDirs): { quadro: string; pinned: MemoryRecord[] } {
 		const file = join(dirs.project, "gist.md");
 		const quadro = existsSync(file) ? readFileSync(file, "utf8").trim().slice(0, 1200) : "";
 		const known = quadro.toLowerCase();
-		const pinned = coreSection(this.all(dirs).flatMap((part) => part.records).filter((record) => !known.includes(record.text.toLowerCase().replace(/[.\s]+$/, ""))));
-		const parts = [quadro ? `Quadro del progetto (da sessioni precedenti):\n${quadro}` : "", pinned ?? ""].filter(Boolean);
-		return parts.length ? parts.join("\n\n") : undefined;
+		const pinned = this.all(dirs).flatMap((part) => part.records).filter((record) => !known.includes(record.text.toLowerCase().replace(/[.\s]+$/, "")));
+		return { quadro, pinned };
 	}
+
+	/** Ids already in the system prompt (never repeated as cues): exactly the pinned memories core() shows. */
+	private coreIdsOf(dirs: StoreDirs): string[] {
+		return coreIds(this.coreParts(dirs).pinned);
+	}
+
 
 
 	async run(query: string, dirs: StoreDirs, today: string, embedder?: Embedder, options: { includeSuperseded?: boolean; threshold?: number; inquiryThreshold?: number; limit?: number } = {}): Promise<RecallRun> {
@@ -200,7 +222,7 @@ export class Recaller {
 			}
 		}
 		// Pinned memories already sit in the system prompt: never repeat them in the request.
-		const pinned = new Set(coreIds(records));
+		const pinned = new Set(this.coreIdsOf(dirs));
 		// Small talk recalls nothing; questions a few cues, tasks more (fixed ceiling).
 		const limit = options.limit ?? cueLimit(query);
 		if (limit === 0) return { text: "", hits: [], ids: [], chars: 0, estTokens: 0, embedderReady: ready, ms: Math.round((performance.now() - started) * 10) / 10 };

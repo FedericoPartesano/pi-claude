@@ -55,16 +55,23 @@ export class MemoryWorker implements Embedder {
 					if (message.error !== undefined) entry?.reject(new Error(message.error));
 					else entry?.resolve(message.result);
 				});
-				worker.on("error", () => {
+				// A worker that dies (an error, or an exit without one): this thread takes over, waiting requests included.
+				const takeOver = () => {
+					if (this.worker !== worker) return;
 					// From now on in this thread; what was waiting for the worker is answered here instead of failing.
 					this.worker = undefined;
+					void worker.terminate();
 					this.local = createHandlers({ profile: this.profile, fake: this.fake });
 					this.modelReady = false;
 					const waiting = [...this.pending.values()];
 					this.pending.clear();
 					for (const entry of waiting) {
-						Promise.resolve((this.local[entry.method] as (...values: unknown[]) => unknown)(...entry.args)).then(entry.resolve, entry.reject);
+						Promise.resolve((this.local![entry.method] as (...values: unknown[]) => unknown)(...entry.args)).then(entry.resolve, entry.reject);
 					}
+				};
+				worker.on("error", takeOver);
+				worker.on("exit", () => {
+					if (this.worker === worker && !this.closing) takeOver();
 				});
 				// Referenced only while a request waits for its answer: an idle worker must never keep Pi alive (pi -p
 				// answered and then hung), a busy one must (or the process exits before the answer). After the listeners:
@@ -164,7 +171,10 @@ export class MemoryWorker implements Embedder {
 		return this.call("warm", dirs);
 	}
 
+	private closing = false;
+
 	close(): void {
+		this.closing = true;
 		if (this.idleTimer) clearTimeout(this.idleTimer);
 		void this.worker?.terminate();
 		this.worker = undefined;

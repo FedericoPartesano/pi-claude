@@ -191,6 +191,8 @@ class IndexBuilder {
 }
 
 export class RecallIndex {
+	/** How many indexes were built (tests check that one is not rebuilt needlessly). */
+	static builds = 0;
 	readonly records: MemoryRecord[];
 	private postings: Lists;
 	private lengths: Uint16Array;
@@ -206,6 +208,7 @@ export class RecallIndex {
 	private entityStemCache = new Map<string, string[]>();
 
 	constructor(records: MemoryRecord[], prepared?: IndexBuilder, lists?: { postings: Lists; entityIndex: Lists; entityTokens: Lists }) {
+		RecallIndex.builds++;
 		this.records = records;
 		let builder = prepared;
 		if (!builder) {

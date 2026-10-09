@@ -109,3 +109,19 @@ test("if the worker dies, the requests waiting for it are answered in this threa
 		memory.close();
 	}
 });
+
+test("a worker that exits without an error: waiting requests are answered here too", async () => {
+	const project = join(mkdtempSync(join(tmpdir(), "mw-")), "p");
+	saveStore(project, { records: [rec("r1", "Le esportazioni Excel usano exceljs in streaming")], vectors: new Map() });
+	const memory = new MemoryWorker({ fake: true });
+	try {
+		await memory.core({ project });
+		const pending = memory.recall("esportazioni excel", { project }, "2026-10-08");
+		const internals = memory as unknown as { pending: Map<number, unknown>; worker: { emit: (event: string, code: number) => void } };
+		while (internals.pending.size === 0) await new Promise((resolve) => setImmediate(resolve));
+		internals.worker.emit("exit", 1);
+		assert.deepEqual((await pending).ids, ["r1"]);
+	} finally {
+		memory.close();
+	}
+});
