@@ -192,3 +192,47 @@ test("a goal with several deliverables gets an intent (its checklist is what goa
 	assert.ok(shouldCreateIntent("aggiungi la validazione e aggiorna il README"));
 	assert.ok(!shouldCreateIntent("scrivi ciao.txt con dentro ciao"));
 });
+
+/** A Pi stand-in: enough of the API for /goal to run a round. */
+function fakePi() {
+	const handlers = new Map<string, ((...args: unknown[]) => unknown)[]>();
+	const commands = new Map<string, { handler: (args: string, ctx: unknown) => Promise<unknown> }>();
+	const entries: { line: string; kind: string }[] = [];
+	let active: string[] = [];
+	const pi = {
+		on: (name: string, handler: (...args: unknown[]) => unknown) => void handlers.set(name, [...(handlers.get(name) ?? []), handler]),
+		registerCommand: (name: string, command: { handler: (args: string, ctx: unknown) => Promise<unknown> }) => void commands.set(name, command),
+		registerTool: () => {},
+		registerEntryRenderer: () => {},
+		registerMessageRenderer: () => {},
+		getActiveTools: () => active,
+		setActiveTools: (tools: string[]) => void (active = tools),
+		appendEntry: (_type: string, data: { line: string; kind: string }) => void entries.push(data),
+		events: { emit: () => {} },
+		sendUserMessage: () => {},
+	};
+	const ctx = { cwd: process.cwd(), hasUI: false, mode: "print", isIdle: () => true, waitForIdle: async () => {}, ui: {} };
+	const emit = async (name: string, event: unknown) => {
+		let result: unknown;
+		for (const handler of handlers.get(name) ?? []) result = (await handler(event, ctx)) ?? result;
+		return result;
+	};
+	return { pi, ctx, commands, entries, emit };
+}
+
+test("a round that settles without goal_done continues with a reminder", async () => {
+	const { default: goalExtension } = await import("./goal.ts");
+	const fake = fakePi();
+	const quiet = console.error;
+	console.error = () => {};
+	try {
+		goalExtension(fake.pi as never);
+		await fake.commands.get("goal")!.handler("sistema il typo nel README", fake.ctx);
+		await fake.emit("tool_execution_start", {});
+		const result = (await fake.emit("agent_before_settle", { outcome: "completed" })) as { continue?: boolean } | undefined;
+		assert.equal(result?.continue, true);
+		assert.ok(fake.entries.some((entry) => entry.kind === "continue"));
+	} finally {
+		console.error = quiet;
+	}
+});
