@@ -29,28 +29,42 @@ export function entriesToRecords(memory: MemoryEntry[], archive: MemoryEntry[], 
 		taken.add(id);
 		return id;
 	};
+	/** Replaced id (updated, merged away) → the id of what replaces it: links to it follow. */
+	const redirect = new Map<string, string>();
 	const base = (entry: MemoryEntry, id: string): MemoryRecord => {
 		const old = before.get(id);
+		// An update or a merge: the new memory inherits the replaced ones' links and usage.
+		const replaced = (entry.replaces ?? []).map((replacedId) => before.get(replacedId)).filter((record): record is MemoryRecord => Boolean(record));
+		for (const record of replaced) redirect.set(record.id, id);
+		const inherited = replaced.length
+			? {
+					...(replaced.some((record) => record.links?.length) ? { links: [...new Set(replaced.flatMap((record) => record.links ?? []))] } : {}),
+					...(replaced.some((record) => record.uses) ? { uses: replaced.reduce((sum, record) => sum + (record.uses ?? 0), 0) } : {}),
+					...(replaced.some((record) => record.lastUsed) ? { lastUsed: replaced.map((record) => record.lastUsed ?? "").sort().pop() } : {}),
+					...(replaced[0].scope ? { scope: replaced[0].scope } : {}),
+					created: replaced.map((record) => record.created).sort()[0],
+				}
+			: {};
 		return {
 			id,
 			type: entry.type,
 			text: entry.text,
 			pinned: entry.pinned,
 			confirmations: entry.confirmations,
-			created: old?.created ?? today,
+			created: old?.created ?? (inherited as { created?: string }).created ?? today,
 			last: entry.last || today,
 			status: "active",
 			entities: [...new Set([...(entry.entities ?? old?.entities ?? []).map((value) => value.toLowerCase()), ...extractEntities(entry.text)])],
 			...(old?.source ? { source: old.source } : {}),
 			// Graph, lifecycle and usage survive consolidation (they were dropped: every /dream erased the links). The
 			// gist only while the text is the same.
-			...(entry.links?.length || old?.links?.length ? { links: [...new Set([...(old?.links ?? []), ...(entry.links ?? [])])] } : {}),
+			...(entry.links?.length || old?.links?.length || (inherited as { links?: string[] }).links ? { links: [...new Set([...(old?.links ?? []), ...((inherited as { links?: string[] }).links ?? []), ...(entry.links ?? [])])] } : {}),
 			...(entry.gist ? { gist: entry.gist } : old?.gist && old.text === entry.text ? { gist: old.gist } : {}),
 			...(old?.state ? { state: old.state, dormantSince: old.dormantSince } : {}),
 			...(entry.level ?? old?.level ? { level: entry.level ?? old?.level } : {}),
-			...(old?.uses ? { uses: old.uses } : {}),
-			...(old?.lastUsed ? { lastUsed: old.lastUsed } : {}),
-			...(old?.scope ? { scope: old.scope } : {}),
+			...(old?.uses ? { uses: old.uses } : (inherited as { uses?: number }).uses ? { uses: (inherited as { uses?: number }).uses } : {}),
+			...(old?.lastUsed ? { lastUsed: old.lastUsed } : (inherited as { lastUsed?: string }).lastUsed ? { lastUsed: (inherited as { lastUsed?: string }).lastUsed } : {}),
+			...(old?.scope ? { scope: old.scope } : (inherited as { scope?: string }).scope ? { scope: (inherited as { scope?: MemoryRecord["scope"] }).scope } : {}),
 		};
 	};
 	const records: MemoryRecord[] = [];
@@ -60,11 +74,18 @@ export function entriesToRecords(memory: MemoryEntry[], archive: MemoryEntry[], 
 		if (!entry.reason || entry.reason === "episodio") records.push(record);
 		else records.push({ ...record, status: "superseded", reason: entry.reason });
 	}
-	// Links between additions of the same /dream, now that they have ids (unresolved ones dropped).
+	// Links: additions of this /dream resolved to their ids, links to replaced memories redirected to what replaces
+	// them, and links to memories that are not active anymore (or never existed) pruned.
+	const active = new Set(records.filter((record) => record.status === "active").map((record) => record.id));
+	const follow = (link: string) => {
+		let target: string | undefined = link.startsWith("new:") ? fresh.get(link) : link;
+		for (let hops = 0; target && redirect.has(target) && hops < 10; hops++) target = redirect.get(target);
+		return target;
+	};
 	for (const record of records) {
-		if (!record.links?.some((link) => link.startsWith("new:"))) continue;
-		const links = record.links.map((link) => (link.startsWith("new:") ? fresh.get(link) : link)).filter((link): link is string => Boolean(link) && link !== record.id);
-		if (links.length) record.links = [...new Set(links)];
+		if (!record.links?.length) continue;
+		const links = [...new Set(record.links.map(follow).filter((link): link is string => link !== undefined && link !== record.id && active.has(link)))];
+		if (links.length) record.links = links;
 		else delete record.links;
 	}
 	return records;

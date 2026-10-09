@@ -29,6 +29,8 @@ export interface MemoryEntry {
 	gist?: string;
 	/** personale = valid in every project (moved to the global store). */
 	level?: "progetto" | "personale";
+	/** Ids this entry replaces (an update, a merge): it inherits their links and usage, links to them follow it. */
+	replaces?: string[];
 }
 
 /** Graph and cue fields /dream may propose for a memory (links are m<n> ids of the current memory). */
@@ -39,7 +41,8 @@ export interface Extras {
 }
 
 export interface Proposal {
-	add: ({ type: MemoryType; text: string; entities?: string[] } & Extras)[];
+	/** ref = the addition's number in the model's own list (n<k> links point to it, whatever is dropped later). */
+	add: ({ type: MemoryType; text: string; entities?: string[]; ref?: number } & Extras)[];
 	reinforce: string[];
 	merge: ({ ids: string[]; text: string; type?: MemoryType; entities?: string[] } & Extras)[];
 	update: ({ id: string; text: string; type?: MemoryType; entities?: string[] } & Extras)[];
@@ -129,7 +132,7 @@ export function applyProposal(memory: MemoryEntry[], archive: MemoryEntry[], pro
 		const old = slots[position];
 		if (!old || touched.has(position)) continue;
 		newArchive.push({ ...old, archived: today, reason: `superato da "${text}"` });
-		slots[position] = { type: type ?? old.type, text, pinned: old.pinned, confirmations: old.confirmations + 1, last: today, ...withEntities(entities ?? old.entities), ...extras(more) };
+		slots[position] = { type: type ?? old.type, text, pinned: old.pinned, confirmations: old.confirmations + 1, last: today, ...withEntities(entities ?? old.entities), ...extras(more), ...(old.id ? { replaces: [old.id] } : {}) };
 		touched.add(position);
 		counts.updated++;
 	}
@@ -154,6 +157,7 @@ export function applyProposal(memory: MemoryEntry[], archive: MemoryEntry[], pro
 			last: today,
 			...withEntities(entities ?? [...new Set(parts.flatMap((part) => part.entities ?? []))]),
 			...extras(more),
+			...(parts.some((part) => part.id) ? { replaces: parts.map((part) => part.id).filter((id): id is string => Boolean(id)) } : {}),
 		};
 		for (const position of positions.slice(1)) slots[position] = undefined;
 		for (const position of positions) touched.add(position);
@@ -170,7 +174,7 @@ export function applyProposal(memory: MemoryEntry[], archive: MemoryEntry[], pro
 	}
 	const known = new Set([...memory, ...slots.filter(Boolean) as MemoryEntry[]].map((entry) => normalize(entry.text)));
 	const added: MemoryEntry[] = [];
-	for (const [position, { type, text, entities, ...more }] of proposal.add.entries()) {
+	for (const [position, { type, text, entities, ref, ...more }] of proposal.add.entries()) {
 		const key = normalize(text);
 		if (!key || known.has(key)) continue;
 		known.add(key);
@@ -183,20 +187,22 @@ export function applyProposal(memory: MemoryEntry[], archive: MemoryEntry[], pro
 				// The new text contains the old one: a fuller version or a correction ("…in inglese, non più in italiano").
 				const old = slots[position]!;
 				newArchive.push({ ...old, archived: today, reason: `superato da "${text}"` });
-				slots[position] = { type, text, pinned: old.pinned, confirmations: old.confirmations + 1, last: today, ...withEntities(entities ?? old.entities) };
+				slots[position] = { type, text, pinned: old.pinned, confirmations: old.confirmations + 1, last: today, ...withEntities(entities ?? old.entities), ...extras(more), ...(old.id ? { replaces: [old.id] } : {}) };
 				counts.updated++;
 				continue;
 			}
 			const contained = slots.find((entry) => entry && covers(words, contentWords(entry.text)));
 			if (contained) {
-				// A shorter wording of something already known: it confirms it.
+				// A shorter wording of something already known: it confirms it (and brings its links).
 				contained.confirmations++;
 				contained.last = today;
+				const links = extras(more).links;
+				if (links?.length) contained.links = [...new Set([...(contained.links ?? []), ...links])];
 				counts.reinforced++;
 				continue;
 			}
 		}
-		const entry: MemoryEntry = { id: `new:${position + 1}`, type, text, pinned: false, confirmations: 1, last: today, ...withEntities(entities), ...extras(more) };
+		const entry: MemoryEntry = { id: `new:${ref ?? position + 1}`, type, text, pinned: false, confirmations: 1, last: today, ...withEntities(entities), ...extras(more) };
 		if (type === "episodio") newArchive.push({ ...entry, archived: today, reason: "episodio" });
 		else added.push(entry);
 		counts.added++;
@@ -370,7 +376,11 @@ export function parseProposal(text: string, memoryCount: number): { ok: true; pr
 	salvage("update");
 	raw.add = [...list("add"), ...salvaged];
 	const proposal: Proposal = {
-		add: list("add").filter((item): item is Item => typeof item === "object" && item !== null).filter((item) => validType(item.type) && validText(item.text)).map((item) => ({ type: item.type as MemoryType, text: cleanText(item.text as string), ...withEntities(entitiesOf(item.entities)), ...extrasOf(item) })),
+		add: list("add")
+			.map((item, index) => ({ item, ref: index + 1 }))
+			.filter((entry): entry is { item: Item; ref: number } => typeof entry.item === "object" && entry.item !== null)
+			.filter(({ item }) => validType(item.type) && validText(item.text))
+			.map(({ item, ref }) => ({ type: item.type as MemoryType, text: cleanText(item.text as string), ...withEntities(entitiesOf(item.entities)), ...extrasOf(item), ref })),
 		reinforce: list("reinforce").filter(validId),
 		merge: list("merge").filter((item): item is Item => typeof item === "object" && item !== null).filter((item) => Array.isArray(item.ids) && item.ids.every(validId) && validText(item.text) && validType(item.type, true)).map((item) => ({ ids: item.ids as string[], text: cleanText(item.text as string), type: item.type as MemoryType | undefined, ...withEntities(entitiesOf(item.entities)), ...extrasOf(item) })),
 		update: list("update").filter((item): item is Item => typeof item === "object" && item !== null).filter((item) => validId(item.id) && validText(item.text) && validType(item.type, true)).map((item) => ({ id: item.id as string, text: cleanText(item.text as string), type: item.type as MemoryType | undefined, ...withEntities(entitiesOf(item.entities)), ...extrasOf(item) })),

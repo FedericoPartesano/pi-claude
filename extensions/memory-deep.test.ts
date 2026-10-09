@@ -113,3 +113,46 @@ test("new memories of the same /dream can link each other (n<k> = k-th addition)
 	assert.deepEqual(exportRecord.links, [queueRecord.id]);
 	assert.deepEqual(queueRecord.links, [exportRecord.id]);
 });
+
+test("n<k> links survive filtering: they follow the model's own numbering, not positions after a drop", () => {
+	const parsed = parseProposal(JSON.stringify({ add: [
+		{ type: "episodio", text: "L'utente ha inviato messaggi casuali (asd) senza richieste chiare" },
+		{ type: "fatto", text: "L'export delle fatture usa ReportBuilder", links: ["n3"] },
+		{ type: "decisione", text: "La coda reports resta a concorrenza 1 per la RAM del pod" },
+	] }), 0);
+	assert.ok(parsed.ok);
+	const filtered = filterProposal(parsed.proposal, []).proposal;
+	assert.equal(filtered.add.length, 2);
+	const records = entriesToRecords(applyProposal([], [], filtered, "2026-10-09").memory, [], [], "2026-10-09");
+	const exportRecord = records.find((record) => record.text.startsWith("L'export"))!;
+	const queueRecord = records.find((record) => record.text.startsWith("La coda"))!;
+	assert.deepEqual(exportRecord.links, [queueRecord.id]);
+});
+
+test("merge and update keep the graph and the usage: links and uses carried over, links to them redirected, dangling ones pruned", () => {
+	const rec = (id: string, text: string, extra: Partial<MemoryRecord> = {}): MemoryRecord => ({ id, type: "fatto", text, pinned: false, confirmations: 1, created: "2026-01-01", last: "2026-05-01", status: "active", entities: [], ...extra });
+	const records = [
+		rec("r1", "Il deploy usa GitHub Actions", { links: ["r9"], uses: 4, lastUsed: "2026-09-01" }),
+		rec("r2", "I rilasci partono dal branch release", { uses: 2 }),
+		rec("r3", "La coda reports ha concorrenza 2", { links: ["r1"], uses: 5, lastUsed: "2026-09-20" }),
+		rec("r4", "Il changelog si genera al rilascio", { links: ["r2", "r3"] }),
+	];
+	const { memory, archive } = recordsToEntries(records);
+	const applied = applyProposal(memory, archive, {
+		add: [],
+		reinforce: [],
+		merge: [{ ids: ["m1", "m2"], text: "Il deploy usa GitHub Actions dal branch release" }],
+		update: [{ id: "m3", text: "La coda reports ha concorrenza 1" }],
+		forget: [],
+	}, "2026-10-09");
+	const out = entriesToRecords(applied.memory, applied.archive, records, "2026-10-09", 4);
+	const merged = out.find((record) => record.text.startsWith("Il deploy usa GitHub Actions dal"))!;
+	const updated = out.find((record) => record.text === "La coda reports ha concorrenza 1")!;
+	const changelog = out.find((record) => record.id === "r4")!;
+	assert.equal(merged.uses, 6, "uses of the merged memories add up");
+	assert.equal(merged.lastUsed, "2026-09-01");
+	assert.equal(updated.uses, 5);
+	assert.deepEqual(updated.links, [merged.id], "the update keeps its link, redirected to the merged memory");
+	assert.deepEqual(changelog.links?.sort(), [merged.id, updated.id].sort(), "links to merged/updated memories follow them");
+	assert.ok(!(merged.links ?? []).includes("r9"), "a link to a memory that does not exist is pruned");
+});
