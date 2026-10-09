@@ -15,7 +15,7 @@ const isReady = (embedder: Embedder | undefined) => Boolean(embedder) && (embedd
 const stamp = (dir: string) => ["memories.jsonl", "vectors.json", "vectors.idx.json", "gist.md"].map((name) => (existsSync(join(dir, name)) ? statSync(join(dir, name)).mtimeMs : 0)).join(":");
 
 /** Embeds the active records that have no vector yet (or all of them when the model changed). Returns how many. */
-export async function fillVectors(dir: string, embedder: Embedder): Promise<number> {
+export async function fillVectors(dir: string, embedder: Embedder, onProgress?: (progress: { phase: "vectors"; done: number; total: number }) => void): Promise<number> {
 	const store = loadStore(dir);
 	if (store.model !== embedder.model) store.vectors.clear();
 	const todo = missingVectors(store);
@@ -26,6 +26,7 @@ export async function fillVectors(dir: string, embedder: Embedder): Promise<numb
 		const batch = todo.slice(start, start + 32);
 		const computed = await embedder.embed(batch.map(embedText), "passage");
 		batch.forEach((record, i) => vectors.set(record.id, computed[i]));
+		onProgress?.({ phase: "vectors", done: Math.min(todo.length, start + 32), total: todo.length });
 	}
 	// The store may have been saved meanwhile (an edit, a /dream): under the lock, re-read the memories only (not the
 	// vectors: seconds on a big store, and the UI may be waiting for this lock) and write only the vectors, for records
@@ -175,6 +176,22 @@ export class Recaller {
 			.filter((record) => record.status === "active" && record.state !== "dormant")
 			.sort((a, b) => index.strengthOf(b, today) - index.strengthOf(a, today) || b.last.localeCompare(a.last))
 			.slice(0, limit);
+	}
+
+	/** Active and pinned memories (the status line), from what is already loaded. */
+	counts(dirs: StoreDirs): { active: number; pinned: number } {
+		let active = 0;
+		let pinned = 0;
+		for (const part of this.all(dirs)) for (const record of part.records) if (record.status === "active") {
+			active++;
+			if (record.pinned) pinned++;
+		}
+		return { active, pinned };
+	}
+
+	/** How many memories the stores hold (for the "indexing N memories" status). */
+	countRecords(dirs: StoreDirs): number {
+		return this.all(dirs).reduce((sum, part) => sum + part.records.length, 0);
 	}
 
 	/** True when some store already has embeddings (otherwise waiting for the model would bring nothing). */

@@ -125,3 +125,20 @@ test("a worker that exits without an error: waiting requests are answered here t
 		memory.close();
 	}
 });
+
+test("the worker reports what it is doing (index, vectors) to Pi's side", async () => {
+	const project = join(mkdtempSync(join(tmpdir(), "mw-")), "p");
+	saveStore(project, { records: Array.from({ length: 40 }, (_, i) => rec(`r${i}`, `Ricordo ${i}`)), vectors: new Map() });
+	const memory = new MemoryWorker({ fake: true });
+	const phases: string[] = [];
+	memory.onProgress((progress) => phases.push(progress.phase === "vectors" ? `vectors ${progress.done}/${progress.total}` : progress.phase === "index" ? `index ${progress.total}` : progress.phase));
+	try {
+		await memory.warm({ project });
+		await memory.fillVectors(project);
+		assert.ok(phases.includes("index 40"), phases.join(" | "));
+		assert.ok(phases.includes("vectors 40/40"), phases.join(" | "));
+		assert.equal(phases[phases.length - 1], "idle", "and when it is done");
+	} finally {
+		memory.close();
+	}
+});

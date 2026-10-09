@@ -8,6 +8,7 @@ import { DEFAULT_MODEL, MODELS } from "./embed.ts";
 import type { RecallRun, StoreDirs } from "./engine.ts";
 import type { MemoryRecord } from "./store.ts";
 import type { EpisodeHit } from "./episodes.ts";
+import type { MemoryProgress } from "./dashboard.ts";
 import { createHandlers, type Handlers, type RunOptions } from "./memory-handlers.ts";
 
 type Method = keyof Handlers;
@@ -49,7 +50,8 @@ export class MemoryWorker implements Embedder {
 		this.booting ??= import("node:worker_threads")
 			.then(({ Worker }) => {
 				const worker = new Worker(new URL("./memory-worker.ts", import.meta.url), { workerData: { profile: this.profile, fake: this.fake } });
-				worker.on("message", (message: { id: number; result?: unknown; error?: string }) => {
+				worker.on("message", (message: { id: number; result?: unknown; error?: string; progress?: MemoryProgress }) => {
+					if (message.progress) return this.emitProgress(message.progress);
 					const entry = this.pending.get(message.id);
 					this.pending.delete(message.id);
 					if (this.pending.size === 0) worker.unref();
@@ -62,7 +64,7 @@ export class MemoryWorker implements Embedder {
 					// From now on in this thread; what was waiting for the worker is answered here instead of failing.
 					this.worker = undefined;
 					void worker.terminate();
-					this.local = createHandlers({ profile: this.profile, fake: this.fake });
+					this.local = createHandlers({ profile: this.profile, fake: this.fake }, (progress) => this.emitProgress(progress));
 					this.modelReady = false;
 					const waiting = [...this.pending.values()];
 					this.pending.clear();
@@ -81,7 +83,7 @@ export class MemoryWorker implements Embedder {
 				this.worker = worker;
 			})
 			.catch(() => {
-				this.local = createHandlers({ profile: this.profile, fake: this.fake });
+				this.local = createHandlers({ profile: this.profile, fake: this.fake }, (progress) => this.emitProgress(progress));
 			});
 		return this.booting;
 	}
@@ -89,7 +91,7 @@ export class MemoryWorker implements Embedder {
 	private async call<T>(method: Method, ...args: unknown[]): Promise<T> {
 		await this.boot();
 		if (this.local || !this.worker) {
-			this.local ??= createHandlers({ profile: this.profile, fake: this.fake });
+			this.local ??= createHandlers({ profile: this.profile, fake: this.fake }, (progress) => this.emitProgress(progress));
 			return (this.local[method] as (...values: unknown[]) => Promise<T>)(...args);
 		}
 		const id = this.nextId++;
@@ -159,6 +161,11 @@ export class MemoryWorker implements Embedder {
 		return this.call("open", dirs, id);
 	}
 
+	/** Active and pinned memories, counted in the worker (the UI thread never loads a store for a status line). */
+	counts(dirs: StoreDirs): Promise<{ active: number; pinned: number }> {
+		return this.call("counts", dirs);
+	}
+
 	core(dirs: StoreDirs): Promise<string | undefined> {
 		return this.call("core", dirs);
 	}
@@ -178,6 +185,22 @@ export class MemoryWorker implements Embedder {
 	}
 
 	private closing = false;
+	private progressListeners: ((progress: MemoryProgress) => void)[] = [];
+
+	/** What the memory is doing (model download, vectors, index), for the status line. */
+	onProgress(listener: (progress: MemoryProgress) => void): void {
+		this.progressListeners.push(listener);
+	}
+
+	private emitProgress(progress: MemoryProgress): void {
+		for (const listener of this.progressListeners) {
+			try {
+				listener(progress);
+			} catch {
+				// A status line never breaks the memory.
+			}
+		}
+	}
 
 	close(): void {
 		this.closing = true;

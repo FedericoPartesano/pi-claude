@@ -26,7 +26,7 @@ import { C, bg, bold, fg, fit, hud, label, usePalette } from "./src/palette.ts";
 import { PINNED_MIN_COLUMNS, sidebarRoot, type SidebarRoot } from "./src/sidebar.ts";
 import { behindConPty, imageProtocolFor, regularMode, regularWidth } from "./src/terminal.ts";
 import { activeIntent, planFromBranch, planFromDetails, type PlanTask } from "./src/sources.ts";
-import { PANEL_KEY, PANEL_WIDTH, parseAheadBehind, parseNumstat, parsePorcelain, renderPanel, type ChangedFile, type PanelInfo } from "./src/panel.ts";
+import { PANEL_KEY, PANEL_WIDTH, parseAheadBehind, parseNumstat, parsePorcelain, renderPanel, statusesChanged, type ChangedFile, type PanelInfo } from "./src/panel.ts";
 import { shouldNotify, toastScript } from "./src/notify.ts";
 import { answerFor, dangerReason } from "./src/permission.ts";
 import { extractSuggestions, renderSuggestions, SUGGESTION_MARK, SUGGESTION_PROMPT } from "./src/suggestions.ts";
@@ -332,12 +332,23 @@ export default function (pi: ExtensionAPI) {
 		ctx.ui.setEditorComponent((editorTui, theme, keybindings) => new PromptEditor(editorTui, theme, keybindings));
 		ctx.ui.setFooter((footerTui, _theme, footerData) => {
 			const unsubscribe = footerData.onBranchChange(() => footerTui.requestRender());
-			statuses = footerData.getExtensionStatuses();
+			// A copy: getExtensionStatuses() is Pi's live map, compared with itself it never "changed".
+			statuses = new Map(footerData.getExtensionStatuses());
 			return {
 				...line((width) => {
 					const usage = timed("readUsage", () => readUsage());
+					// Statuses change after startup (memory loading → its count, a goal's progress): the panel keeps a
+					// cached copy, refreshed here and redrawn when it differs (it stayed on "carico la memoria…").
+					const current = footerData.getExtensionStatuses();
+					if (statusesChanged(statuses, current)) {
+						statuses = new Map(current);
+						panelDirty = true;
+						// The panel was drawn earlier in this frame and keeps its cache for 100 ms: one frame after that shows
+						// the new status there.
+						setTimeout(() => footerTui.requestRender(), 150).unref?.();
+					}
 					return renderFooter({
-						statuses: footerData.getExtensionStatuses(),
+						statuses: current,
 						project: basename(ctx.cwd),
 						branch: footerData.getGitBranch() ?? undefined,
 						changes: files.length,

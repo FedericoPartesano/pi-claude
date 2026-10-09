@@ -240,3 +240,10 @@ export function renderPanel(info: PanelInfo, width: number, key = PANEL_KEY, max
 	// Panel background with a magenta edge, every line exactly `width` columns.
 	return lines.map((line) => `${fg(C.mag, "▌")}${bg(C.panel, ` ${pad(truncateToWidth(line, inner, "…"), inner)}`)}`);
 }
+
+/** Whether extension statuses (memory, goal, loop, team) differ: the panel is cached and must redraw when they do. */
+export function statusesChanged(before: ReadonlyMap<string, string>, after: ReadonlyMap<string, string>): boolean {
+	if (before.size !== after.size) return true;
+	for (const [key, value] of after) if (before.get(key) !== value) return true;
+	return false;
+}

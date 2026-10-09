@@ -3,7 +3,8 @@
 import { parentPort, workerData } from "node:worker_threads";
 import { createHandlers, type HandlerOptions } from "./memory-handlers.ts";
 
-const handlers = createHandlers(workerData as HandlerOptions) as unknown as Record<string, (...args: unknown[]) => unknown>;
+// Progress (download, vectors, index) goes to Pi's side as messages without an id.
+const handlers = createHandlers(workerData as HandlerOptions, (progress) => parentPort?.postMessage({ progress })) as unknown as Record<string, (...args: unknown[]) => unknown>;
 
 parentPort?.on("message", async (message: { id: number; method: string; args: unknown[] }) => {
 	try {

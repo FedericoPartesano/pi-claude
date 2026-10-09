@@ -56,12 +56,17 @@ export function createFakeEmbedder(dim = 256): Embedder {
  * Lazy transformers.js embedder: nothing is imported or downloaded until start() (called in the background after
  * session_start). embed() rejects while not ready; callers fall back to lexical recall.
  */
+/** Loading progress of the model: bytes downloaded (first time only), loading, failure. */
+export type LoadProgress = { phase: "download"; loaded: number; total: number } | { phase: "load" } | { phase: "failed"; message: string };
+
 export class BackgroundEmbedder implements Embedder {
 	private extractor: ((texts: string[], options: object) => Promise<{ tolist(): number[][] }>) | undefined;
 	private loading: Promise<boolean> | undefined;
 	readonly profile: ModelProfile;
-	constructor(profile: ModelProfile = MODELS[process.env.PI_MEMORY_MODEL ?? DEFAULT_MODEL] ?? MODELS[DEFAULT_MODEL]) {
+	private readonly onProgress?: (progress: LoadProgress) => void;
+	constructor(profile: ModelProfile = MODELS[process.env.PI_MEMORY_MODEL ?? DEFAULT_MODEL] ?? MODELS[DEFAULT_MODEL], options: { onProgress?: (progress: LoadProgress) => void } = {}) {
 		this.profile = profile;
+		this.onProgress = options.onProgress;
 	}
 	get model() {
 		return this.profile.name;
@@ -79,11 +84,26 @@ export class BackgroundEmbedder implements Embedder {
 	start(): Promise<boolean> {
 		this.loading ??= (async () => {
 			try {
+				this.onProgress?.({ phase: "load" });
 				const { pipeline, env } = await import("@huggingface/transformers");
 				env.cacheDir = process.env.PI_MEMORY_MODEL_CACHE ?? join(homedir(), ".cache", "pi-memory", "models");
-				this.extractor = (await pipeline("feature-extraction", this.profile.name, { dtype: "q8" })) as never;
+				// Downloads (first time only) are reported as the sum over the model's files.
+				const files = new Map<string, { loaded: number; total: number }>();
+				const progress_callback = (data: { status?: string; file?: string; loaded?: number; total?: number }) => {
+					if (data.status !== "progress" || !data.file || !data.total) return;
+					files.set(data.file, { loaded: data.loaded ?? 0, total: data.total });
+					let loaded = 0;
+					let total = 0;
+					for (const file of files.values()) {
+						loaded += file.loaded;
+						total += file.total;
+					}
+					this.onProgress?.({ phase: "download", loaded, total });
+				};
+				this.extractor = (await pipeline("feature-extraction", this.profile.name, { dtype: "q8", progress_callback } as never)) as never;
 				return true;
-			} catch {
+			} catch (error) {
+				this.onProgress?.({ phase: "failed", message: /fetch|network|ENOTFOUND|EAI_AGAIN|ECONN/i.test(String((error as Error)?.message)) ? "rete assente" : "errore di caricamento" });
 				return false;
 			}
 		})();
