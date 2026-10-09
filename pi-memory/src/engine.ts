@@ -1,5 +1,5 @@
 /** Glue between store, embedder and recall: cached loading, background vector filling, recall log. */
-import { appendFileSync, existsSync, mkdirSync, statSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Embedder } from "./embed.ts";
 import { CORE_BUDGET_CHARS, RecallIndex, coreIds, coreSection, cueLimit, recall, renderCues, type Scored } from "./recall.ts";
@@ -50,6 +50,38 @@ export class Recaller {
 		const entry = { stamp: current, index: new RecallIndex(store.records), vectors: store.vectors, model: store.model, records: store.records };
 		this.cache.set(key, entry);
 		return entry;
+	}
+
+	private cold = new Map<string, { stamp: number; index: RecallIndex }>();
+
+	/** forgotten.jsonl of the stores, for deep searches only (keyword index; their vectors were dropped). */
+	private coldFor(dirs: StoreDirs): RecallIndex | undefined {
+		const records: MemoryRecord[] = [];
+		const stamps: number[] = [];
+		for (const [dir, prefix] of [[dirs.project, ""], [dirs.global, "g:"]] as const) {
+			if (!dir) continue;
+			const file = join(dir, "forgotten.jsonl");
+			if (!existsSync(file)) continue;
+			stamps.push(statSync(file).mtimeMs);
+			for (const line of readFileSync(file, "utf8").split("\n")) {
+				if (!line.trim()) continue;
+				try {
+					const record = JSON.parse(line) as MemoryRecord;
+					records.push({ ...record, id: prefix + record.id, entities: record.entities ?? [] });
+				} catch {
+					// A corrupt line must not lose the others.
+				}
+			}
+		}
+		if (records.length === 0) return undefined;
+		const key = `${dirs.project}|${dirs.global ?? ""}`;
+		const stamp = stamps.reduce((sum, value) => sum + value, 0);
+		const cached = this.cold.get(key);
+		if (cached?.stamp === stamp) return cached.index;
+		// Forgotten records keep state "dormant": allowed in here, as a deep search includes everything.
+		const index = new RecallIndex(records.map((record) => ({ ...record, state: undefined })));
+		this.cold.set(key, { stamp, index });
+		return index;
 	}
 
 	private merged = new Map<string, { key: string; index: RecallIndex; vectors: Map<string, Float32Array> }>();
@@ -107,6 +139,16 @@ export class Recaller {
 		const limit = options.limit ?? cueLimit(query);
 		if (limit === 0) return { text: "", hits: [], ids: [], chars: 0, estTokens: 0, embedderReady: ready, ms: Math.round((performance.now() - started) * 10) / 10 };
 		const { hits } = recall(index, query, { today, vectors, queryVector, semFloor: embedder?.semFloor, semSpan: embedder?.semSpan, includeSuperseded: options.includeSuperseded, threshold: options.threshold, inquiryThreshold: options.inquiryThreshold, limit, exclude: options.includeSuperseded ? undefined : pinned });
+		if (options.includeSuperseded) {
+			// A deep search also reaches what was forgotten (a person can still recall it when asked on purpose).
+			const cold = this.coldFor(dirs);
+			if (cold) {
+				const coldHits = recall(cold, query, { today, threshold: options.threshold, inquiryThreshold: options.inquiryThreshold, limit, includeSuperseded: true, deep: false }).hits;
+				hits.push(...coldHits.map((hit) => ({ ...hit, score: hit.score * 0.9 })));
+				hits.sort((a, b) => b.score - a.score);
+				hits.splice(limit);
+			}
+		}
 		const text = renderCues(hits, limit);
 		return { text, hits, ids: text ? hits.map((hit) => hit.record.id).slice(0, text.split("\n").length - 1) : [], chars: text.length, estTokens: Math.round(text.length / 3.6), embedderReady: Boolean(queryVector), ms: Math.round((performance.now() - started) * 10) / 10 };
 	}

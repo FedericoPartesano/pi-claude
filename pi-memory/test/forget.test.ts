@@ -58,3 +58,9 @@ test("applyUsage: a memory recalled into the cues counts as used that day (once 
 	const global = applyUsage(records, events, "g:");
 	assert.equal(global[1].lastUsed, "2026-10-03");
 });
+
+test("a memory confirmed three times can sleep but is never forgotten (rare but important: the deploy procedure)", () => {
+	const result = lifecycle([rec("deploy", { type: "decisione", confirmations: 3, state: "dormant", dormantSince: "2025-01-01", created: "2024-01-01", last: "2024-06-01" })], today);
+	assert.deepEqual(result.forgotten, []);
+	assert.equal(result.records[0].state, "dormant");
+});

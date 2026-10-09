@@ -8,6 +8,8 @@ import type { MemoryRecord } from "./store.ts";
 
 export const DORMANT_AFTER_DAYS = 90;
 export const FORGET_AFTER_DAYS = 90;
+/** Confirmed this often (by /dream, across sessions): it may sleep, never be forgotten. */
+export const KEEP_CONFIRMATIONS = 3;
 
 const days = (from: string | undefined, to: string) => (from ? (Date.parse(to) - Date.parse(from)) / 86_400_000 : Number.POSITIVE_INFINITY);
 const latest = (...dates: (string | undefined)[]) => dates.filter(Boolean).sort().pop();
@@ -36,7 +38,7 @@ export function lifecycle(records: MemoryRecord[], today: string, options: { fil
 				const { state: _state, dormantSince: _since, ...awake } = record;
 				result.records.push(awake);
 				result.woken.push(record.id);
-			} else if (days(record.dormantSince, today) >= FORGET_AFTER_DAYS) result.forgotten.push(record);
+			} else if (days(record.dormantSince, today) >= FORGET_AFTER_DAYS && record.confirmations < KEEP_CONFIRMATIONS) result.forgotten.push(record);
 			else result.records.push(record);
 			continue;
 		}

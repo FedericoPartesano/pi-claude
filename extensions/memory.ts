@@ -562,7 +562,7 @@ export default function (pi: ExtensionAPI) {
 				if (!hasStore(dirs)) return ctx.ui.notify("Nessun ricordo trovato.", "info");
 				const run = await memoryWorker.recall(query, dirs, today(), { includeSuperseded: true, threshold: 0.25, waitModelMs: 8000 });
 				if (run.hits.length === 0) return ctx.ui.notify("Nessun ricordo trovato.", "info");
-				const lines = run.hits.map(({ record }) => `- [${record.type}] ${record.text}${record.status === "superseded" ? ` (superato${record.reason ? `: ${record.reason}` : ""})` : ""}`).join("\n");
+				const lines = run.hits.map(({ record }) => `- [${record.type}] ${record.text}${record.status === "superseded" ? ` (superato${record.reason ? `: ${record.reason}` : ""})` : record.forgottenAt ? ` (dimenticato il ${record.forgottenAt})` : record.state === "dormant" ? " (dormiente)" : ""}`).join("\n");
 				ctx.ui.notify(lines, "info");
 				if (use || (ctx.hasUI && (await ctx.ui.confirm("Mettere questi ricordi nel contesto?", lines)))) {
 					pi.sendMessage({ customType: "memory-recall", content: `Ricordi richiamati:\n${lines}`, display: true });

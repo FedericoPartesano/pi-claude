@@ -31,6 +31,8 @@ export interface MemoryRecord {
 	state?: "dormant";
 	/** When it went dormant (YYYY-MM-DD). */
 	dormantSince?: string;
+	/** Set on records of forgotten.jsonl: out of the store and the cues, still found by a deep search. */
+	forgottenAt?: string;
 	/** personale = holds in every project (lives in the global store). */
 	level?: "progetto" | "personale";
 	/** Times the model actually used it (opened with `ricorda`), and when last. */

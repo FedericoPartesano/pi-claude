@@ -71,3 +71,16 @@ test("Recaller: the merged index (project + global) and its vectors are built on
 	assert.notEqual(second, first, "rebuilt after a change");
 	assert.equal(second.index.records.length, 3);
 });
+
+test("forgotten memories (forgotten.jsonl) are found by a deep search, never by the cues of a request", async () => {
+	const project = join(tmp(), "p");
+	saveStore(project, { records: [rec("r1", "Il logger è in src/lib/logger.ts")], vectors: new Map() });
+	const { writeFileSync } = await import("node:fs");
+	writeFileSync(join(project, "forgotten.jsonl"), `${JSON.stringify({ ...rec("r9", "La procedura di deploy passa da GitHub Actions sul branch release"), state: "dormant", forgottenAt: "2026-09-01" })}\n`);
+	const recaller = new Recaller();
+	const cues = await recaller.run("come facciamo il deploy su release?", { project }, "2026-10-09");
+	assert.deepEqual(cues.ids, []);
+	const deep = await recaller.run("come facciamo il deploy su release?", { project }, "2026-10-09", undefined, { includeSuperseded: true, threshold: 0.25 });
+	assert.deepEqual(deep.hits.map((hit) => hit.record.id), ["r9"]);
+	assert.equal(deep.hits[0].record.forgottenAt, "2026-09-01");
+});
