@@ -132,3 +132,28 @@ test("sessions sidebar: running first, live one writable through desk-link, lega
 		close();
 	}
 });
+
+test("document panel: a step's file opens as a sortable table in its own tab; a PDF goes to the browser", { skip, timeout: 60_000 }, async () => {
+	const { js, close } = await openPage();
+	try {
+		await js(`emit("pi-event", { type: "agent_start" });
+			emit("pi-event", { type: "tool_execution_start", toolCallId: "r1", toolName: "read", args: { path: "dati/vendite.csv" } });
+			emit("pi-event", { type: "tool_execution_end", toolCallId: "r1", isError: false, result: { content: [{ type: "text", text: "mese,k€" }] } });
+			emit("pi-event", { type: "agent_settled" }); "ok"`);
+		await wait(80);
+		await js(`document.querySelector(".step .view").click(); "ok"`);
+		await wait(150);
+		assert.match(await js(`JSON.stringify(calls)`), /"file","dati\/vendite.csv"/);
+		assert.match(await js(`document.querySelector("#browser .tabs").textContent`), /vendite.csv/);
+		const cells = () => js(`[...document.querySelectorAll(".doc-table tbody tr")].map((r) => r.cells[1].textContent).join(",")`);
+		assert.equal(await cells(), "5,30,12");
+		await js(`[...document.querySelectorAll(".doc-table th")][1].click(); "ok"`);
+		assert.equal(await cells(), "5,12,30", "numbers sorted as numbers");
+		await js(`[...document.querySelectorAll(".doc-table th")][1].click(); "ok"`);
+		assert.equal(await cells(), "30,12,5");
+		assert.equal(await js(`JSON.stringify(window.lastRect)`).then((r) => JSON.parse(r).width), 0, "native browser hidden under the document");
+		await js(`window.__open = true; "ok"`);
+	} finally {
+		close();
+	}
+});

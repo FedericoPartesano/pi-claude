@@ -19,6 +19,9 @@ window.desk = {
 	closeSession: () => calls.push(["close"]),
 	resumeSession: (path, cwd) => (calls.push(["resume", path, cwd]), Promise.resolve([{ role: "user", text: "scrivi il post" }])),
 	newSession: () => (calls.push(["new"]), Promise.resolve()),
+	file: (path) => (calls.push(["file", path]), Promise.resolve(path.endsWith(".pdf") ? { kind: "pdf", name: "r.pdf", path, size: 9, url: "file:///p/r.pdf" } : { kind: "csv", name: "vendite.csv", path: "/p/" + path, size: 120, rows: [["mese", "k€"], ["feb", "5"], ["gen", "30"], ["mar", "12"]] })),
+	pick: () => Promise.resolve(null),
+	clipboardImage: () => Promise.resolve(undefined),
 	linkSession: (pid) => (pid === 42 ? Promise.resolve({ type: "hello", pid }) : Promise.reject(new Error("Error invoking remote method 'session-link': Error: questo Pi non ha desk-link: riavvialo per poterci scrivere"))),
 	sendToSession: (pid, text) => (calls.push(["send", pid, text]), Promise.resolve({ type: "ok", queued: true })),
 };

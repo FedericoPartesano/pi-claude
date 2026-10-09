@@ -7,6 +7,7 @@
  */
 import { app, BrowserWindow, WebContentsView, clipboard, ipcMain, session as electronSession } from "electron";
 import { PICKER_SCRIPT } from "./picker.mjs";
+import { readForPanel } from "./files.mjs";
 import { clipboardImage } from "./clipboard.mjs";
 import { existsSync, mkdirSync, readFileSync, unwatchFile, watchFile } from "node:fs";
 import { homedir } from "node:os";
@@ -57,7 +58,8 @@ let lastRect;
  */
 function ensureView() {
 	if (view) return view;
-	view = new WebContentsView({ webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true } });
+	// plugins: Chromium's PDF viewer, for documents opened in the panel.
+	view = new WebContentsView({ webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, plugins: true } });
 	win.contentView.addChildView(view);
 	view.setVisible(Boolean(lastRect && lastRect.width >= 10));
 	if (lastRect && lastRect.width >= 10) view.setBounds(lastRect);
@@ -161,6 +163,7 @@ app.whenReady().then(() => {
 	ipcMain.handle("ui-answer", (_event, id, fields) => pi.answer(id, fields));
 	ipcMain.on("browser-rect", (_event, rect) => placeView(rect));
 	ipcMain.handle("clipboard-image", () => clipboardImage(clipboard, wsl));
+	ipcMain.handle("file", (_event, path) => readForPanel(path, project));
 	// "Indica a Pi": the user picks an element in the panel; back come what it is and a picture of it.
 	ipcMain.handle("pick", async () => {
 		const contents = ensureView().webContents;

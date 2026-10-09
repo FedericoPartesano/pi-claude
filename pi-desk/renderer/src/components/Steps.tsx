@@ -1,5 +1,6 @@
 import { createSignal, For, Show } from "solid-js";
-import { Brain, Download, FilePlus, FileText, Flag, Folder, Globe, ListChecks, Pencil, Search, Terminal, Wrench } from "lucide-solid";
+import { Brain, Download, Eye, FilePlus, FileText, Flag, Folder, Globe, ListChecks, Pencil, Search, Terminal, Wrench } from "lucide-solid";
+import { actions, VIEWABLE } from "../actions";
 import type { Step } from "../state";
 import { brief } from "../state";
 import { openImage } from "./Lightbox";
@@ -13,6 +14,11 @@ const IMAGE_FILE = /\.(png|jpe?g|gif|webp|bmp|avif|svg)$/i;
 
 function StepRow(props: { step: Step }) {
 	const [open, setOpen] = createSignal(false);
+	// A file this step read or wrote that the document panel can show.
+	const viewable = () => {
+		const path = String(props.step.args?.path ?? props.step.args?.file_path ?? "");
+		return ["read", "write", "edit"].includes(props.step.name) && props.step.state !== "err" && VIEWABLE.test(path) ? path : undefined;
+	};
 	const sources = () => {
 		if (props.step.images?.length) return props.step.images.map((image) => `data:${image.mimeType};base64,${image.data}`);
 		const path = String(props.step.args?.path ?? props.step.args?.file_path ?? "");
@@ -30,6 +36,9 @@ function StepRow(props: { step: Step }) {
 				<span class="arg">{brief(props.step.name, props.step.args).slice(0, 200)}</span>
 				<span class="state">{props.step.state === "run" ? "in corso" : duration(props.step.ms)}</span>
 			</button>
+			<Show when={viewable()}>
+				<button type="button" class="icon view" title="Apri nel pannello documenti" onClick={() => actions.openFile(viewable()!)}><Eye size={14} /></button>
+			</Show>
 			<Show when={sources().length}>
 				<div class="thumbs">
 					<For each={sources()}>{(src) => <img src={src} alt="risultato del tool" onClick={(event) => openImage(event.currentTarget.src, event.currentTarget)} onError={(event) => event.currentTarget.remove()} />}</For>

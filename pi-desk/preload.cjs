@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld("desk", {
 	browserRect: (rect) => ipcRenderer.send("browser-rect", rect),
 	clipboardImage: () => ipcRenderer.invoke("clipboard-image"),
 	pick: () => ipcRenderer.invoke("pick"),
+	file: (path) => ipcRenderer.invoke("file", path),
 	sessions: () => ipcRenderer.invoke("sessions"),
 	openSession: (path) => ipcRenderer.invoke("session-open", path),
 	closeSession: () => ipcRenderer.invoke("session-close"),

@@ -1,7 +1,10 @@
 import { createEffect, createSignal, onMount, Show } from "solid-js";
 import { makePersisted } from "@solid-primitives/storage";
 import { createResizeObserver } from "@solid-primitives/resize-observer";
-import { ArrowLeft, ArrowRight, Bug, Crosshair, Globe, Lock, Menu, Plus, RotateCw, TriangleAlert, X } from "lucide-solid";
+import { ArrowLeft, ArrowRight, Bug, Crosshair, FileText, Globe, Lock, Menu, Plus, RotateCw, TriangleAlert, X } from "lucide-solid";
+import { DocViewer } from "./components/DocViewer";
+import { actions } from "./actions";
+import type { DocFile } from "./bridge";
 import { clean, desk, type Img, type Session } from "./bridge";
 import { createChat, transcriptTurns, type Turn } from "./state";
 import { Thread } from "./components/Thread";
@@ -20,6 +23,23 @@ export function App() {
 	const [sidebar, setSidebar] = makePersisted(createSignal(false), { name: "pi-desk.sidebar" });
 	const [chatShare, setChatShare] = makePersisted(createSignal(46), { name: "pi-desk.chat" });
 	const [browserOpen, setBrowserOpen] = createSignal(false);
+	// The right panel shows the browser or a document.
+	const [panel, setPanel] = createSignal<"browser" | "doc">("browser");
+	const [doc, setDoc] = createSignal<DocFile>();
+	async function openFile(path: string) {
+		const file = await desk.file(path);
+		if (file.error && !file.kind) return chat.addNote(file.error, "error");
+		setBrowserOpen(true);
+		if (file.kind === "pdf" || file.kind === "html") {
+			// Chromium's own viewer (PDF: zoom, search, pages), in the browser panel.
+			setPanel("browser");
+			desk.browser("go", file.url!);
+			return;
+		}
+		setDoc(file);
+		setPanel("doc");
+	}
+	actions.openFile = openFile;
 	const [dragging, setDragging] = createSignal(false);
 	const [url, setUrl] = createSignal("");
 	const [nav, setNav] = createSignal({ back: false, forward: false, title: "" });
@@ -49,14 +69,20 @@ export function App() {
 	};
 	desk.on("pi-event", (event) => {
 		follow(() => chat.onEvent(event));
-		if (event.type === "tool_execution_start" && event.toolName === "browser" && event.args?.action !== "close") setBrowserOpen(true);
+		if (event.type === "tool_execution_start" && event.toolName === "browser" && event.args?.action !== "close") {
+			setBrowserOpen(true);
+			setPanel("browser");
+		}
 	});
 	desk.on("pi-ui", (request) => chat.onUi(request));
 	desk.on("pi-stderr", (text: string) => {
 		if (/\b(error|errore)\b/i.test(text) && !/MODULE_TYPELESS|ExperimentalWarning/.test(text)) chat.addNote(text.trim().slice(0, 240));
 	});
 	desk.on("pi-exit", (code: string) => chat.exited(code));
-	desk.on("download", ({ path, state, bytes }) => chat.addNote(state === "completed" ? `⇣ Scaricato in ${path} (${Math.round(bytes / 1024)} KB)` : `Download non riuscito: ${path}`, state === "completed" ? undefined : "error"));
+	desk.on("download", ({ path, state, bytes }) => {
+		chat.addNote(state === "completed" ? `⇣ Scaricato in ${path} (${Math.round(bytes / 1024)} KB)` : `Download non riuscito: ${path}`, state === "completed" ? undefined : "error");
+		if (state === "completed") openFile(path);
+	});
 	// Image paths in answers resolve against the project (relative) and the home (~).
 	let home = "";
 	desk.on("home", (path: string) => {
@@ -139,7 +165,7 @@ export function App() {
 
 	// ---- Browser panel: the native view goes exactly over #browser-slot (nothing when closed or under the lightbox) ---
 	const sendRect = () => {
-		if (!browserOpen() || lightboxOpen() || !slot) return desk.browserRect({ x: 0, y: 0, width: 0, height: 0 });
+		if (!browserOpen() || panel() !== "browser" || lightboxOpen() || !slot) return desk.browserRect({ x: 0, y: 0, width: 0, height: 0 });
 		const rect = slot.getBoundingClientRect();
 		desk.browserRect({ x: Math.round(rect.left), y: Math.round(rect.top), width: Math.round(rect.width), height: Math.round(rect.height) });
 	};
@@ -150,6 +176,7 @@ export function App() {
 	});
 	createEffect(() => {
 		browserOpen();
+		panel();
 		lightboxOpen();
 		sidebar();
 		chatShare();
@@ -159,6 +186,7 @@ export function App() {
 		const target = value.trim();
 		if (!target) return;
 		setBrowserOpen(true);
+		setPanel("browser");
 		desk.browser("go", /\s/.test(target) || !/[.:]/.test(target) ? `https://duckduckgo.com/?q=${encodeURIComponent(target)}` : target);
 	};
 	const startDrag = (down: MouseEvent) => {
@@ -250,7 +278,16 @@ export function App() {
 			<div id="splitter" classList={{ dragging: dragging() }} onMouseDown={startDrag} title="Trascina per ridimensionare" />
 
 			<section id="browser">
-				<nav id="browserbar">
+				<div class="tabs">
+					<button type="button" classList={{ active: panel() === "browser" }} onClick={() => setPanel("browser")}><Globe size={13} /> Browser</button>
+					<Show when={doc()}>
+						<button type="button" classList={{ active: panel() === "doc" }} onClick={() => setPanel("doc")}><FileText size={13} /> {doc()!.name}</button>
+					</Show>
+				</div>
+				<Show when={panel() === "doc" && doc()}>
+					<DocViewer doc={doc()!} onClose={() => (setDoc(undefined), setPanel("browser"))} />
+				</Show>
+				<nav id="browserbar" classList={{ hidden: panel() !== "browser" }}>
 					<button type="button" id="back" class="icon" title="Indietro" disabled={!nav().back} onClick={() => desk.browser("back")}><ArrowLeft size={16} /></button>
 					<button type="button" id="forward" class="icon" title="Avanti" disabled={!nav().forward} onClick={() => desk.browser("forward")}><ArrowRight size={16} /></button>
 					<button type="button" id="reload" class="icon" title="Ricarica" onClick={() => desk.browser("reload")}><RotateCw size={15} /></button>
@@ -262,7 +299,7 @@ export function App() {
 					<button type="button" id="devtools" class="icon" title="DevTools della pagina" onClick={() => desk.browser("devtools")}><Bug size={15} /></button>
 					<button type="button" id="close-browser" class="icon" title="Chiudi il browser" onClick={() => setBrowserOpen(false)}><X size={16} /></button>
 				</nav>
-				<div id="browser-slot" ref={slot}><div class="slot-hint">Il browser di Pi</div></div>
+				<div id="browser-slot" ref={slot} classList={{ hidden: panel() !== "browser" }}><div class="slot-hint">Il browser di Pi</div></div>
 			</section>
 		</div>
 	);

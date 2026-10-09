@@ -4,12 +4,15 @@ export type TranscriptItem = { role: "user" | "assistant" | "tool" | "error"; te
 export type Session = { path: string; cwd: string; project: string; title: string; modified: number; created?: string; running?: { pid: number; own: boolean } };
 export type UiRequest = { type: "extension_ui_request"; id: string; method: string; title?: string; message?: string; options?: string[]; prefill?: string; statusKey?: string; statusText?: string };
 
+export type DocFile = { path?: string; name?: string; kind?: string; size?: number; text?: string; rows?: string[][]; url?: string; truncated?: boolean; error?: string };
+
 export interface Desk {
 	prompt(text: string, images?: { type: "image"; data: string; mimeType: string }[]): Promise<{ disposition?: string }>;
 	abort(): Promise<void>;
 	answer(id: string, fields: object): void;
 	restart(): Promise<void>;
 	browser(action: "go" | "back" | "forward" | "reload" | "devtools", value?: string): void;
+	file(path: string): Promise<DocFile>;
 	pick(): Promise<{ role: string; name: string; selector: string; url: string; html: string; image?: string } | null>;
 	browserRect(rect: { x: number; y: number; width: number; height: number }): void;
 	clipboardImage(): Promise<Img | undefined>;
