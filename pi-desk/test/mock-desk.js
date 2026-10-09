@@ -25,6 +25,9 @@ window.desk = {
 	linkSession: (pid) => (pid === 42 ? Promise.resolve({ type: "hello", pid }) : Promise.reject(new Error("Error invoking remote method 'session-link': Error: questo Pi non ha desk-link: riavvialo per poterci scrivere"))),
 	sendToSession: (pid, text) => (calls.push(["send", pid, text]), Promise.resolve({ type: "ok", queued: true })),
 	sessionStatus: () => Promise.resolve({ status: window.remoteStatus ?? null, busy: true }),
+	info: () => Promise.resolve(window.mockInfo ?? { project: "/p/claude", branch: "main", changes: 2, usage: { fiveHour: 34, sevenDay: 18, overage: false, updatedAt: "2026-10-09T14:01:50Z" }, model: "claude-sonnet-4-5", thinking: "medium", context: 41, user: "fede" }),
+	fork: (index) => (calls.push(["fork", index]), Promise.resolve({ text: "rifai", cancelled: false, items: [{ role: "user", text: "prima" }] })),
+	openExternal: (target) => (calls.push(["external", target]), Promise.resolve()),
 	answerSession: (pid, value) => (calls.push(["remote-answer", pid, value]), (window.remoteStatus = { mode: "working", activity: "ripreso" }), Promise.resolve({ type: "ok" })),
 };
 window.emit = (channel, payload) => listeners[channel]?.(payload);

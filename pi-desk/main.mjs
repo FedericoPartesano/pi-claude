@@ -5,13 +5,14 @@
  *
  *   npm start [-- <project folder>]      PI_DESK_PI=<pi command>   PI_DESK_CDP_PORT=9339
  */
-import { app, BrowserWindow, WebContentsView, clipboard, ipcMain, session as electronSession } from "electron";
+import { app, BrowserWindow, WebContentsView, clipboard, ipcMain, shell, session as electronSession } from "electron";
+import { gitInfo, readUsage } from "./info.mjs";
 import { PICKER_SCRIPT } from "./picker.mjs";
 import { readForPanel } from "./files.mjs";
 import { DESK_PROMPT } from "./prompt.mjs";
 import { clipboardImage } from "./clipboard.mjs";
 import { existsSync, mkdirSync, readFileSync, unwatchFile, watchFile } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, userInfo } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PiRpc } from "./rpc.mjs";
@@ -177,6 +178,31 @@ app.whenReady().then(() => {
 		const image = await contents.capturePage(rect).catch(() => undefined);
 		return { ...pick, image: image && !image.isEmpty() ? image.toPNG().toString("base64") : undefined };
 	});
+	// Header and sidebar facts, all local: git, usage file, Pi's own state (no model call, no tokens).
+	ipcMain.handle("info", async () => {
+		const [git, state, stats] = await Promise.all([gitInfo(project), pi.send("get_state").catch(() => undefined), pi.send("get_session_stats").catch(() => undefined)]);
+		return {
+			project,
+			...git,
+			usage: readUsage(),
+			model: state?.model?.name ?? state?.model?.id,
+			thinking: state?.thinkingLevel,
+			sessionName: state?.sessionName,
+			sessionFile: state?.sessionFile,
+			context: stats?.contextUsage?.percent ?? undefined,
+			user: userInfo().username,
+		};
+	});
+	// "dirama": a new session from the n-th user message of this one (its text comes back for the composer).
+	ipcMain.handle("fork", async (_event, index) => {
+		const { messages = [] } = await pi.send("get_fork_messages");
+		const target = messages[index];
+		if (!target) throw new Error("messaggio non trovato");
+		const result = await pi.send("fork", { entryId: target.entryId });
+		const state = await pi.send("get_state").catch(() => undefined);
+		return { ...result, items: state?.sessionFile ? readTranscript(state.sessionFile).items : [] };
+	});
+	ipcMain.handle("open-external", (_event, target) => (/^https?:/i.test(target) ? shell.openExternal(target) : shell.openPath(resolve(project, target.replace(/^file:\/\//, "")))));
 	ipcMain.handle("restart", () => {
 		pi.stop();
 		startPi();

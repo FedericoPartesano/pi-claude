@@ -64,3 +64,11 @@ test("images in answers: markdown images inline, image paths and URLs in the tex
 	assert.match(blocks[1], /<img src="https:\/\/cdn.it\/foto.jpg"/);
 	assert.ok(!/thumbs/.test(answerBlocks("niente immagini qui").blocks[0]));
 });
+
+test("inline code naming a project file is marked to open in the viewer; other code is not", () => {
+	const html = markdown("vedi `src/cart.js:5`, `package.json` e `npm test` o `a.b`");
+	assert.match(html, /<code class="file" data-path="src\/cart.js">src\/cart.js:5<\/code>/);
+	assert.match(html, /<code class="file" data-path="package.json">package.json<\/code>/);
+	assert.match(html, /<code>npm test<\/code>/);
+	assert.match(html, /<code>a.b<\/code>/);
+});

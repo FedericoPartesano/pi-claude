@@ -1,5 +1,5 @@
 import { createSignal, For, Show } from "solid-js";
-import { ArrowUp, ImagePlus, Square, X } from "lucide-solid";
+import { X } from "lucide-solid";
 import { desk, type Img } from "../bridge";
 
 const MAX_BYTES = 4 * 1024 * 1024;
@@ -27,13 +27,40 @@ async function toImage(file: File): Promise<Img | undefined> {
 	return { data: btoa(binary), mimeType: "image/jpeg" };
 }
 
-export function Composer(props: { busy: boolean; readonly: boolean; placeholder: string; statuses: string; onSend: (text: string, images: Img[]) => void; onStop: () => void; onText?: (text: string) => void; ref?: (api: { fill: (text: string) => void; attach: (text: string, image?: Img) => void }) => void }) {
+/** How Pi should take the message: act (default), plan first, or only answer. */
+export type Mode = "Agisci" | "Piano" | "Chiedi";
+export const MODES: [Mode, string][] = [["Agisci", "Modifica file ed esegue comandi"], ["Piano", "Propone un piano prima di agire"], ["Chiedi", "Solo risposte, nessuna modifica"]];
+
+export type ComposerApi = { fill: (text: string) => void; attach: (text: string, image?: Img) => void; focus: () => void };
+
+export function Composer(props: {
+	busy: boolean;
+	readonly: boolean;
+	placeholder: string;
+	queued: number;
+	queuedText?: string;
+	chips: string[];
+	model?: string;
+	memory?: string;
+	roomy: boolean;
+	mode: Mode;
+	onMode: (mode: Mode) => void;
+	onSend: (text: string, images: Img[]) => void;
+	onStop: () => void;
+	onText?: (text: string) => void;
+	ref?: (api: ComposerApi) => void;
+}) {
 	const [text, setText] = createSignal("");
 	const [images, setImages] = createSignal<Img[]>([]);
 	const [dragging, setDragging] = createSignal(false);
 	let area!: HTMLTextAreaElement;
 	let picker!: HTMLInputElement;
 
+	const changed = (value: string) => {
+		setText(value);
+		props.onText?.(value);
+		queueMicrotask(grow);
+	};
 	const grow = () => {
 		area.style.height = "auto";
 		area.style.height = `${Math.min(area.scrollHeight, window.innerHeight * 0.4)}px`;
@@ -46,73 +73,77 @@ export function Composer(props: { busy: boolean; readonly: boolean; placeholder:
 		const value = text().trim();
 		if (!value && !images().length) return;
 		props.onSend(value, images());
-		setText("");
+		changed("");
 		setImages([]);
-		queueMicrotask(grow);
 	};
 	props.ref?.({
-		fill: (value) => (setText(value), queueMicrotask(grow), area.focus()),
+		fill: (value) => (changed(value), area.focus()),
 		// Adds to what is being written (an element picked in the browser, with its picture).
 		attach: (value, image) => {
-			setText(text() ? `${text().trimEnd()}\n\n${value}` : value);
+			changed(text() ? `${text().trimEnd()}\n\n${value}` : value);
 			if (image) setImages([...images(), image].slice(0, 6));
-			queueMicrotask(grow);
 			area.focus();
 		},
+		focus: () => area.focus(),
 	});
 
 	return (
-		<form id="composer" classList={{ readonly: props.readonly }} onSubmit={(event) => (event.preventDefault(), send())}>
-			<div class="box" classList={{ dragging: dragging() }}
-				onDragOver={(event) => (event.preventDefault(), setDragging(true))}
-				onDragLeave={() => setDragging(false)}
-				onDrop={(event) => {
-					event.preventDefault();
-					setDragging(false);
-					if (event.dataTransfer?.files.length) add(event.dataTransfer.files);
-				}}>
-				<Show when={images().length}>
-					<div class="attachments">
-						<For each={images()}>
-							{(image, index) => (
-								<div class="attachment">
-									<img src={`data:${image.mimeType};base64,${image.data}`} alt="allegato" />
-									<button type="button" class="remove" aria-label="Togli" onClick={() => setImages(images().filter((_, i) => i !== index()))}><X size={12} /></button>
-								</div>
-							)}
-						</For>
-					</div>
-				</Show>
-				<textarea id="input" rows="1" ref={area} value={text()} placeholder={props.placeholder}
-					onInput={(event) => (setText(event.currentTarget.value), props.onText?.(event.currentTarget.value), grow())}
-					onPaste={(event) => {
-						const files = [...(event.clipboardData?.files ?? [])].filter((file) => file.type.startsWith("image/"));
-						if (files.length) {
-							event.preventDefault();
-							add(files);
-							return;
-						}
-						// No image and no text: the picture may be on a clipboard the page cannot see (Windows, under WSL).
-						if (!event.clipboardData?.getData("text/plain")) {
-							event.preventDefault();
-							desk.clipboardImage?.().then((image) => image && setImages([...images(), image].slice(0, 6)));
-						}
-					}}
-					onKeyDown={(event) => {
-						if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
-							event.preventDefault();
-							send();
-						}
-					}} />
-				<div class="row">
-					<button type="button" class="icon" title="Allega un'immagine" onClick={() => picker.click()}><ImagePlus size={16} /></button>
-					<input ref={picker} type="file" accept="image/*" multiple hidden onChange={(event) => (add(event.currentTarget.files ?? []), (event.currentTarget.value = ""))} />
-					<span id="chips">{props.statuses}</span>
-					<Show when={props.busy}><button type="button" id="stop" class="stop" title="Interrompi (Esc)" onClick={props.onStop}><Square size={11} fill="currentColor" /></button></Show>
-					<button type="submit" id="send" class="send" title="Invia (Invio)" disabled={!text().trim() && !images().length}><ArrowUp size={16} stroke-width={2.6} /></button>
+		<form id="composer" classList={{ readonly: props.readonly, dragging: dragging() }} onSubmit={(event) => (event.preventDefault(), send())}
+			onDragOver={(event) => (event.preventDefault(), setDragging(true))}
+			onDragLeave={() => setDragging(false)}
+			onDrop={(event) => {
+				event.preventDefault();
+				setDragging(false);
+				if (event.dataTransfer?.files.length) add(event.dataTransfer.files);
+			}}>
+			<Show when={props.queued || images().length || props.chips.length}>
+				<div class="chips">
+					<Show when={props.queued}><span class="chip queued" title="Pi lo legge appena finisce il passo in corso"><b>{props.queued} in coda</b>{props.queuedText || "Pi lo legge appena finisce"}</span></Show>
+					<For each={images()}>
+						{(image, index) => (
+							<span class="chip attachment">
+								<img src={`data:${image.mimeType};base64,${image.data}`} alt="allegato" />
+								<button type="button" class="remove" aria-label="Togli" onClick={() => setImages(images().filter((_, i) => i !== index()))}><X size={11} /></button>
+							</span>
+						)}
+					</For>
+					<For each={props.chips}>{(chip) => <span class="chip status">{chip}</span>}</For>
 				</div>
+			</Show>
+			<textarea id="input" rows="1" ref={area} value={text()} placeholder={props.placeholder}
+				onInput={(event) => changed(event.currentTarget.value)}
+				onPaste={(event) => {
+					const files = [...(event.clipboardData?.files ?? [])].filter((file) => file.type.startsWith("image/"));
+					if (files.length) {
+						event.preventDefault();
+						add(files);
+						return;
+					}
+					// No image and no text: the picture may be on a clipboard the page cannot see (Windows, under WSL).
+					if (!event.clipboardData?.getData("text/plain")) {
+						event.preventDefault();
+						desk.clipboardImage?.().then((image) => image && setImages([...images(), image].slice(0, 6)));
+					}
+				}}
+				onKeyDown={(event) => {
+					if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+						event.preventDefault();
+						send();
+					}
+				}} />
+			<div class="row">
+				<button type="button" class="attach" title="Allega un'immagine" onClick={() => picker.click()}>+</button>
+				<input ref={picker} type="file" accept="image/*" multiple hidden onChange={(event) => (add(event.currentTarget.files ?? []), (event.currentTarget.value = ""))} />
+				<Show when={props.model}><span class="model" title="Modello e ragionamento">{props.model!.split("·")[0]}<Show when={props.roomy && props.model!.includes("·")}><span class="sep">·</span><span class="level">{props.model!.split("·")[1]}</span></Show></span></Show>
+				<span class="modes">
+					<For each={MODES}>{([mode, tip]) => <button type="button" title={tip} classList={{ on: props.mode === mode }} onClick={() => props.onMode(mode)}>{mode}</button>}</For>
+				</span>
+				<Show when={props.roomy && props.memory}><span class="memory">{props.memory}</span></Show>
+				<span class="grow" />
+				<Show when={props.roomy}><span class="hint">⏎ invia</span></Show>
+				<Show when={props.busy}><button type="button" id="stop" class="stop" title="Interrompi (Esc)" onClick={props.onStop}>■</button></Show>
+				<button type="submit" id="send" class="send" title="Invia (Invio)" disabled={!text().trim() && !images().length}>↑</button>
 			</div>
-			<div class="hint">Invio invia · Maiusc+Invio va a capo · incolla o trascina un'immagine · Esc interrompe</div>
 		</form>
 	);
 }

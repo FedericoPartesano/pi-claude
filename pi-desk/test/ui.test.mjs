@@ -40,16 +40,16 @@ test("a whole turn: user bubble, thinking, streamed markdown with a chart, tool 
 		// Nothing hidden takes the clicks (a display rule once beat [hidden] and every click hit the dialog).
 		assert.ok(!/dialog|viewer-bar/.test(await js(`[document.elementFromPoint(40, 26), document.elementFromPoint(300, 400)].map((e) => e?.id || e?.className).join(",")`)));
 		assert.equal(await js(`String(Boolean(document.getElementById("empty")))`), "true", "empty state first");
-		// The browser panel starts closed (no wasted space) and reports no area for the native view.
-		assert.equal(await js(`getComputedStyle(document.getElementById("browser")).display`), "none");
+		// The viewer starts closed (no wasted space) and reports no area for the native view.
+		assert.equal(await js(`getComputedStyle(document.getElementById("viewer")).display`), "none");
 		assert.match(await js(`JSON.stringify(window.lastRect)`), /"width":0/);
 		await js(`document.getElementById("toggle-browser").click(); "ok"`);
 		await wait(50);
-		assert.notEqual(await js(`getComputedStyle(document.getElementById("browser")).display`), "none");
+		assert.notEqual(await js(`getComputedStyle(document.getElementById("viewer")).display`), "none");
 		assert.ok(Number(await js(`String(window.lastRect.width)`)) > 100);
 		await js(`document.getElementById("close-browser").click(); "ok"`);
 		await wait(50);
-		assert.equal(await js(`getComputedStyle(document.getElementById("browser")).display`), "none");
+		assert.equal(await js(`getComputedStyle(document.getElementById("viewer")).display`), "none");
 		await js(`input.value = "fammi un grafico"; input.dispatchEvent(new Event("input", { bubbles: true })); input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); "ok"`);
 		assert.match(await js(`JSON.stringify(calls)`), /"prompt","fammi un grafico"/);
 		assert.equal(await js(`document.querySelector(".turn-user").textContent`), "fammi un grafico");
@@ -68,23 +68,34 @@ test("a whole turn: user bubble, thinking, streamed markdown with a chart, tool 
 		assert.ok(!/suggerimenti|confronta col 2025/.test(html), "suggestions are not in the text");
 		await js(`emit("pi-event", { type: "message_end", message: { role: "assistant" } });
 			emit("pi-event", { type: "tool_execution_start", toolCallId: "t1", toolName: "browser", args: { action: "open", url: "https://example.com" } }); "ok"`);
-		assert.match(await js(`document.getElementById("status").textContent`), /browser open https:\/\/example.com/);
-		assert.notEqual(await js(`getComputedStyle(document.getElementById("browser")).display`), "none", "opens when Pi uses the browser");
+		await wait(120);
+		assert.match(await js(`document.querySelector(".workbar").innerText`), /AL LAVORO/);
+		assert.notEqual(await js(`getComputedStyle(document.getElementById("viewer")).display`), "none", "opens when Pi uses the browser");
+		assert.match(await js(`document.querySelector("#viewer .tab.active").textContent`), /◎/);
 		assert.match(await js(`document.querySelector(".step").className`), /\bstep run\b/);
 		await js(`emit("pi-ui", { type: "extension_ui_request", id: "u1", method: "confirm", title: "pi-browser", message: "Aprire https://example.com?" }); "ok"`);
+		await wait(50);
+		assert.match(await js(`document.querySelector(".workbar").innerText`), /TOCCA A TE/);
+		assert.ok(await js(`String(Boolean(document.querySelector(".steps .ask")))`) === "true", "the question sits in the running turn's steps");
 		await js(`document.querySelector(".dialog-actions .primary").click(); "ok"`);
 		assert.match(await js(`JSON.stringify(calls)`), /"answer","u1",\{"confirmed":true\}/);
 		await js(`emit("pi-event", { type: "tool_execution_end", toolCallId: "t1", isError: false, result: { content: [{ type: "text", text: "Example Domain" }] } });
 			emit("pi-event", { type: "message_start", message: { role: "assistant" } }); ${delta("text_delta", "Fatto.\n<!--suggerimenti-->\n- confronta col 2025\n- esporta in CSV")}
 			emit("pi-event", { type: "message_end", message: { role: "assistant" } }); emit("pi-event", { type: "agent_settled" }); "ok"`);
 		await wait(80);
+		assert.equal(await js(`String(Boolean(document.querySelector(".step")))`), "false", "a done turn's steps are folded");
+		assert.match(await js(`document.querySelector(".steps-head").textContent`), /1 passo/);
+		await js(`document.querySelector(".steps-head").click(); "ok"`);
 		assert.match(await js(`document.querySelector(".step").className`), /\bstep ok\b/);
 		await js(`document.querySelector(".step .head").click(); "ok"`);
 		assert.match(await js(`document.querySelector(".step.open .out").textContent`), /Example Domain/);
-		assert.equal(await js(`[...document.querySelectorAll(".suggestions button")].map((b) => b.textContent).join("|")`), "confronta col 2025|esporta in CSV");
+		assert.equal(await js(`[...document.querySelectorAll(".suggestions button")].map((b) => b.textContent).join("|")`), "1confronta col 2025|2esporta in CSV");
 		await js(`document.querySelector(".suggestions button").click(); "ok"`);
 		assert.equal(await js(`input.value`), "confronta col 2025");
-		assert.equal(await js(`document.getElementById("status").textContent`), "pronto");
+		assert.match(await js(`document.querySelector(".workbar").innerText`), /FATTO/);
+		// Keys 1–4 take a suggestion while nothing is typed.
+		await js(`input.value = ""; input.dispatchEvent(new Event("input", { bubbles: true })); document.body.focus(); document.dispatchEvent(new KeyboardEvent("keydown", { key: "2", bubbles: true })); "ok"`);
+		assert.equal(await js(`input.value`), "esporta in CSV");
 		// Links open in the browser panel; the panel's place is reported.
 		await js(`document.querySelector(".turn-pi .md").insertAdjacentHTML("beforeend", '<a href="https://a.it">a</a>'); document.querySelector('.md a[href="https://a.it"]').click(); "ok"`);
 		assert.match(await js(`JSON.stringify(calls)`), /"browser","go","https:\/\/a.it"/);
@@ -99,15 +110,16 @@ test("a whole turn: user bubble, thinking, streamed markdown with a chart, tool 
 test("sessions sidebar: running first, live one writable through desk-link, legacy read-only with a clean reason, closed one resumed", { skip, timeout: 60_000 }, async () => {
 	const { js, close } = await openPage();
 	try {
-		await js(`document.getElementById("toggle-sessions").click(); "ok"`);
+		await js(`document.getElementById("session-list") || document.getElementById("toggle-sessions").click(); "ok"`);
 		await wait();
 		const list = await js(`document.getElementById("session-list").innerText`);
 		assert.ok(list.indexOf("sistema il carrello") < list.indexOf("post di ottobre"), "running first");
-		assert.match(list, /In corso/i);
+		assert.match(list, /IN CORSO/);
+		assert.match(list, /RECENTI/);
 		assert.match(list, /questa finestra/);
 		await js(`[...document.querySelectorAll(".session")].find((b) => b.innerText.includes("carrello")).click(); "ok"`);
 		await wait();
-		assert.match(await js(`document.getElementById("viewer-label").textContent`), /scrivi qui/);
+		assert.match(await js(`document.getElementById("viewer-label").title`), /scrivi qui/);
 		assert.ok(!/readonly/.test(await js(`document.getElementById("composer").className`)));
 		assert.match(await js(`document.getElementById("scroll").innerHTML`), /<strong>fatto<\/strong>/);
 		await js(`input.value = "aggiungi i test"; input.dispatchEvent(new Event("input", { bubbles: true })); input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); "ok"`);
@@ -118,7 +130,8 @@ test("sessions sidebar: running first, live one writable through desk-link, lega
 		assert.match(await js(`document.getElementById("scroll").textContent`), /nuovo passo/);
 		await js(`[...document.querySelectorAll(".session")].find((b) => b.innerText.includes("vecchio pi")).click(); "ok"`);
 		await wait();
-		const label = await js(`document.getElementById("viewer-label").textContent`);
+		const label = await js(`document.getElementById("viewer-label").title`);
+		assert.match(await js(`document.getElementById("viewer-label").textContent`), /sola lettura/);
 		assert.match(label, /sola lettura: questo Pi non ha desk-link/);
 		assert.ok(!/Error invoking/.test(label), "no technical prefix");
 		await js(`[...document.querySelectorAll(".session")].find((b) => b.innerText.includes("ottobre")).click(); "ok"`);
@@ -127,7 +140,7 @@ test("sessions sidebar: running first, live one writable through desk-link, lega
 		await wait();
 		assert.match(await js(`JSON.stringify(calls)`), /"resume","\/s\/old","\/p\/blog"/);
 		assert.match(await js(`document.getElementById("scroll").textContent`), /scrivi il post/);
-		assert.equal(await js(`String(Boolean(document.getElementById("viewer-bar")))`), "false");
+		assert.equal(await js(`String(Boolean(document.getElementById("viewer-label")))`), "false");
 	} finally {
 		close();
 	}
@@ -141,10 +154,11 @@ test("document panel: a step's file opens as a sortable table in its own tab; a 
 			emit("pi-event", { type: "tool_execution_end", toolCallId: "r1", isError: false, result: { content: [{ type: "text", text: "mese,k€" }] } });
 			emit("pi-event", { type: "agent_settled" }); "ok"`);
 		await wait(80);
+		await js(`document.querySelector(".steps-head").click(); "ok"`);
 		await js(`document.querySelector(".step .view").click(); "ok"`);
 		await wait(150);
 		assert.match(await js(`JSON.stringify(calls)`), /"file","dati\/vendite.csv"/);
-		assert.match(await js(`document.querySelector("#browser .tabs").textContent`), /vendite.csv/);
+		assert.match(await js(`document.querySelector("#viewer .tabs").textContent`), /vendite.csv/);
 		const cells = () => js(`[...document.querySelectorAll(".doc-table tbody tr")].map((r) => r.cells[1].textContent).join(",")`);
 		assert.equal(await cells(), "5,30,12");
 		await js(`[...document.querySelectorAll(".doc-table th")][1].click(); "ok"`);
@@ -164,8 +178,9 @@ test("permission dialog: the command apart, buttons with keys, answered with S/N
 		const ask = (id) => `emit("pi-ui", { type: "extension_ui_request", id: "${id}", method: "select", title: "⚠️ Comando pericoloso (cancella file):\\n\\n  rm -rf build\\n\\nLo eseguo?", options: ["Sì", "No", "Sì, sempre per questo comando"] }); "ok"`;
 		await js(ask("k1"));
 		await wait(200);
-		assert.equal(await js(`document.querySelector(".dialog-code").textContent`), "rm -rf build");
-		assert.equal(await js(`[...document.querySelectorAll(".dialog-actions kbd")].map((k) => k.textContent).join("")`), "SNA");
+		assert.equal(await js(`document.querySelector(".dialog-code").textContent`), "$ rm -rf build");
+		assert.match(await js(`document.querySelector(".workbar").innerText`), /TOCCA A TE[\s\S]*Comando pericoloso/);
+		assert.equal(await js(`[...document.querySelectorAll(".dialog-actions kbd")].map((k) => k.textContent).join("")`), "SAN");
 		await js(`window.dispatchEvent(new KeyboardEvent("keydown", { key: "n", bubbles: true })); "ok"`);
 		await wait(150);
 		await js(ask("k2"));
@@ -196,7 +211,7 @@ test("work bar: AL LAVORO with the activity in the terminal's words, COMPATTO du
 			emit("pi-event", { type: "message_end", message: { role: "assistant", usage: { input: 1200, output: 340 } } });
 			emit("pi-event", { type: "agent_settled" }); "ok"`);
 		await wait(150);
-		assert.match(await bar(), /FATTO.*↑1,2k ↓340 tok.*1 passi/);
+		assert.match(await bar(), /FATTO.*↑1,2k ↓340 tok.*1 passo/);
 	} finally {
 		close();
 	}
@@ -205,11 +220,14 @@ test("work bar: AL LAVORO with the activity in the terminal's words, COMPATTO du
 test("a terminal Pi's status line in the app: TOCCA A TE answered with a button or a key", { skip, timeout: 60_000 }, async () => {
 	const { js, close } = await openPage();
 	try {
-		await js(`window.remoteStatus = { mode: "waiting", question: "posso eseguire rm -rf build? cancella file ricorsivamente" }; document.getElementById("toggle-sessions").click(); "ok"`);
+		await js(`window.remoteStatus = { mode: "waiting", question: "posso eseguire rm -rf build? cancella file ricorsivamente" }; document.getElementById("session-list") || document.getElementById("toggle-sessions").click(); "ok"`);
 		await wait(250);
 		await js(`[...document.querySelectorAll(".session")].find((b) => b.innerText.includes("carrello")).click(); "ok"`);
 		await wait(900);
-		assert.match(await js(`document.querySelector(".workbar.remote")?.innerText ?? ""`), /TOCCA A TE[\s\S]*rm -rf build[\s\S]*Sì/);
+		assert.match(await js(`document.querySelector(".workbar.remote")?.innerText ?? ""`), /TOCCA A TE[\s\S]*rm -rf build/);
+		assert.match(await js(`document.querySelector(".ask")?.innerText ?? ""`), /rm -rf build[\s\S]*Consenti[\s\S]*Sempre[\s\S]*No/);
+		// The sidebar says it too: the session needs you.
+		assert.match(await js(`document.getElementById("session-list").innerText`), /permesso/);
 		await js(`window.dispatchEvent(new KeyboardEvent("keydown", { key: "n", bubbles: true })); "ok"`);
 		await wait(100);
 		assert.match(await js(`JSON.stringify(calls)`), /"remote-answer",42,"no"/);
