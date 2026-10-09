@@ -8,6 +8,7 @@
  * level changes, aborts) a new process is started that natively resumes the transcript, written
  * as a Claude Code session file.
  */
+import { oneUserTurn } from "./user-turn.ts";
 import { createHash } from "node:crypto";
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -269,8 +270,9 @@ function startSessionFromTranscript(
 	liveSessions.unshift(session);
 	while (liveSessions.length > MAX_LIVE_SESSIONS) liveSessions.pop()?.dispose();
 
-	if (pendingUserMessages.length > 0) {
-		for (const message of pendingUserMessages) session.sendUserMessage(toContentBlocks(message.content));
+	const pending = oneUserTurn(pendingUserMessages, toContentBlocks);
+	if (pending) {
+		session.sendUserMessage(pending);
 	} else {
 		// The transcript ends with tool results or an assistant message (retry after an error or
 		// abort): ask the model to carry on from the resumed history.
@@ -297,7 +299,8 @@ function forwardNewMessages(session: ClaudeSession, newMessages: ConversationMes
 	const userMessages = newMessages.filter(
 		(message): message is Extract<ConversationMessage, { role: "user" }> => message.role === "user",
 	);
-	for (const message of userMessages) session.sendUserMessage(toContentBlocks(message.content));
+	const steering = oneUserTurn(userMessages, toContentBlocks);
+	if (steering) session.sendUserMessage(steering);
 	for (const message of toolResults) session.resolveToolCall(message.toolCallId, toMcpResult(message));
 }
 
