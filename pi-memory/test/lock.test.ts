@@ -10,9 +10,11 @@ test("withStoreLock waits for another process holding the store, then runs", asy
 	const dir = mkdtempSync(join(tmpdir(), "lock-"));
 	const lockFile = new URL("../src/lock.ts", import.meta.url).href;
 	const child = spawn(process.execPath, ["--input-type=module", "-e", `import { withStoreLock } from ${JSON.stringify(lockFile)}; withStoreLock(${JSON.stringify(dir)}, () => { const end = Date.now() + 600; while (Date.now() < end); console.log("held"); });`], { stdio: ["ignore", "pipe", "inherit"] });
-	await new Promise((resolve) => child.stdout.once("data", resolve).once("close", resolve));
+	// Listened to from the start: a child that exits while we wait for the lock must not be missed (it hung the suite).
+	const closed = new Promise((resolve) => child.once("close", resolve));
+	await Promise.race([new Promise((resolve) => child.stdout.once("data", resolve)), closed]);
 	// The child prints "held" at the end of its section: start a bit before by racing it from the beginning instead.
-	await new Promise((resolve) => child.once("close", resolve));
+	await closed;
 	const started = Date.now();
 	assert.equal(withStoreLock(dir, () => "done"), "done");
 	assert.ok(Date.now() - started < 1000);
@@ -22,11 +24,13 @@ test("withStoreLock serialises with a holder that is still inside its section", 
 	const dir = mkdtempSync(join(tmpdir(), "lock-"));
 	const lockFile = new URL("../src/lock.ts", import.meta.url).href;
 	const child = spawn(process.execPath, ["--input-type=module", "-e", `import { withStoreLock } from ${JSON.stringify(lockFile)}; withStoreLock(${JSON.stringify(dir)}, () => { console.log("in"); const end = Date.now() + 700; while (Date.now() < end); });`], { stdio: ["ignore", "pipe", "inherit"] });
-	await new Promise((resolve) => child.stdout.once("data", resolve));
+	// Listened to from the start: a child that exits while we wait for the lock must not be missed (it hung the suite).
+	const closed = new Promise((resolve) => child.once("close", resolve));
+	await Promise.race([new Promise((resolve) => child.stdout.once("data", resolve)), closed]);
 	const started = Date.now();
 	withStoreLock(dir, () => undefined);
 	assert.ok(Date.now() - started >= 300, `did not wait (${Date.now() - started} ms)`);
-	await new Promise((resolve) => child.once("close", resolve));
+	await closed;
 });
 
 test("a stale lock (its holder died) is taken over", () => {
@@ -43,13 +47,15 @@ test("withStoreLockAsync waits without blocking the event loop", async () => {
 	const dir = mkdtempSync(join(tmpdir(), "lock-"));
 	const lockFile = new URL("../src/lock.ts", import.meta.url).href;
 	const child = spawn(process.execPath, ["--input-type=module", "-e", `import { withStoreLock } from ${JSON.stringify(lockFile)}; withStoreLock(${JSON.stringify(dir)}, () => { console.log("in"); const end = Date.now() + 500; while (Date.now() < end); });`], { stdio: ["ignore", "pipe", "inherit"] });
-	await new Promise((resolve) => child.stdout.once("data", resolve));
+	// Listened to from the start: a child that exits while we wait for the lock must not be missed (it hung the suite).
+	const closed = new Promise((resolve) => child.once("close", resolve));
+	await Promise.race([new Promise((resolve) => child.stdout.once("data", resolve)), closed]);
 	let ticks = 0;
 	const timer = setInterval(() => ticks++, 10);
 	await withStoreLockAsync(dir, () => undefined);
 	clearInterval(timer);
 	assert.ok(ticks >= 10, `event loop blocked while waiting (${ticks} ticks)`);
-	await new Promise((resolve) => child.once("close", resolve));
+	await closed;
 });
 
 test("a holder whose lock was taken over does not release the new holder's lock", () => {

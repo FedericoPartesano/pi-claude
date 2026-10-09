@@ -39,7 +39,7 @@ const pct = (values: number[], p: number) => [...values].sort((a, b) => a - b)[M
 const mb = (bytes: number) => `${Math.round(bytes / 1048576)}MB`;
 
 for (const size of sizes) {
-	const corpus = buildCorpus(size);
+	const corpus = buildCorpus(size, { decoys: process.argv.includes("--decoys") });
 	let started = performance.now();
 	// Real embeddings take minutes: kept on disk per corpus (same seed and size → same texts).
 	const cacheFile = real ? join(tmpdir(), `pi-memory-bench-${modelKey}-${size}.bin`) : undefined;
@@ -72,9 +72,12 @@ for (const size of sizes) {
 	const hop = [0, 0, 0];
 	const hopBy = { linked: [0, 0, 0], entity: [0, 0, 0] };
 	let chars = 0;
+	let noise = 0;
 	for (const chain of corpus.chains) {
 		const { ids, text } = await ask(chain.query);
 		chars += text.length;
+		// Cues outside the planted chain: the filler is random, so they are noise (tokens, distraction).
+		noise += [...ids].filter((id) => !chain.ids.includes(id)).length;
 		chain.ids.forEach((id, h) => {
 			if (ids.has(id)) {
 				hop[h]++;
@@ -96,10 +99,11 @@ for (const size of sizes) {
 	const r = (value: number, of: number) => `${Math.round((value / of) * 100)}%`;
 	console.log(
 		[
-			`N=${size}${real ? ` (${modelKey})` : ""}`,
+			`N=${size}${real ? ` (${modelKey})` : ""}${process.argv.includes("--decoys") ? " +esche" : ""}`,
 			`embed ${Math.round(embedMs)}ms · index ${Math.round(buildMs)}ms · heap +${mb(heap)}`,
 			`hop0 ${r(hop[0], n)} hop1 ${r(hop[1], n)} hop2 ${r(hop[2], n)} (linked ${r(hopBy.linked[2], half)} · entity ${r(hopBy.entity[2], half)})`,
 			`superseded: new ${r(fresh, corpus.supersedes.length)} old ${stale} · FP ${falsePositives}/${corpus.unrelated.length}`,
+			`rumore ${(noise / n).toFixed(1)} spunti/richiesta`,
 			`recall p50 ${pct(times, 0.5).toFixed(1)}ms p95 ${pct(times, 0.95).toFixed(1)}ms · ~${Math.round(chars / n / 3.6)} tok/query`,
 		].join(" | "),
 	);

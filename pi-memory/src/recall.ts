@@ -64,6 +64,18 @@ export const DEPTH = {
 	slotShare: 0.4,
 	/** Below this PPR mass relative to the top seed a reached memory is not worth a cue. */
 	minMass: 1e-3,
+	/**
+	 * Deep cues follow the best hit's own walk first, then the walk from all seeds. Measured at 1M memories: near-tie
+	 * seeds (more of them as the store grows) filled the deep cues with their neighbours, and the best hit's two-hop
+	 * answer fell out (75% → see MISURE.md).
+	 */
+	bestFirst: true,
+	/**
+	 * Generalises bestFirst: each chosen direct hit's own walk in turn, best hit first, until the deep cues are full.
+	 * Measured live with 5k memories: the best hit was a decoy without links, the right memory came second (outside the
+	 * 90% seed share), and the deep cues went to weak direct hits instead of its chain.
+	 */
+	perHit: true,
 };
 
 /**
@@ -282,37 +294,52 @@ export class RecallIndex {
 		return index;
 	}
 
-	/** Saturating BM25 in [0, 1) per record position (only records sharing a term are present). */
-	bm25(query: string): Map<number, number> {
-		const out = new Map<number, number>();
+	/** Reused by bm25: one slot per record, cleared only where the previous call wrote. */
+	private scratch?: { scores: Float64Array; terms: Uint8Array; rare: Uint8Array; touched: number[] };
+
+	/**
+	 * Saturating BM25 in [0, 1) per record position: `scores[position]` (0 when the record shares no term), `touched` the
+	 * positions with a score, in the order first reached. Valid until the next call (recall reads it at once). Typed
+	 * arrays instead of maps: at 1M memories a common word reaches 100k+ records, and a map entry per record was most of
+	 * the time.
+	 */
+	bm25(query: string): { scores: Float64Array; touched: number[] } {
+		const size_ = this.records.length;
+		if (!this.scratch || this.scratch.scores.length !== size_) this.scratch = { scores: new Float64Array(size_), terms: new Uint8Array(size_), rare: new Uint8Array(size_), touched: [] };
+		const { scores, terms, rare: rareSeen } = this.scratch;
+		for (const position of this.scratch.touched) {
+			scores[position] = 0;
+			terms[position] = 0;
+			rareSeen[position] = 0;
+		}
+		const touched: number[] = [];
+		this.scratch.touched = touched;
 		// Small stores behave like a 300-memory corpus, so idf (and the threshold) does not depend on store size.
-		const n = Math.max(this.records.length, 300);
-		const common = Math.max(50, this.records.length * COMMON_TERM_SHARE);
-		const rare = Math.max(3, this.records.length * RARE_TERM_SHARE);
-		/** Per record: how many query terms it shares, and whether one of them is rare. */
-		const evidence = new Map<number, { terms: number; rare: boolean }>();
+		const n = Math.max(size_, 300);
+		const common = Math.max(50, size_ * COMMON_TERM_SHARE);
+		const rare = Math.max(3, size_ * RARE_TERM_SHARE);
+		const data = this.postings.data;
+		const frequencies = this.postings.extra!;
+		const lengths = this.lengths;
+		const average = this.average;
 		for (const term of new Set(stems(query))) {
 			const [start, end] = this.postings.range(term);
 			const size = end - start;
 			if (size === 0 || size > common) continue;
 			const idf = Math.log(1 + (n - size + 0.5) / (size + 0.5));
+			const isRare = size <= rare ? 1 : 0;
 			for (let i = start; i < end; i++) {
-				const position = this.postings.data[i];
-				const frequency = this.postings.extra![i];
-				const part = idf * ((frequency * (K1 + 1)) / (frequency + K1 * (1 - B + (B * this.lengths[position]) / this.average)));
-				out.set(position, (out.get(position) ?? 0) + part);
-				const seen = evidence.get(position) ?? { terms: 0, rare: false };
-				seen.terms++;
-				seen.rare ||= size <= rare;
-				evidence.set(position, seen);
+				const position = data[i];
+				const frequency = frequencies[i];
+				if (terms[position] === 0) touched.push(position);
+				scores[position] += idf * ((frequency * (K1 + 1)) / (frequency + K1 * (1 - B + (B * lengths[position]) / average)));
+				if (terms[position] < 255) terms[position]++;
+				if (isRare) rareSeen[position] = 1;
 			}
 		}
 		// A single common word in common is not evidence ("scrivi una poesia" matched every memory that "scrive").
-		for (const [position, score] of out) {
-			const seen = evidence.get(position)!;
-			out.set(position, (1 - Math.exp(-score / 5)) * (seen.terms === 1 && !seen.rare ? SINGLE_COMMON_TERM : 1));
-		}
-		return out;
+		for (const position of touched) scores[position] = (1 - Math.exp(-scores[position] / 5)) * (terms[position] === 1 && !rareSeen[position] ? SINGLE_COMMON_TERM : 1);
+		return { scores, touched };
 	}
 
 	/** Entities of each record cited by the query (extracted identifiers/paths or plain mentions). */
@@ -387,6 +414,53 @@ const SEMANTIC_CANDIDATES = 64;
 /** Lexical candidates fully scored per request. */
 const LEXICAL_CANDIDATES = 300;
 
+/** The k-th largest value (k ≥ 1, k ≤ length) in linear time; reorders `values`. */
+function kthLargest(values: Float64Array, k: number): number {
+	let low = 0;
+	let high = values.length - 1;
+	const target = k - 1;
+	while (low < high) {
+		const pivot = values[(low + high) >>> 1];
+		let i = low;
+		let j = high;
+		while (i <= j) {
+			while (values[i] > pivot) i++;
+			while (values[j] < pivot) j--;
+			if (i <= j) {
+				const swap = values[i];
+				values[i++] = values[j];
+				values[j--] = swap;
+			}
+		}
+		if (target <= j) high = j;
+		else if (target >= i) low = i;
+		else return values[target];
+	}
+	return values[target];
+}
+
+/**
+ * The best `k` positions by lexical evidence (max of BM25 and entity match), in the order a stable descending sort of
+ * every candidate would give (BM25 order first, then entity-only matches) — without sorting 100k+ candidates.
+ */
+function topLexical(bm: { scores: Float64Array; touched: number[] }, ent: Map<number, number>, k: number): number[] {
+	const order: number[] = [...bm.touched];
+	for (const position of ent.keys()) if (bm.scores[position] === 0) order.push(position); // a touched record always scores > 0
+	const value = (position: number) => Math.max(bm.scores[position], ent.get(position) ?? 0);
+	if (order.length <= k) return order;
+	const values = new Float64Array(order.length);
+	for (let i = 0; i < order.length; i++) values[i] = value(order[i]);
+	const cut = kthLargest(values, k);
+	let above = 0;
+	for (const position of order) if (value(position) > cut) above++;
+	let ties = k - above;
+	const picked = order.filter((position) => {
+		const v = value(position);
+		return v > cut || (v === cut && ties-- > 0);
+	});
+	return picked.map((position, at) => ({ position, at, v: value(position) })).sort((a, b) => b.v - a.v || a.at - b.at).map((item) => item.position);
+}
+
 export function recall(index: RecallIndex, query: string, options: RecallOptions): { hits: Scored[] } {
 	const base = options.threshold ?? DEFAULT_THRESHOLD;
 	const threshold = classifyRequest(query) === "inquiry" ? Math.max(base, options.inquiryThreshold ?? INQUIRY_THRESHOLD) : base;
@@ -408,15 +482,12 @@ export function recall(index: RecallIndex, query: string, options: RecallOptions
 	const direct = new Map<number, number>();
 	// Full scoring only for the best few hundred by lexical evidence plus the semantic ones: a common word can hit
 	// thousands of memories, and scoring them all was most of the time at 100k.
-	const lexicalOnly = new Map<number, number>();
-	for (const [position, value] of bm) lexicalOnly.set(position, value);
-	for (const [position, value] of ent) lexicalOnly.set(position, Math.max(lexicalOnly.get(position) ?? 0, value));
-	const lexicalTop = lexicalOnly.size <= LEXICAL_CANDIDATES ? [...lexicalOnly.keys()] : [...lexicalOnly].sort((a, b) => b[1] - a[1]).slice(0, LEXICAL_CANDIDATES).map(([position]) => position);
+	const lexicalTop = topLexical(bm, ent, LEXICAL_CANDIDATES);
 	for (const position of new Set<number>([...lexicalTop, ...sem.keys()])) {
 		const record = index.records[position];
 		if (!eligible(record)) continue;
 		// Lexical evidence (BM25 + entities) alone is enough; semantics can only add to it.
-		const [b, e] = [bm.get(position) ?? 0, ent.get(position) ?? 0];
+		const [b, e] = [bm.scores[position], ent.get(position) ?? 0];
 		const lexical = 0.8 * Math.max(b, e) + 0.2 * Math.min(b, e);
 		const score = Math.max(lexical, SEM_WEIGHT * (sem.get(position) ?? 0) + (1 - SEM_WEIGHT) * lexical);
 		direct.set(position, score * factor(record));
@@ -435,17 +506,36 @@ export function recall(index: RecallIndex, query: string, options: RecallOptions
 		// but its hits lead to (the reason two links away) fills the reserved cues, strongest mass first.
 		const top = directHits[0].score;
 		const seeds = directHits.filter((item) => item.score >= top * DEPTH.seedShare).slice(0, DEPTH.seeds);
-		const mass = pushPpr(new Map(seeds.map((seed) => [`m${seed.position}`, seed.score ** DEPTH.power])), index.neighbors, { alpha: DEPTH.alpha, epsilon: DEPTH.epsilon });
-		const reference = Math.max(...seeds.map((seed) => mass.get(`m${seed.position}`) ?? 0)) || 1;
+		const walk = (from: typeof seeds) => {
+			const mass = pushPpr(new Map(from.map((seed) => [`m${seed.position}`, seed.score ** DEPTH.power])), index.neighbors, { alpha: DEPTH.alpha, epsilon: DEPTH.epsilon });
+			const reference = Math.max(...from.map((seed) => mass.get(`m${seed.position}`) ?? 0)) || 1;
+			return [...mass]
+				.map(([node, value]) => ({ position: Number(node.slice(1)), share: value / reference }))
+				.filter((item) => !taken.has(item.position) && item.share >= DEPTH.minMass && eligible(index.records[item.position]))
+				.sort((a, b) => b.share - a.share);
+		};
 		const taken = new Set(chosen.map((item) => item.position));
-		const reached = [...mass]
-			.map(([node, value]) => ({ position: Number(node.slice(1)), share: value / reference }))
-			.filter((item) => !taken.has(item.position) && item.share >= DEPTH.minMass && eligible(index.records[item.position]))
-			.sort((a, b) => b.share - a.share)
-			.slice(0, slots);
+		const reached: { position: number; share: number }[] = [];
+		const seen = new Set<number>();
+		const take = (items: { position: number; share: number }[]) => {
+			for (const item of items) {
+				if (reached.length >= slots) return;
+				if (seen.has(item.position)) continue;
+				seen.add(item.position);
+				reached.push(item);
+			}
+		};
+		if (DEPTH.perHit) for (const hit of chosen) {
+			if (reached.length >= slots) break;
+			take(walk([hit]));
+		}
+		else if (DEPTH.bestFirst && seeds.length > 1) take(walk(seeds.slice(0, 1)));
+		take(walk(seeds));
 		for (const item of reached) hits.push({ record: index.records[item.position], score: top * Math.min(1, item.share), via: "deep" });
 		// Unused deep slots go back to direct hits.
-		for (const item of directHits.slice(chosen.length, chosen.length + slots - reached.length)) hits.push({ record: index.records[item.position], score: item.score });
+		// (Not one the walk already brought in: it would appear twice.)
+		const free = directHits.slice(chosen.length).filter((item) => !seen.has(item.position));
+		for (const item of free.slice(0, slots - reached.length)) hits.push({ record: index.records[item.position], score: item.score });
 	}
 	return { hits };
 }

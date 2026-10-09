@@ -80,7 +80,11 @@ const CHAIN_TEMPLATES = [
 	}),
 ];
 
-export function buildCorpus(size: number, options: { seed?: number; chains?: number } = {}): Corpus {
+/**
+ * decoys: for every chain, a memory that echoes the question better than the chain's first memory but leads nowhere
+ * (no links, no shared entity): the walk must still follow the chain (measured live: such a decoy took the deep cues).
+ */
+export function buildCorpus(size: number, options: { seed?: number; chains?: number; decoys?: boolean } = {}): Corpus {
 	const random = rng(options.seed ?? 7);
 	const records: MemoryRecord[] = [];
 	let counter = 0;
@@ -107,6 +111,7 @@ export function buildCorpus(size: number, options: { seed?: number; chains?: num
 			b.links = [c.id];
 		}
 		chains.push({ query: t.q, ids: [a.id, b.id, c.id], via });
+		if (options.decoys) make(`${t.q.replace(/\?$/, "").replace(String(n), String(n + 1000))}: segnalato in passato, nessuna causa trovata.`, [`segnalazione-${n + 1000}`]);
 	}
 	const supersedes: Supersede[] = [];
 	for (let i = 0; i < 20; i++) {

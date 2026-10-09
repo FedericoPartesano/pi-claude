@@ -31,6 +31,48 @@ dava 100% ma lascerebbe fuori i quasi-pari merito reali).
 
 Modello: con e5 il salto 2 resta al 95% da 1k a 5k ricordi; minilm scende da 93% a 78% → e5 predefinito.
 
+### Oltre i 100k: 300k e 1M ricordi
+
+```
+node --expose-gc --max-old-space-size=10000 bench/deep-bench.ts 100000,1000000
+node --expose-gc --max-old-space-size=10000 bench/scale-probe.ts 1000000   # tempi per fase, perché una catena manca
+node bench/recall-snapshot.ts 100000 > prima.json                           # uscita esatta, per provare che un'ottimizzazione non cambia nulla
+```
+
+| | 300k (prima) | 1M (prima) | 1M (dopo) |
+|---|---|---|---|
+| risposta a 2 salti negli spunti | 80% | 75% | **100%** |
+| latenza p50 / p95 | 17 / 45 ms | 79 / 137 ms | **48 / 94 ms** |
+| token per richiesta | 237 | 239 | 239 |
+| heap dell'indice | 457 MB | 924 MB | 924 MB |
+
+Due cause, trovate con `scale-probe.ts`:
+- **Profondità.** Da solo il ricordo A raggiungeva sempre la risposta C (rango 2 della camminata). Però con un milione di
+  ricordi ci sono più colpi quasi alla pari: diventavano semi e i loro vicini occupavano gli spunti profondi. Ora gli spunti
+  profondi seguono prima la camminata del colpo migliore (`DEPTH.bestFirst`). Con questa modifica:
+  - salto 2 a 10k: 98 → 100%; a 100k: 93 → 100%; a 1M: 75 → 100%;
+  - con e5 a 5k: 93 → 100%; a 1k invariato (95%);
+  - nell'anno simulato gli argomenti attivi sono in media 92,8 → 94,4%, con il punto peggiore 65 → 84%.
+- **Velocità.** BM25 scorreva liste di 100k+ ricordi per le parole comuni con una `Map` per ricordo, poi ordinava tutti i
+  candidati. Ora usa array tipizzati riusati e una selezione lineare dei migliori 300: BM25 a 1M passa da 25/75 a 8/31
+  ms. L'uscita è identica byte per byte su 248 richieste a 100k (`recall-snapshot.ts`).
+
+Resta lineare la scansione Hamming dei vettori: 25 ms a 1M, nel worker, quindi mai sul thread dell'interfaccia. Una prima
+passata su meno bit la ridurrebbe, ma la qualità a 1M si può verificare solo con vettori reali a quella scala. Non è fatto:
+l'affidabilità prima del risparmio.
+
+### Esche: un colpo migliore che non porta da nessuna parte
+
+Dal vivo con 5.000 ricordi (`live.mjs --filler 5000`, sotto) il colpo migliore della richiesta sull'export era un'esca
+senza link ("l'export dei listini è lento con file grandi"). Il primo anello della catena era secondo, fuori dal 90% dei
+semi, e gli spunti profondi andavano a colpi diretti deboli. `DEPTH.perHit`: una camminata per ogni colpo scelto, in
+ordine, finché gli spunti profondi sono pieni. Bench sintetico invariato (100% a 10k–1M, +~7 token per richiesta), anno
+simulato identico giorno per giorno.
+
+`deep-bench.ts --decoys` pianta per ogni catena un'esca che ripete la domanda. È più dura del caso reale: il salto 2
+arriva all'88–90%, e i mancati sono catene il cui primo anello non entra tra i colpi diretti (rango 10 in BM25). Far
+partire camminate da colpi così deboli riempirebbe gli spunti di rumore, quindi non viene fatto.
+
 ## 2. Un anno simulato (`test/longterm.ts`, `bench/longterm-sim.ts`)
 
 60 argomenti che nascono e muoiono (~60 giorni ciascuno), ricordi nuovi ogni giorno con link, 8 richieste al giorno
@@ -81,6 +123,16 @@ con la decisione #r1 sull'OOM", senza che la richiesta nominasse la memoria.
 con la lezione salvati; il quadro del progetto scritto; le due preferenze personali ("rispondere in italiano",
 "aggiornare i todo man mano") spostate nella memoria globale; link tra ricordi nuovi della stessa risposta (dopo aver
 aggiunto i riferimenti n<k>: prima nessun link, perché si poteva puntare solo a ricordi già esistenti).
+
+### Con 5.000 ricordi ed esche (`live.mjs --filler 5000`)
+
+Archivio realistico: il corpus del bench, con 10 esche quasi uguali alle domande (un altro export, il login di un altro
+portale, un altro tracciato). Vettori e5 calcolati una volta (~1 minuto).
+
+| | Catene | Superato | Estranea | "ok" | Totale |
+|---|---|---|---|---|---|
+| memoria nuova (`perHit`) | 3/3 | ✓ | ✓ | ✓ | **6/6** |
+| memoria di main | 2/3: sull'export arriva solo il primo anello, e il modello consiglia più worker | ✓ | ✓ | ✓ | 5/6 |
 
 ## 5. Costi fissi
 
