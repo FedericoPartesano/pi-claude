@@ -1,0 +1,220 @@
+// The chat as a Solid store: Pi's RPC events become turns (user, Pi, notes). A Pi turn is its parts in real order:
+// thinking, text, tool steps, errors. Text deltas are buffered and applied once per frame (Solid then updates only the
+// part that changed; the markdown component re-renders only the block that changed).
+import { createStore, produce } from "solid-js/store";
+import type { Img, TranscriptItem, UiRequest } from "./bridge";
+
+export type Step = { id: string; name: string; args: Record<string, unknown>; state: "run" | "ok" | "err"; ms?: number; output?: string; images?: Img[] };
+export type Part =
+	| { kind: "thinking"; text: string; live: boolean; seconds?: number }
+	| { kind: "text"; text: string }
+	| { kind: "steps"; steps: Step[] }
+	| { kind: "error"; text: string };
+export type Turn =
+	| { id: number; role: "user"; text: string; images?: Img[] }
+	| { id: number; role: "pi"; parts: Part[]; suggestions: string[]; done: boolean }
+	| { id: number; role: "note"; text: string; tone?: "error" };
+
+let nextId = 1;
+const id = () => nextId++;
+
+export function createChat() {
+	const [state, set] = createStore({ turns: [] as Turn[], busy: false, status: "pronto", statuses: {} as Record<string, string>, dialog: undefined as UiRequest | undefined, exited: undefined as string | undefined });
+	// Indices of what is being written now.
+	let turn = -1;
+	let text = -1;
+	let thinking = -1;
+	let thinkStart = 0;
+	let steps = -1;
+	const tools = new Map<string, { part: number; index: number; start: number }>();
+	let pendingText = "";
+	let pendingThink = "";
+	let frame = 0;
+
+	const piTurn = (): number => {
+		if (turn < 0) {
+			set("turns", (turns) => [...turns, { id: id(), role: "pi", parts: [], suggestions: [], done: false }]);
+			turn = state.turns.length - 1;
+		}
+		return turn;
+	};
+	const parts = () => (state.turns[turn] as Extract<Turn, { role: "pi" }>).parts;
+
+	const closeThinking = () => {
+		if (thinking < 0) return;
+		const index = thinking;
+		set("turns", turn, produce((t: any) => {
+			t.parts[index].live = false;
+			t.parts[index].seconds = Math.max(1, Math.round((Date.now() - thinkStart) / 1000));
+		}));
+		thinking = -1;
+	};
+
+	const flush = () => {
+		frame = 0;
+		if (pendingThink) {
+			const delta = pendingThink;
+			pendingThink = "";
+			piTurn();
+			if (thinking < 0) {
+				set("turns", turn, produce((t: any) => t.parts.push({ kind: "thinking", text: "", live: true })));
+				thinking = parts().length - 1;
+				thinkStart = Date.now();
+				steps = -1;
+			}
+			set("turns", turn, "parts" as never, thinking as never, "text" as never, ((old: string) => old + delta) as never);
+		}
+		if (pendingText) {
+			const delta = pendingText;
+			pendingText = "";
+			closeThinking();
+			piTurn();
+			if (text < 0) {
+				set("turns", turn, produce((t: any) => t.parts.push({ kind: "text", text: "" })));
+				text = parts().length - 1;
+				steps = -1;
+			}
+			set("turns", turn, "parts" as never, text as never, "text" as never, ((old: string) => old + delta) as never);
+		}
+	};
+	const schedule = () => {
+		if (!frame) frame = requestAnimationFrame(flush);
+	};
+	const flushNow = () => {
+		if (frame) cancelAnimationFrame(frame);
+		flush();
+	};
+
+	function onEvent(event: any) {
+		switch (event.type) {
+			case "agent_start":
+				set({ busy: true, status: "sta lavorando…", exited: undefined });
+				break;
+			case "message_start":
+				if (event.message?.role === "assistant") {
+					flushNow();
+					text = -1;
+				}
+				break;
+			case "message_update": {
+				const update = event.assistantMessageEvent;
+				if (update?.type === "thinking_delta") pendingThink += update.delta;
+				else if (update?.type === "text_delta") pendingText += update.delta;
+				schedule();
+				break;
+			}
+			case "message_end":
+				flushNow();
+				closeThinking();
+				if (event.message?.errorMessage) {
+					piTurn();
+					set("turns", turn, produce((t: any) => t.parts.push({ kind: "error", text: event.message.errorMessage })));
+				}
+				text = -1;
+				break;
+			case "tool_execution_start": {
+				flushNow();
+				closeThinking();
+				text = -1;
+				piTurn();
+				if (steps < 0) {
+					set("turns", turn, produce((t: any) => t.parts.push({ kind: "steps", steps: [] })));
+					steps = parts().length - 1;
+				}
+				const part = steps;
+				set("turns", turn, produce((t: any) => t.parts[part].steps.push({ id: event.toolCallId, name: event.toolName, args: event.args ?? {}, state: "run" })));
+				tools.set(event.toolCallId, { part, index: (parts()[part] as any).steps.length - 1, start: Date.now() });
+				set("status", `${event.toolName} ${brief(event.toolName, event.args)}`.slice(0, 64));
+				break;
+			}
+			case "tool_execution_end": {
+				const tool = tools.get(event.toolCallId);
+				if (!tool || turn < 0) break;
+				tools.delete(event.toolCallId);
+				const content = (event.result?.content ?? []) as { type: string; text?: string; data?: string; mimeType?: string }[];
+				const output = content.filter((block) => block.type === "text").map((block) => block.text).join("\n");
+				const images = content.filter((block) => block.type === "image" && block.data).map((block) => ({ data: block.data!, mimeType: block.mimeType ?? "image/png" }));
+				set("turns", turn, produce((t: any) => {
+					const step = t.parts[tool.part].steps[tool.index];
+					step.state = event.isError ? "err" : "ok";
+					step.ms = Date.now() - tool.start;
+					step.output = output.length > 8000 ? `${output.slice(0, 8000)}\n… (${output.length - 8000} caratteri in più)` : output;
+					if (images.length) step.images = images;
+				}));
+				set("status", "sta lavorando…");
+				break;
+			}
+			case "agent_settled":
+				flushNow();
+				closeThinking();
+				if (turn >= 0) set("turns", turn, produce((t: any) => (t.done = true)));
+				turn = -1;
+				text = -1;
+				steps = -1;
+				set({ busy: false, status: "pronto" });
+				break;
+		}
+	}
+
+	function onUi(request: UiRequest) {
+		if (request.method === "notify") return void set("turns", (turns) => [...turns, { id: id(), role: "note", text: request.message ?? "" }]);
+		if (request.method === "setStatus") return void set("statuses", produce((statuses: Record<string, string>) => {
+			if (request.statusText) statuses[request.statusKey!] = request.statusText;
+			else delete statuses[request.statusKey!];
+		}));
+		if (["confirm", "select", "input"].includes(request.method)) set("dialog", request);
+	}
+
+	return {
+		state,
+		onEvent,
+		onUi,
+		closeDialog: () => set("dialog", undefined),
+		addUser: (text: string, images?: Img[]) => set("turns", (turns) => [...turns, { id: id(), role: "user", text, images }]),
+		addNote: (text: string, tone?: "error") => set("turns", (turns) => [...turns, { id: id(), role: "note", text, tone }]),
+		exited: (code: string) => set({ busy: false, status: "Pi fermo", exited: code }),
+		restarted: () => set({ exited: undefined, status: "pronto" }),
+		replace: (turns: Turn[]) => {
+			turn = -1;
+			set("turns", turns);
+		},
+	};
+}
+
+export type Chat = ReturnType<typeof createChat>;
+
+export function brief(name: string, args: any = {}): string {
+	if (name === "browser") return [args.action, args.url ?? args.ref, args.do, args.text].filter(Boolean).join(" ");
+	return String(args.command ?? args.path ?? args.file_path ?? args.url ?? args.query ?? args.pattern ?? args.id ?? args.goal ?? "").replace(/\s+/g, " ");
+}
+
+/** A saved session's transcript as turns (read-only views and resumed sessions). */
+export function transcriptTurns(items: TranscriptItem[]): Turn[] {
+	const turns: Turn[] = [];
+	let pi: Extract<Turn, { role: "pi" }> | undefined;
+	let steps: Extract<Part, { kind: "steps" }> | undefined;
+	for (const item of items) {
+		if (item.role === "user") {
+			turns.push({ id: id(), role: "user", text: item.text, images: item.images });
+			pi = undefined;
+			steps = undefined;
+			continue;
+		}
+		if (!pi) {
+			pi = { id: id(), role: "pi", parts: [], suggestions: [], done: true };
+			turns.push(pi);
+		}
+		if (item.role === "tool") {
+			if (!steps) {
+				steps = { kind: "steps", steps: [] };
+				pi.parts.push(steps);
+			}
+			const [name, ...rest] = item.text.split(" ");
+			steps.steps.push({ id: `t${id()}`, name, args: { path: rest.join(" ") }, state: "ok" });
+		} else {
+			pi.parts.push(item.role === "error" ? { kind: "error", text: item.text } : { kind: "text", text: item.text });
+			steps = undefined;
+		}
+	}
+	return turns;
+}

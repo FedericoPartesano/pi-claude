@@ -6,10 +6,24 @@
   "type": "module",
   "main": "main.mjs",
   "scripts": {
-    "start": "electron .",
-    "test": "node --test test/*.test.mjs"
+    "build": "vite build",
+    "start": "vite build && electron .",
+    "dev": "vite build --watch",
+    "test": "vite build && node --test test/*.test.mjs"
   },
   "devDependencies": {
-    "electron": "44.4.5"
+    "electron": "44.4.5",
+    "typescript": "7.0.2",
+    "vite": "8.3.1",
+    "vite-plugin-solid": "2.11.14"
+  },
+  "dependencies": {
+    "@kobalte/core": "0.13.14",
+    "@solid-primitives/resize-observer": "2.2.0",
+    "@solid-primitives/scheduled": "1.5.3",
+    "@solid-primitives/storage": "4.4.0",
+    "@tanstack/solid-virtual": "3.13.40",
+    "lucide-solid": "1.48.0",
+    "solid-js": "1.9.15"
   }
 }

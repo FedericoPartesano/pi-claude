@@ -94,14 +94,14 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .note { align-self: center; font-size: 12px; color: var(--faint); background: var(--surface); border: 1px solid var(--line-soft); padding: 4px 12px; border-radius: 999px; }
 .error-card { border: 1px solid #f7768e55; background: #f7768e10; color: #ffb3c1; border-radius: var(--radius); padding: 10px 14px; font-size: 13.5px; }
 
-/* Thinking */
-details.thinking { border-left: 2px solid var(--line); padding: 2px 0 2px 12px; }
-details.thinking summary { list-style: none; cursor: pointer; font-size: 12.5px; color: var(--faint); user-select: none; display: inline-flex; gap: 6px; align-items: center; }
-details.thinking summary::-webkit-details-marker { display: none; }
-details.thinking summary::before { content: "▸"; font-size: 10px; transition: transform .15s; }
-details.thinking[open] summary::before { transform: rotate(90deg); }
-details.thinking.live summary { color: var(--violet); text-shadow: 0 0 8px #ff3fd855; }
-details.thinking .body { margin-top: 6px; font-size: 13px; color: var(--muted); white-space: pre-wrap; max-height: 320px; overflow-y: auto; }
+/* Thinking (Kobalte Collapsible) */
+.thinking { border-left: 2px solid var(--line); padding: 2px 0 2px 12px; }
+.thinking-head { all: unset; cursor: pointer; font-size: 12.5px; color: var(--faint); display: inline-flex; gap: 6px; align-items: center; user-select: none; }
+.thinking-head:hover { color: var(--muted); }
+.thinking .chevron { transition: transform .15s; }
+.thinking-head[data-expanded] .chevron { transform: rotate(90deg); }
+.thinking.live .thinking-head { color: var(--violet); text-shadow: 0 0 8px #ff3fd855; }
+.thinking-body { margin-top: 6px; font-size: 13px; color: var(--muted); white-space: pre-wrap; max-height: 320px; overflow-y: auto; }
 
 /* Tool steps */
 .steps { display: flex; flex-direction: column; border: 1px solid var(--line); border-left: 2px solid #2ee6ff66; background: var(--surface); overflow: hidden; clip-path: var(--cut); }
@@ -199,15 +199,17 @@ details.thinking .body { margin-top: 6px; font-size: 13px; color: var(--muted); 
 .hint { text-align: center; font-size: 11px; color: var(--faint); margin-top: 6px; }
 #composer.readonly .box { opacity: .5; pointer-events: none; }
 
-/* ---- Dialog (over the chat column: the browser panel is a native view on top) --------------------------------- */
-#dialog { position: absolute; inset: 0; background: #05070acc; display: grid; place-items: center; z-index: 20; backdrop-filter: blur(2px); }
-#dialog .box { width: min(440px, 88%); background: var(--raised); border: 1px solid var(--line); border-radius: 16px; padding: 20px; box-shadow: 0 20px 60px #0008; }
-#dialog h3 { margin: 0 0 6px; font-size: 15px; color: var(--strong); }
-#dialog p { margin: 0; color: var(--muted); }
-#dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 18px; }
-#dialog-actions button { border: 1px solid var(--line); background: var(--surface); border-radius: 9px; padding: 6px 14px; }
-#dialog-actions button.primary { background: var(--accent); color: #0c0c0c; border-color: var(--accent); font-weight: 700; box-shadow: 0 0 14px #2ee6ff44; }
-#dialog-actions input { flex: 1 1 100%; background: var(--bg); color: var(--strong); border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; font: inherit; outline: none; }
+/* ---- Dialog (Kobalte), mounted in the chat column: the browser panel is a native view on top ------------------ */
+.dialog-overlay { position: absolute; inset: 0; background: #05070acc; backdrop-filter: blur(2px); z-index: 20; }
+.dialog-position { position: absolute; inset: 0; display: grid; place-items: center; z-index: 21; pointer-events: none; }
+.dialog { pointer-events: auto; width: min(440px, 88%); background: var(--raised); border: 1px solid var(--line); border-radius: 16px; padding: 20px; box-shadow: 0 20px 60px #0008, 0 0 0 1px #2ee6ff22; outline: none; }
+.dialog-title { margin: 0 0 6px; font-size: 15px; color: var(--strong); }
+.dialog-message { margin: 0; color: var(--muted); }
+.dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.dialog-actions button { border: 1px solid var(--line); background: var(--surface); border-radius: 9px; padding: 6px 14px; }
+.dialog-actions button:hover { border-color: var(--accent); }
+.dialog-actions button.primary { background: var(--accent); color: #0c0c0c; border-color: var(--accent); font-weight: 700; box-shadow: 0 0 14px #2ee6ff44; }
+.dialog-actions input { flex: 1 1 100%; background: var(--bg); color: var(--strong); border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; font: inherit; outline: none; }
 
 /* ---- Sessions sidebar ----------------------------------------------------------------------------------------- */
 .side-head { display: flex; align-items: center; justify-content: space-between; height: 52px; padding: 0 10px 0 16px; font-weight: 600; color: var(--strong); border-bottom: 1px solid var(--line-soft); }
@@ -231,3 +233,24 @@ details.thinking .body { margin-top: 6px; font-size: 13px; color: var(--muted); 
 #url { flex: 1; border: none; outline: none; background: transparent; color: var(--text); font: 12.5px var(--sans); }
 #browser-slot { flex: 1; position: relative; background: var(--bg); }
 .slot-hint { position: absolute; inset: 0; display: grid; place-items: center; color: var(--faint); font-size: 13px; }
+
+/* ---- Solid version additions --------------------------------------------------------------------------------- */
+#root { height: 100%; }
+svg.lucide { flex: none; }
+.icon svg { pointer-events: none; }
+#composer .row .icon { width: 28px; height: 28px; }
+#composer .box.dragging { border-color: var(--violet); box-shadow: 0 0 0 3px #ff3fd81f; }
+.attachments { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.attachment { position: relative; width: 64px; height: 64px; border-radius: 9px; overflow: hidden; border: 1px solid var(--line); }
+.attachment img { width: 100%; height: 100%; object-fit: cover; }
+.attachment .remove { position: absolute; top: 3px; right: 3px; width: 18px; height: 18px; border-radius: 50%; border: none; background: #000b; color: var(--strong); display: grid; place-items: center; padding: 0; }
+.thumbs { display: flex; gap: 8px; flex-wrap: wrap; padding: 4px 12px 10px 44px; }
+.turn-user .thumbs { padding: 0 0 8px; }
+.thumbs img { max-width: 220px; max-height: 150px; border-radius: 8px; border: 1px solid var(--line); cursor: zoom-in; object-fit: cover; }
+.md img { max-width: 100%; border-radius: 8px; border: 1px solid var(--line); cursor: zoom-in; }
+.lightbox { position: absolute; inset: 0; z-index: 30; background: #050507ee; display: grid; place-items: center; cursor: zoom-out; outline: none; }
+.lightbox img { max-width: 94%; max-height: 90%; border-radius: 10px; box-shadow: 0 0 40px #2ee6ff22; }
+.lightbox .close { position: absolute; top: 12px; right: 12px; background: var(--raised); }
+#browserbar .lock { color: var(--ok); }
+.error-card button { margin-left: 8px; border: 1px solid #ff4d6d66; background: transparent; color: inherit; border-radius: 7px; padding: 1px 8px; }
+.error-card svg { vertical-align: -2px; }

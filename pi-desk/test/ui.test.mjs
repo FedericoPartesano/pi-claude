@@ -12,18 +12,19 @@ const { findChrome } = await import(join(repo, "extensions/browser/chrome.ts"));
 const { BrowserSession } = await import(join(repo, "extensions/browser/session.ts"));
 const skip = !findChrome() && "Chrome non installato";
 
-/** The page as shipped, without its CSP (the mock is a file next to it) and with the mock loaded first. */
+/** The built page (ui-dist, from `vite build`), without its CSP and with the mock bridge loaded first. */
 async function openPage() {
-	const ui = fileURLToPath(new URL("../ui/", import.meta.url));
+	const ui = fileURLToPath(new URL("../ui-dist/", import.meta.url));
 	const harness = join(ui, "_test.html");
 	copyFileSync(fileURLToPath(new URL("./mock-desk.js", here)), join(ui, "_mock-desk.js"));
-	const html = readFileSync(join(ui, "index.html"), "utf8").replace(/<meta http-equiv="Content-Security-Policy"[^>]*>/, "").replace('<script src="render.js">', '<script src="_mock-desk.js"></script><script src="render.js">');
+	const html = readFileSync(join(ui, "index.html"), "utf8").replace(/<meta http-equiv="Content-Security-Policy"[^>]*>/, "").replace("<script defer", '<script src="./_mock-desk.js"></script><script defer');
 	writeFileSync(harness, html);
 	process.env.PI_BROWSER_HEADLESS = "1";
 	process.env.PI_BROWSER_PROFILE = mkdtempSync(join(tmpdir(), "desk-ui-"));
 	const session = new BrowserSession();
 	await session.open(`file://${harness}`);
 	const js = (code) => session.evaluate(code);
+	await wait(200);
 	const close = () => {
 		session.close();
 		rmSync(harness, { force: true });
@@ -38,7 +39,7 @@ test("a whole turn: user bubble, thinking, streamed markdown with a chart, tool 
 	try {
 		// Nothing hidden takes the clicks (a display rule once beat [hidden] and every click hit the dialog).
 		assert.ok(!/dialog|viewer-bar/.test(await js(`[document.elementFromPoint(40, 26), document.elementFromPoint(300, 400)].map((e) => e?.id || e?.className).join(",")`)));
-		assert.equal(await js(`String(!document.getElementById("empty").hidden)`), "true", "empty state first");
+		assert.equal(await js(`String(Boolean(document.getElementById("empty")))`), "true", "empty state first");
 		// The browser panel starts closed (no wasted space) and reports no area for the native view.
 		assert.equal(await js(`getComputedStyle(document.getElementById("browser")).display`), "none");
 		assert.match(await js(`JSON.stringify(window.lastRect)`), /"width":0/);
@@ -49,16 +50,16 @@ test("a whole turn: user bubble, thinking, streamed markdown with a chart, tool 
 		await js(`document.getElementById("close-browser").click(); "ok"`);
 		await wait(50);
 		assert.equal(await js(`getComputedStyle(document.getElementById("browser")).display`), "none");
-		await js(`input.value = "fammi un grafico"; input.dispatchEvent(new Event("input")); input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" })); "ok"`);
+		await js(`input.value = "fammi un grafico"; input.dispatchEvent(new Event("input", { bubbles: true })); input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); "ok"`);
 		assert.match(await js(`JSON.stringify(calls)`), /"prompt","fammi un grafico"/);
 		assert.equal(await js(`document.querySelector(".turn-user").textContent`), "fammi un grafico");
-		assert.equal(await js(`String(document.getElementById("empty").hidden)`), "true");
+		assert.equal(await js(`String(Boolean(document.getElementById("empty")))`), "false");
 		const delta = (type, text) => `emit("pi-event", { type: "message_update", assistantMessageEvent: { type: "${type}", delta: ${JSON.stringify(text)} } });`;
 		await js(`emit("pi-event", { type: "agent_start" }); emit("pi-event", { type: "message_start", message: { role: "assistant" } });
 			${delta("thinking_delta", "Devo contare le vendite…")} ${delta("text_delta", "## Vendite\n\n1. **gennaio** alto\n2. febbraio\n\n| mese | k€ |\n|---|---:|\n| gen | 3 |\n\n")}
 			${delta("text_delta", '```grafico\n{"tipo":"barre","titolo":"Vendite","etichette":["gen","feb"],"serie":[{"nome":"2026","valori":[3,5]}],"unita":"k€"}\n```\n<!--suggerimenti-->\n- confronta col 2025\n- esporta in CSV')} "ok"`);
 		await wait(80);
-		assert.equal(await js(`String(document.querySelector("details.thinking").open)`), "false", "thinking collapses when the answer starts");
+		assert.equal(await js(`String(document.querySelector(".thinking-head").hasAttribute("data-expanded"))`), "false", "thinking collapses when the answer starts");
 		const html = await js(`document.querySelector(".turn-pi .md").innerHTML`);
 		assert.match(html, /<h2>Vendite<\/h2>/);
 		assert.match(html, /<ol><li><strong>gennaio<\/strong> alto<\/li>/);
@@ -69,15 +70,15 @@ test("a whole turn: user bubble, thinking, streamed markdown with a chart, tool 
 			emit("pi-event", { type: "tool_execution_start", toolCallId: "t1", toolName: "browser", args: { action: "open", url: "https://example.com" } }); "ok"`);
 		assert.match(await js(`document.getElementById("status").textContent`), /browser open https:\/\/example.com/);
 		assert.notEqual(await js(`getComputedStyle(document.getElementById("browser")).display`), "none", "opens when Pi uses the browser");
-		assert.equal(await js(`document.querySelector(".step").className`), "step run");
+		assert.match(await js(`document.querySelector(".step").className`), /\bstep run\b/);
 		await js(`emit("pi-ui", { type: "extension_ui_request", id: "u1", method: "confirm", title: "pi-browser", message: "Aprire https://example.com?" }); "ok"`);
-		await js(`document.querySelector("#dialog-actions .primary").click(); "ok"`);
+		await js(`document.querySelector(".dialog-actions .primary").click(); "ok"`);
 		assert.match(await js(`JSON.stringify(calls)`), /"answer","u1",\{"confirmed":true\}/);
 		await js(`emit("pi-event", { type: "tool_execution_end", toolCallId: "t1", isError: false, result: { content: [{ type: "text", text: "Example Domain" }] } });
 			emit("pi-event", { type: "message_start", message: { role: "assistant" } }); ${delta("text_delta", "Fatto.\n<!--suggerimenti-->\n- confronta col 2025\n- esporta in CSV")}
 			emit("pi-event", { type: "message_end", message: { role: "assistant" } }); emit("pi-event", { type: "agent_settled" }); "ok"`);
 		await wait(80);
-		assert.equal(await js(`document.querySelector(".step").className`), "step ok");
+		assert.match(await js(`document.querySelector(".step").className`), /\bstep ok\b/);
 		await js(`document.querySelector(".step .head").click(); "ok"`);
 		assert.match(await js(`document.querySelector(".step.open .out").textContent`), /Example Domain/);
 		assert.equal(await js(`[...document.querySelectorAll(".suggestions button")].map((b) => b.textContent).join("|")`), "confronta col 2025|esporta in CSV");
@@ -108,13 +109,13 @@ test("sessions sidebar: running first, live one writable through desk-link, lega
 		await wait();
 		assert.match(await js(`document.getElementById("viewer-label").textContent`), /scrivi qui/);
 		assert.ok(!/readonly/.test(await js(`document.getElementById("composer").className`)));
-		assert.match(await js(`document.getElementById("viewer").innerHTML`), /<strong>fatto<\/strong>/);
-		await js(`input.value = "aggiungi i test"; input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" })); "ok"`);
+		assert.match(await js(`document.getElementById("scroll").innerHTML`), /<strong>fatto<\/strong>/);
+		await js(`input.value = "aggiungi i test"; input.dispatchEvent(new Event("input", { bubbles: true })); input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); "ok"`);
 		await wait();
 		assert.match(await js(`JSON.stringify(calls)`), /"send",42,"aggiungi i test"/);
 		assert.ok(!/"prompt","aggiungi i test"/.test(await js(`JSON.stringify(calls)`)));
 		await js(`emit("session-append", { path: "/s/live", items: [{ role: "assistant", text: "nuovo passo" }] }); "ok"`);
-		assert.match(await js(`document.getElementById("viewer").innerText`), /nuovo passo/);
+		assert.match(await js(`document.getElementById("scroll").textContent`), /nuovo passo/);
 		await js(`[...document.querySelectorAll(".session")].find((b) => b.innerText.includes("vecchio pi")).click(); "ok"`);
 		await wait();
 		const label = await js(`document.getElementById("viewer-label").textContent`);
@@ -125,8 +126,8 @@ test("sessions sidebar: running first, live one writable through desk-link, lega
 		await js(`document.getElementById("viewer-resume").click(); "ok"`);
 		await wait();
 		assert.match(await js(`JSON.stringify(calls)`), /"resume","\/s\/old","\/p\/blog"/);
-		assert.match(await js(`document.getElementById("log").innerText`), /scrivi il post/);
-		assert.equal(await js(`String(document.getElementById("viewer").hidden)`), "true");
+		assert.match(await js(`document.getElementById("scroll").textContent`), /scrivi il post/);
+		assert.equal(await js(`String(Boolean(document.getElementById("viewer-bar")))`), "false");
 	} finally {
 		close();
 	}

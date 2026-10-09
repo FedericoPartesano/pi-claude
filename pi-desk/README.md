@@ -33,4 +33,19 @@ Limiti dell'MVP:
 - niente pannelli per memoria, goal e team;
 - la divisione tra chat e browser è fissa (42% / 58%).
 
-Test: `npm test` (client RPC con un `pi` finto).
+## Sviluppo
+
+L'interfaccia è in **Solid** (`renderer/`, build con Vite in `ui-dist/`), con:
+- Kobalte per dialog e sezioni richiudibili;
+- icone Lucide;
+- lista delle sessioni virtualizzata (TanStack Virtual);
+- `@solid-primitives` per ridimensionamento e salvataggio locale.
+
+Il Markdown, i grafici e i suggerimenti li rende `renderer/src/render.ts`, a blocchi in cache: durante lo streaming
+si ridisegna solo il blocco che cambia.
+
+```bash
+npm start        # build dell'interfaccia + Electron
+npm run dev      # build continua mentre modifichi renderer/ (poi Ctrl+R nella finestra)
+npm test         # build + test: rendering, client RPC, sessioni, desk-link, interfaccia in Chrome headless
+```

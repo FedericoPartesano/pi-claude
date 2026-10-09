@@ -1,11 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { runInNewContext } from "node:vm";
-
-const context = { window: {} };
-runInNewContext(readFileSync(new URL("../ui/render.js", import.meta.url), "utf8"), context);
-const { markdown, extract, chartSvg } = context.window.PiRender;
+import { markdown, extract, chartSvg, splitBlocks, answerBlocks } from "../renderer/src/render.ts";
 
 test("markdown: headings, nested lists, ordered lists, tables, quotes, code with language, inline marks, links", () => {
 	const html = markdown(["## Problemi", "", "1. **Società** incoerente", "2. RF-05 *assente*", "", "- uno", "  - due", "", "| a | b |", "|---|---:|", "| 1 | 2 |", "", "> nota", "", "```ts", "const x = 1 < 2;", "```", "", "vedi [docs](https://example.com) e `code`", "", "---"].join("\n"));
@@ -48,7 +43,6 @@ test("charts: bars, horizontal bars and lines as SVG with title, axis values, le
 });
 
 test("blocks: split at blank lines but never inside a fence or a list; same block → same cached HTML", () => {
-	const { splitBlocks, answerBlocks } = context.window.PiRender;
 	const text = "Titolo\n\n```js\nconst a = 1;\n\nconst b = 2;\n```\n\n1. uno\n\n2. due\n\nfine";
 	assert.deepEqual([...splitBlocks(text)], ["Titolo", "```js\nconst a = 1;\n\nconst b = 2;\n```", "1. uno\n\n2. due", "fine"]);
 	const first = answerBlocks(text).blocks;

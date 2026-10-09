@@ -136,7 +136,7 @@ app.whenReady().then(() => {
 		backgroundColor: "#0d1117",
 		webPreferences: { preload: join(here, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true },
 	});
-	win.loadFile(join(here, "ui", "index.html"), { query: { [UI_MARK]: "1", project } });
+	win.loadFile(join(here, "ui-dist", "index.html"), { query: { [UI_MARK]: "1", project } });
 
 	win.webContents.on("did-finish-load", () => sendToUi("project", project));
 	startPi();
