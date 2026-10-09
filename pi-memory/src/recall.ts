@@ -47,6 +47,9 @@ const RARE_TERM_SHARE = 0.005;
 const SINGLE_COMMON_TERM = 0.6;
 
 /** Depth: how recall walks the memory graph (Personalized PageRank by push, see ppr.ts). Tuned on bench/deep-bench.ts. */
+/** Recency weight and time constant (days). Tuned on bench/longterm-sim.ts. */
+export const RECENCY = { weight: 0.1, days: 7 };
+
 export const DEPTH = {
 	/** Strongest direct hits that seed the walk. */
 	seeds: 5,
@@ -244,6 +247,18 @@ export class RecallIndex {
 		return value;
 	}
 
+	private recencyCache = new WeakMap<MemoryRecord, { day: string; value: number }>();
+	/** 1 for a memory touched today, fading with a RECENCY.days time constant. */
+	recencyOf(record: MemoryRecord, today: string): number {
+		const cached = this.recencyCache.get(record);
+		if (cached && cached.day === today) return cached.value;
+		const touched = [record.last, record.lastUsed, record.created].filter(Boolean).sort().pop();
+		const age = touched ? Math.max(0, (Date.parse(today) - Date.parse(touched)) / 86_400_000) : 365;
+		const value = Number.isFinite(age) ? Math.exp(-age / RECENCY.days) : 0;
+		this.recencyCache.set(record, { day: today, value });
+		return value;
+	}
+
 	private strengthCache = new WeakMap<MemoryRecord, { day: string; last: string; confirmations: number; value: number }>();
 	/** strength() per record, computed once a day (it parses dates). */
 	strengthOf(record: MemoryRecord, today: string): number {
@@ -379,7 +394,9 @@ export function recall(index: RecallIndex, query: string, options: RecallOptions
 		}
 	}
 	const eligible = (record: MemoryRecord) => ((record.status === "active" && record.state !== "dormant") || options.includeSuperseded) && !options.exclude?.has(record.id);
-	const factor = (record: MemoryRecord) => 0.85 + 0.15 * index.strengthOf(record, options.today);
+	// Strength (confirmations, slow fading) plus recency (Generative Agents): among memories equally relevant to the
+	// request, the one touched in the last weeks comes first (the current state of a topic, not its history).
+	const factor = (record: MemoryRecord) => 0.85 + 0.15 * index.strengthOf(record, options.today) + RECENCY.weight * index.recencyOf(record, options.today);
 	const direct = new Map<number, number>();
 	// Full scoring only for the best few hundred by lexical evidence plus the semantic ones: a common word can hit
 	// thousands of memories, and scoring them all was most of the time at 100k.
