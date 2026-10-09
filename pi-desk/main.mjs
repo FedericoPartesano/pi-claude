@@ -42,7 +42,9 @@ function extraExtensions() {
 	try {
 		const settings = JSON.parse(readFileSync(join(homedir(), ".pi", "agent", "settings.json"), "utf8"));
 		const packages = (settings.packages ?? []).map((entry) => (typeof entry === "string" ? entry : entry?.source ?? ""));
-		if (packages.some((source) => resolve(source.replace(/^~/, homedir())) === repo)) return [];
+		// Already loaded by an installed package (this repo, or another checkout of pi-claude): never twice.
+		const local = packages.map((source) => resolve(source.replace(/^~/, homedir())));
+		if (local.some((dir) => dir === repo || existsSync(join(dir, "extensions", "browser.ts")))) return [];
 	} catch {
 		// No settings: load it.
 	}
