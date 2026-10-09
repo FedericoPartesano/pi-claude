@@ -74,7 +74,7 @@ const run = (variant, scenario) => {
 	const started = Date.now();
 	let answer = "";
 	try {
-		answer = execFileSync("pi", ["--no-extensions", "-e", bridge, "-e", variant.memory, "-p", scenario.question], { cwd: dir, encoding: "utf8", timeout: 240_000, stdio: ["ignore", "pipe", "ignore"], env: { ...process.env, PI_OFFLINE: "1", PI_MEMORY_RECALL_LOG: "1" } }).trim();
+		answer = execFileSync("pi", ["--no-session", "--no-extensions", "-e", bridge, "-e", variant.memory, "-p", scenario.question], { cwd: dir, encoding: "utf8", timeout: 240_000, stdio: ["ignore", "pipe", "ignore"], env: { ...process.env, PI_OFFLINE: "1", PI_MEMORY_RECALL_LOG: "1" } }).trim();
 	} catch (error) {
 		answer = `ERROR ${String(error.message).slice(0, 200)}`;
 	}
