@@ -7,8 +7,13 @@ contextBridge.exposeInMainWorld("desk", {
 	answer: (id, fields) => ipcRenderer.invoke("ui-answer", id, fields),
 	restart: () => ipcRenderer.invoke("restart"),
 	browser: (action, value) => ipcRenderer.invoke("browser", action, value),
+	sessions: () => ipcRenderer.invoke("sessions"),
+	openSession: (path) => ipcRenderer.invoke("session-open", path),
+	closeSession: () => ipcRenderer.invoke("session-close"),
+	resumeSession: (path, cwd) => ipcRenderer.invoke("session-resume", path, cwd),
+	newSession: () => ipcRenderer.invoke("session-new"),
 	on: (channel, listener) => {
-		const allowed = ["pi-event", "pi-ui", "pi-stderr", "pi-exit", "browser-url", "layout", "project"];
+		const allowed = ["pi-event", "pi-ui", "pi-stderr", "pi-exit", "browser-url", "layout", "project", "session-append"];
 		if (!allowed.includes(channel)) return;
 		ipcRenderer.on(channel, (_event, payload) => listener(payload));
 	},

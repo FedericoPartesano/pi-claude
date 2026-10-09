@@ -8,7 +8,10 @@
 </head>
 <body>
 <section id="chat">
-	<header id="top"><span class="brand">π Desk</span><span id="project"></span><span id="status" class="status">avvio di Pi…</span></header>
+	<header id="top"><button id="toggle-sessions" title="Sessioni di Pi su questo PC">☰ Sessioni</button><span class="brand">π Desk</span><span id="project"></span><span id="status" class="status">avvio di Pi…</span><button id="new-session" title="Nuova sessione">＋ Nuova</button></header>
+	<aside id="sessions" hidden><input id="session-filter" placeholder="cerca per titolo o progetto"><div id="session-list"></div></aside>
+	<div id="viewer-bar" hidden><span id="viewer-label"></span><button id="viewer-resume" hidden>Riprendi qui</button><button id="viewer-back">← La mia chat</button></div>
+	<main id="viewer" hidden></main>
 	<main id="log" aria-live="polite"></main>
 	<form id="composer">
 		<textarea id="input" rows="3" placeholder="Scrivi a Pi… (Invio invia · Maiusc+Invio a capo · Esc interrompe)"></textarea>

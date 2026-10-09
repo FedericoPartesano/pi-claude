@@ -177,3 +177,124 @@ $("forward").onclick = () => window.desk.browser("forward");
 $("reload").onclick = () => window.desk.browser("reload");
 setBusy(false, "pronto");
 input.focus();
+
+// ---- Sessions: every Pi session on this PC; running ones followed read-only, closed ones resumable here ----------
+
+const sessionsPanel = $("sessions");
+const viewer = $("viewer");
+let viewing; // the session shown read-only
+let sessionsTimer;
+
+function renderItem(container, item) {
+	const element = document.createElement("div");
+	if (item.role === "tool") {
+		element.className = "tool ok";
+		element.textContent = item.text;
+	} else {
+		element.className = `msg ${item.role === "user" ? "user" : "assistant"}${item.role === "error" ? " error" : ""}`;
+		element.innerHTML = item.role === "user" ? escapeHtml(item.text) : markdown(item.text);
+	}
+	container.appendChild(element);
+}
+
+const ago = (ms) => {
+	const minutes = Math.round((Date.now() - ms) / 60000);
+	if (minutes < 1) return "adesso";
+	if (minutes < 60) return `${minutes} min fa`;
+	const hours = Math.round(minutes / 60);
+	return hours < 24 ? `${hours} h fa` : `${Math.round(hours / 24)} g fa`;
+};
+
+async function refreshSessions() {
+	const all = await window.desk.sessions();
+	const filter = $("session-filter").value.trim().toLowerCase();
+	const shown = all.filter((session) => !filter || `${session.title} ${session.project} ${session.cwd}`.toLowerCase().includes(filter));
+	// Running first, then by project in order of last activity.
+	const running = shown.filter((session) => session.running);
+	const groups = new Map();
+	for (const session of shown.filter((item) => !item.running)) groups.set(session.project, [...(groups.get(session.project) ?? []), session]);
+	const list = $("session-list");
+	list.replaceChildren();
+	const section = (label, items) => {
+		if (!items.length) return;
+		const heading = document.createElement("div");
+		heading.className = "group";
+		heading.textContent = label;
+		list.appendChild(heading);
+		for (const session of items) {
+			const button = document.createElement("button");
+			button.className = "session";
+			const badge = session.running ? (session.running.own ? '<span class="badge own">questa finestra</span>' : `<span class="badge live">● in corso · pid ${session.running.pid}</span>`) : "";
+			button.innerHTML = `<span class="title">${escapeHtml(session.title)}${badge}</span><span class="meta">${escapeHtml(session.project)} · ${ago(session.modified)}</span>`;
+			button.onclick = () => openSession(session);
+			list.appendChild(button);
+		}
+	};
+	section("In corso", running);
+	for (const [project, items] of groups) section(project, items);
+	if (!list.children.length) list.textContent = "Nessuna sessione.";
+}
+
+function showPanel(open) {
+	sessionsPanel.hidden = !open;
+	if (open) {
+		refreshSessions();
+		sessionsTimer = setInterval(refreshSessions, 4000);
+		$("session-filter").focus();
+	} else clearInterval(sessionsTimer);
+	log.hidden = open || Boolean(viewing);
+	viewer.hidden = open || !viewing;
+}
+
+function showChat() {
+	viewing = undefined;
+	window.desk.closeSession();
+	viewer.hidden = true;
+	$("viewer-bar").hidden = true;
+	$("composer").classList.remove("readonly");
+	log.hidden = false;
+	input.focus();
+}
+
+async function openSession(session) {
+	showPanel(false);
+	if (session.running?.own) return showChat();
+	viewing = session;
+	const items = await window.desk.openSession(session.path);
+	viewer.replaceChildren();
+	for (const item of items) renderItem(viewer, item);
+	viewer.scrollTop = viewer.scrollHeight;
+	$("viewer-label").textContent = session.running ? `● In corso in un altro Pi (pid ${session.running.pid}) · sola lettura, si aggiorna da sola` : `Sessione chiusa · ${session.project} · sola lettura`;
+	$("viewer-resume").hidden = Boolean(session.running);
+	$("viewer-bar").hidden = false;
+	viewer.hidden = false;
+	log.hidden = true;
+	$("composer").classList.add("readonly");
+}
+
+window.desk.on("session-append", ({ path, items }) => {
+	if (viewing?.path !== path) return;
+	const atBottom = viewer.scrollHeight - viewer.scrollTop - viewer.clientHeight < 60;
+	for (const item of items) renderItem(viewer, item);
+	if (atBottom) viewer.scrollTop = viewer.scrollHeight;
+});
+
+$("viewer-resume").onclick = async () => {
+	const session = viewing;
+	const items = await window.desk.resumeSession(session.path, session.cwd);
+	log.replaceChildren();
+	for (const item of items) renderItem(log, item);
+	add("note", `Sessione ripresa: Pi continua da qui, in ${escapeHtml(session.cwd)}`);
+	showChat();
+	log.scrollTop = log.scrollHeight;
+};
+$("viewer-back").onclick = showChat;
+$("toggle-sessions").onclick = () => showPanel(sessionsPanel.hidden);
+$("session-filter").oninput = refreshSessions;
+$("new-session").onclick = async () => {
+	await window.desk.newSession();
+	log.replaceChildren();
+	add("note", "Nuova sessione");
+	showPanel(false);
+	showChat();
+};

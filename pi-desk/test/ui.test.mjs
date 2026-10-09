@@ -58,3 +58,47 @@ test("chat UI: user message, streamed markdown, tool lines, confirm dialog answe
 		session.close();
 	}
 });
+
+test("sessions: running first with badges, a running one read-only and live, a closed one resumed here", { skip: !findChrome() && "Chrome non installato", timeout: 60_000 }, async () => {
+	process.env.PI_BROWSER_HEADLESS = "1";
+	process.env.PI_BROWSER_PROFILE = mkdtempSync(join(tmpdir(), "desk-ui-"));
+	const session = new BrowserSession();
+	const js = (code) => session.evaluate(code);
+	const wait = () => new Promise((resolve) => setTimeout(resolve, 150));
+	try {
+		await session.open(`file://${fileURLToPath(new URL("./ui-harness.html", import.meta.url))}`);
+		await js(`document.getElementById("toggle-sessions").click(); "ok"`);
+		await wait();
+		const list = await js(`document.getElementById("session-list").innerText`);
+		assert.match(list, /IN CORSO|In corso/i);
+		assert.ok(list.indexOf("sistema il carrello") < list.indexOf("post di ottobre"), "running first");
+		assert.match(list, /in corso · pid 42/);
+		assert.match(list, /questa finestra/);
+		// A session running in another Pi: read-only, follows appends.
+		await js(`[...document.querySelectorAll(".session")].find((b) => b.innerText.includes("carrello")).click(); "ok"`);
+		await wait();
+		assert.equal(await js(`document.getElementById("viewer").hidden`), "false");
+		assert.match(await js(`document.getElementById("viewer-label").textContent`), /sola lettura/);
+		assert.equal(await js(`document.getElementById("viewer-resume").hidden`), "true", "a running session cannot be resumed here");
+		assert.match(await js(`document.getElementById("composer").className`), /readonly/);
+		assert.match(await js(`document.getElementById("viewer").innerHTML`), /<strong>fatto<\/strong>/);
+		await js(`emit("session-append", { path: "/s/live", items: [{ role: "assistant", text: "nuovo passo" }] }); "ok"`);
+		assert.match(await js(`document.getElementById("viewer").innerText`), /nuovo passo/);
+		await js(`emit("session-append", { path: "/s/other", items: [{ role: "assistant", text: "di un'altra" }] }); "ok"`);
+		assert.ok(!/di un'altra/.test(await js(`document.getElementById("viewer").innerText`)));
+		// A closed session: resumed here, its history becomes the chat.
+		await js(`document.getElementById("toggle-sessions").click(); "ok"`);
+		await wait();
+		await js(`[...document.querySelectorAll(".session")].find((b) => b.innerText.includes("ottobre")).click(); "ok"`);
+		await wait();
+		assert.equal(await js(`document.getElementById("viewer-resume").hidden`), "false");
+		await js(`document.getElementById("viewer-resume").click(); "ok"`);
+		await wait();
+		assert.match(await js(`JSON.stringify(calls)`), /"resume","\/s\/old","\/p\/blog"/);
+		assert.equal(await js(`document.getElementById("viewer").hidden`), "true");
+		assert.match(await js(`document.getElementById("log").innerText`), /scrivi il post/);
+		assert.ok(!/readonly/.test(await js(`document.getElementById("composer").className`)));
+	} finally {
+		session.close();
+	}
+});

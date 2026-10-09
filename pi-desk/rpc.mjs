@@ -83,6 +83,11 @@ export class PiRpc extends EventEmitter {
 		this.#write({ type: "extension_ui_response", id, ...fields });
 	}
 
+	/** The Pi process (to recognise this window's session among the running ones). */
+	get pid() {
+		return this.#child?.pid;
+	}
+
 	stop() {
 		this.#child?.kill();
 	}

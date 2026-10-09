@@ -18,8 +18,14 @@ npm start -- ~/progetti/shop   # oppure in un'altra
 - `PI_DESK_PI` indica un altro comando `pi`. Se il tuo Pi non carica già questo repo come pacchetto, `pi-browser` viene
   aggiunto con `-e`.
 
+- **Sessioni** (☰ in alto): tutte le sessioni di Pi su questo PC, per progetto, con ricerca.
+  - **In corso** (● pid): i Pi aperti adesso nei terminali, riconosciuti da `/proc` su Linux e WSL. Si aprono in sola
+    lettura e si aggiornano mentre l'altro Pi lavora; scriverci da qui romperebbe la sessione.
+  - **Chiuse:** si leggono e, con "Riprendi qui", Pi riparte nella loro cartella con quella sessione (`--session`).
+  - **＋ Nuova:** riparte con una sessione nuova.
+
 Limiti dell'MVP:
-- niente cronologia delle sessioni;
+- le sessioni in corso si riconoscono solo su Linux e WSL; su macOS e Windows compaiono ma senza il badge;
 - niente immagini incollate;
 - niente pannelli per memoria, goal e team;
 - la divisione tra chat e browser è fissa (42% / 58%).

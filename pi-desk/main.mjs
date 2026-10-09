@@ -6,11 +6,12 @@
  *   npm start [-- <project folder>]      PI_DESK_PI=<pi command>   PI_DESK_CDP_PORT=9339
  */
 import { app, BrowserWindow, WebContentsView, ipcMain } from "electron";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, unwatchFile, watchFile } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PiRpc } from "./rpc.mjs";
+import { listSessions, markRunning, readTranscript, runningPi } from "./sessions.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, "..");
@@ -26,7 +27,7 @@ const HEADER = 44;
 const CHAT_SHARE = 0.42;
 
 /** The folder Pi works in: the first non-flag argument, else the current directory. */
-const project = resolve(process.argv.slice(app.isPackaged ? 1 : 2).find((arg) => !arg.startsWith("-")) ?? process.cwd());
+let project = resolve(process.argv.slice(app.isPackaged ? 1 : 2).find((arg) => !arg.startsWith("-")) ?? process.cwd());
 
 /** pi-browser from this repo, unless the user's Pi already loads this repo as a package (it would register twice). */
 function extraExtensions() {
@@ -58,18 +59,42 @@ function sendToUi(channel, payload) {
 	if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
 }
 
-function startPi() {
+/** Pi for this window: in `cwd`, a new session or `session` (a session file) resumed. */
+function startPi(options = {}) {
+	if (options.cwd) project = options.cwd;
 	pi = new PiRpc({
 		command: process.env.PI_DESK_PI ?? "pi",
-		args: ["--mode", "rpc", ...extraExtensions()],
+		args: ["--mode", "rpc", ...extraExtensions(), ...(options.session ? ["--session", options.session] : [])],
 		cwd: project,
 		env: { PI_BROWSER_CDP: `http://127.0.0.1:${port}`, PI_BROWSER_SKIP: UI_MARK },
 	});
 	pi.on("event", (event) => sendToUi("pi-event", event));
 	pi.on("ui", (request) => sendToUi("pi-ui", request));
 	pi.on("stderr", (text) => sendToUi("pi-stderr", text));
-	pi.on("exit", (code) => sendToUi("pi-exit", String(code)));
+	const own = pi;
+	pi.on("exit", (code) => own === pi && sendToUi("pi-exit", String(code)));
 	pi.start();
+	if (win) win.setTitle(`Pi Desk · ${project}`);
+	sendToUi("project", project);
+}
+
+/** A session followed read-only: what is appended is sent as it is written (another Pi may be writing it). */
+let watched;
+function unwatch() {
+	if (watched) unwatchFile(watched.path);
+	watched = undefined;
+}
+function watch(path) {
+	unwatch();
+	const first = readTranscript(path);
+	watched = { path, offset: first.offset };
+	watchFile(path, { interval: 700 }, () => {
+		if (!watched || watched.path !== path) return;
+		const next = readTranscript(path, watched.offset);
+		watched.offset = next.offset;
+		if (next.items.length) sendToUi("session-append", { path, items: next.items });
+	});
+	return first.items;
 }
 
 app.whenReady().then(() => {
@@ -105,6 +130,21 @@ app.whenReady().then(() => {
 	ipcMain.handle("abort", () => pi.abort().catch(() => undefined));
 	ipcMain.handle("ui-answer", (_event, id, fields) => pi.answer(id, fields));
 	ipcMain.handle("restart", () => {
+		pi.stop();
+		startPi();
+	});
+	ipcMain.handle("sessions", () => markRunning(listSessions(), runningPi(), pi?.pid));
+	ipcMain.handle("session-open", (_event, path) => watch(path));
+	ipcMain.handle("session-close", () => unwatch());
+	// Resume a closed session here: Pi restarts in that session's folder with it loaded.
+	ipcMain.handle("session-resume", (_event, path, cwd) => {
+		unwatch();
+		pi.stop();
+		startPi({ cwd, session: path });
+		return readTranscript(path).items;
+	});
+	ipcMain.handle("session-new", () => {
+		unwatch();
 		pi.stop();
 		startPi();
 	});
