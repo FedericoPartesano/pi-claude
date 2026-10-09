@@ -110,6 +110,26 @@ export class Recaller {
 		return parts;
 	}
 
+	/**
+	 * One memory in full, for the `ricorda` tool: text, state, confirmations, and its neighbours in the graph (explicit
+	 * links first, then memories sharing a specific entity). Global ids keep their "g:" prefix.
+	 */
+	open(dirs: StoreDirs, rawId: string): string {
+		const id = rawId.trim().replace(/^#/, "");
+		const { index } = this.indexFor(dirs);
+		const position = index.positions.get(id);
+		if (position === undefined) return `Ricordo ${id} non trovato (forse dimenticato: cercalo con una domanda).`;
+		const record = index.records[position];
+		const state = record.status === "superseded" ? `superato${record.reason ? `: ${record.reason}` : ""}` : record.state === "dormant" ? "dormiente" : "attivo";
+		const head = `#${record.id} [${record.type}] ${record.text} (${state}; conferme ${record.confirmations}, ultima ${record.last})`;
+		const neighbours = index
+			.neighbors(`m${position}`)
+			.map((node) => index.records[Number(node.slice(1))])
+			.filter((other) => other.status === "active")
+			.slice(0, 6);
+		return neighbours.length ? `${head}\nCollegati:\n${neighbours.map((other) => `- #${other.id} [${other.type}] ${other.text}`).join("\n")}` : head;
+	}
+
 	/** True when some store already has embeddings (otherwise waiting for the model would bring nothing). */
 	hasVectors(dirs: StoreDirs): boolean {
 		return this.all(dirs).some((part) => part.vectors.size > 0);

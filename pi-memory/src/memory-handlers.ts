@@ -50,6 +50,9 @@ export function createHandlers(options: HandlerOptions) {
 			if (!model && runOptions.waitModelMs && recaller.hasVectors(dirs)) await Promise.race([start(), new Promise((resolve) => setTimeout(resolve, runOptions.waitModelMs))]);
 			return recaller.run(query, dirs, today, model, runOptions);
 		},
+		async open(dirs: StoreDirs, id: string) {
+			return recaller.open(dirs, id);
+		},
 		async core(dirs: StoreDirs) {
 			return recaller.core(dirs);
 		},

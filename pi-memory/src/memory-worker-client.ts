@@ -135,6 +135,11 @@ export class MemoryWorker implements Embedder {
 		return this.call<RecallRun>("recall", query, dirs, today, options);
 	}
 
+	/** One memory in full with its neighbours in the graph (the `ricorda` tool). */
+	open(dirs: StoreDirs, id: string): Promise<string> {
+		return this.call("open", dirs, id);
+	}
+
 	core(dirs: StoreDirs): Promise<string | undefined> {
 		return this.call("core", dirs);
 	}

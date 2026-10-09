@@ -288,6 +288,50 @@ export default function (pi: ExtensionAPI) {
 		return { message: { customType: "memory-recall", content: recallMessage(run.text, event.prompt), display: false } };
 	});
 
+	/** The ricorda tool costs tokens on every request: active only where there are memories to open. */
+	const activateRecallTool = (ctx: ExtensionContext) => {
+		if (!deepMode() || process.env.PI_MEMORY_TOOL === "0" || !hasStore(deepDirs(ctx.cwd))) return;
+		const active = pi.getActiveTools();
+		if (!active.includes("ricorda")) pi.setActiveTools([...active, "ricorda"]);
+	};
+	pi.on("session_start", (_event, ctx) => activateRecallTool(ctx));
+
+	// Depth on demand: the cues carry #ids; the model opens one (full text, state, neighbours in the graph) or searches
+	// deep (also dormant, superseded and forgotten memories). Each use counts for the forgetting lifecycle.
+	if (deepMode() && process.env.PI_MEMORY_TOOL !== "0") {
+		pi.registerTool({
+			name: "ricorda",
+			label: "Ricorda",
+			description: "Project memory. id: open #r12 with linked ones; query: deep search.",
+			parameters: { type: "object", properties: { id: { type: "string" }, query: { type: "string" } } } as never,
+			// Off until the project has a memory (~90 tokens per request otherwise for nothing): see activateRecallTool.
+			defaultActive: false,
+			async execute(_id, raw, _signal, _update, ctx) {
+				const params = raw as { id?: string; query?: string };
+				const dirs = deepDirs(ctx.cwd);
+				const reply = (text: string, isError = false) => ({ content: [{ type: "text" as const, text }], details: {}, ...(isError ? { isError: true } : {}) });
+				if (!hasStore(dirs)) return reply("Nessun ricordo per questo progetto.");
+				const used = (ids: string[], query: string) => {
+					try {
+						appendRecallEvent(dirs.project, { at: new Date().toISOString(), query: `ricorda: ${query}`.slice(0, 300), hits: ids.map((id) => ({ id, score: 1 })), ms: 0 });
+					} catch {
+						// Usage is a hint, never a reason to fail.
+					}
+				};
+				if (params.id) {
+					const text = await memoryWorker.open(dirs, params.id);
+					used([params.id.replace(/^#/, "")], params.id);
+					return reply(text);
+				}
+				if (!params.query?.trim()) return reply("Serve id oppure query.", true);
+				const run = await memoryWorker.recall(params.query, dirs, today(), { includeSuperseded: true, threshold: 0.25, inquiryThreshold: 0, limit: 8 });
+				used(run.hits.map((hit) => hit.record.id), params.query);
+				if (run.hits.length === 0) return reply("Nessun ricordo trovato.");
+				return reply(run.hits.map(({ record }) => `- #${record.id} [${record.type}] ${record.text}${record.status === "superseded" ? " (superato)" : record.forgottenAt ? ` (dimenticato il ${record.forgottenAt})` : record.state === "dormant" ? " (dormiente)" : ""}`).join("\n"));
+			},
+		});
+	}
+
 	// Capped mode (previous behavior): memory.md in the prompt within a cap.
 	const capped = (event: BeforeAgentStartEvent, ctx: ExtensionContext) => {
 		const started = performance.now();
@@ -525,6 +569,7 @@ export default function (pi: ExtensionAPI) {
 		if (deep) {
 			// New or edited memories get their embedding now, so the next request can recall them semantically.
 			ctx.ui.notify("Calcolo gli embedding dei ricordi nuovi…", "info");
+			activateRecallTool(ctx);
 			if (await memoryWorker.start()) await memoryWorker.fillVectors(storeDir).catch(() => 0);
 			// The result stays in the chat (a notification disappears and leaves the user unsure it was saved).
 			const active = deepRecords?.filter((record) => record.status === "active") ?? [];

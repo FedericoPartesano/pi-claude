@@ -84,3 +84,24 @@ test("forgotten memories (forgotten.jsonl) are found by a deep search, never by 
 	assert.deepEqual(deep.hits.map((hit) => hit.record.id), ["r9"]);
 	assert.equal(deep.hits[0].record.forgottenAt, "2026-09-01");
 });
+
+test("open: a memory by id with its state and its neighbours in the graph (links first)", async () => {
+	const project = join(tmp(), "p");
+	saveStore(project, {
+		records: [
+			rec("r1", "L'esportazione usa ReportBuilder", { links: ["r2"], entities: ["builder.ts"] }),
+			rec("r2", "La coda reports ha concorrenza 1 per la RAM del pod", { confirmations: 3, last: "2026-09-01" }),
+			rec("r3", "builder.ts genera anche i PDF", { entities: ["builder.ts"] }),
+			rec("r4", "Le date si salvano in UTC"),
+		],
+		vectors: new Map(),
+	});
+	const recaller = new Recaller();
+	const text = recaller.open({ project }, "r1");
+	assert.match(text, /^#r1 \[fatto\] L'esportazione usa ReportBuilder/);
+	assert.match(text, /Collegati:\n- #r2 .*concorrenza 1/);
+	assert.match(text, /#r3 .*PDF/);
+	assert.doesNotMatch(text, /#r4/);
+	assert.match(recaller.open({ project }, "#r2"), /conferme 3/);
+	assert.match(recaller.open({ project }, "r99"), /non trovato/);
+});
