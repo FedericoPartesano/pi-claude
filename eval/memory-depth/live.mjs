@@ -1,0 +1,98 @@
+#!/usr/bin/env node
+/**
+ * Live memory-depth eval: real Pi + Claude Code, real recall. node eval/memory-depth/live.mjs [--old <memory.ts>]
+ * Each scenario: a project with a memory (a chain of linked memories, a superseded fact, or nothing relevant) among 100
+ * filler memories, one question, and what the answer must (and must not) say. The question never shares words with the
+ * memory holding the answer: only following the graph gets there. With --old, the same scenarios with another
+ * memory.ts (e.g. main's) for comparison. Results in eval/results/memory-depth-<date>.json.
+ */
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const repo = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const oldAt = process.argv.indexOf("--old");
+const variants = [{ name: "new", memory: join(repo, "extensions/memory.ts") }, ...(oldAt !== -1 ? [{ name: "old", memory: resolve(process.argv[oldAt + 1]) }] : [])];
+const bridge = join(repo, "pi-claude-code/index.ts");
+
+const base = { pinned: false, confirmations: 2, created: "2026-09-01", last: "2026-10-01", status: "active" };
+const filler = Array.from({ length: 100 }, (_, i) => ({ ...base, id: `f${i}`, type: "fatto", text: `Il servizio ${["clienti", "ordini", "listini", "magazzino", "resi"][i % 5]}${i} legge i dati da PostgreSQL e li espone via API REST`, entities: [`servizio${i}`] }));
+
+const SCENARIOS = [
+	{
+		name: "chain: export -> queue -> RAM",
+		question: "l'export delle fatture è lento con file grandi: posso parallelizzarlo di più? rispondi in due righe senza leggere il codice",
+		memories: [
+			{ id: "r1", type: "fatto", text: "L'export delle fatture usa ReportBuilder (src/report/builder.ts)", links: ["r2"], entities: ["builder.ts", "export fatture"] },
+			{ id: "r2", type: "fatto", text: "ReportBuilder accoda i lavori sulla coda BullMQ reports", links: ["r3"], entities: ["reports", "builder.ts"] },
+			{ id: "r3", type: "decisione", text: "La coda reports deve restare a concorrenza 1: il pod ha 512MB e con piu worker andava in OOM", entities: ["reports"] },
+		],
+		must: /512|OOM|concorrenza\s*1|memoria del pod/i,
+	},
+	{
+		name: "chain: login -> tenant -> policy",
+		question: "perché gli utenti del portale listini devono rifare l'accesso così spesso? rispondi in una riga senza leggere il codice",
+		memories: [
+			{ id: "r1", type: "fatto", text: "Il portale listini autentica con il provider OIDC tenant-acme", links: ["r2"], entities: ["portale listini", "tenant-acme"] },
+			{ id: "r2", type: "fatto", text: "tenant-acme emette i token con la durata scritta in auth-policy.json", links: ["r3"], entities: ["tenant-acme", "auth-policy.json"] },
+			{ id: "r3", type: "decisione", text: "auth-policy.json fissa la scadenza a 15 minuti per un requisito di sicurezza del cliente", entities: ["auth-policy.json"] },
+		],
+		must: /15\s*minuti|requisito/i,
+	},
+	{
+		name: "chain: layout -> job -> customer",
+		question: "devo cambiare il tracciato del file delle spedizioni: c'è qualcuno da sentire prima? rispondi in una riga",
+		memories: [
+			{ id: "r1", type: "fatto", text: "Il tracciato del file delle spedizioni è prodotto dal job notturno nightly-ship", links: ["r2"], entities: ["tracciato spedizioni", "nightly-ship"] },
+			{ id: "r2", type: "fatto", text: "L'output di nightly-ship viene letto dal gestionale ERP del cliente", links: ["r3"], entities: ["nightly-ship", "erp cliente"] },
+			{ id: "r3", type: "decisione", text: "Le modifiche che toccano l'ERP del cliente vanno concordate con il referente Bianchi via ticket MC", entities: ["erp cliente"] },
+		],
+		must: /Bianchi|ticket|MC\b/i,
+	},
+	{
+		name: "superseded fact",
+		question: "in che formato invio le fatture al portale del fornitore? una parola",
+		memories: [
+			{ id: "r1", type: "fatto", text: "Le fatture vanno al portale del fornitore in formato XML", status: "superseded", reason: "superato", last: "2025-01-10", entities: ["portale fornitore"] },
+			{ id: "r2", type: "fatto", text: "Le fatture vanno al portale del fornitore in formato JSON (l'XML è dismesso)", entities: ["portale fornitore"] },
+		],
+		must: /JSON/i,
+		mustNot: /^\W*XML\W*$/i,
+	},
+	{ name: "unrelated request", question: "scrivi un haiku sul mare d'inverno", memories: [], must: /./, noRecall: true },
+	{ name: "small talk", question: "ok", memories: [], must: /./, noRecall: true },
+];
+
+const run = (variant, scenario) => {
+	const dir = mkdtempSync(join(tmpdir(), "memdepth-"));
+	mkdirSync(join(dir, ".pi/memory"), { recursive: true });
+	execFileSync("git", ["init", "-q"], { cwd: dir });
+	const records = [...scenario.memories.map((memory) => ({ ...base, ...memory })), ...filler];
+	writeFileSync(join(dir, ".pi/memory/memories.jsonl"), records.map((record) => JSON.stringify(record)).join("\n") + "\n");
+	const started = Date.now();
+	let answer = "";
+	try {
+		answer = execFileSync("pi", ["--no-session", "--no-extensions", "-e", bridge, "-e", variant.memory, "-p", scenario.question], { cwd: dir, encoding: "utf8", timeout: 240_000, stdio: ["ignore", "pipe", "ignore"], env: { ...process.env, PI_OFFLINE: "1", PI_MEMORY_RECALL_LOG: "1" } }).trim();
+	} catch (error) {
+		answer = `ERROR ${String(error.message).slice(0, 200)}`;
+	}
+	const log = join(dir, ".pi/memory/recall-log.jsonl");
+	const injected = existsSync(log) ? readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line)).pop()?.injected ?? [] : [];
+	const ok = scenario.must.test(answer) && !(scenario.mustNot?.test(answer)) && (!scenario.noRecall || injected.length === 0);
+	return { scenario: scenario.name, variant: variant.name, ok, injected, seconds: Math.round((Date.now() - started) / 1000), answer: answer.slice(0, 400) };
+};
+
+const results = [];
+for (const scenario of SCENARIOS) {
+	for (const variant of variants) {
+		const result = run(variant, scenario);
+		results.push(result);
+		console.log(`${result.ok ? "✓" : "✗"} ${variant.name.padEnd(3)} ${scenario.name.padEnd(34)} injected [${result.injected.join(",")}] ${result.seconds}s :: ${result.answer.replace(/\s+/g, " ").slice(0, 110)}`);
+	}
+}
+const out = join(repo, "eval/results", `memory-depth-${new Date().toISOString().slice(0, 10)}.json`);
+mkdirSync(dirname(out), { recursive: true });
+writeFileSync(out, JSON.stringify(results, null, 2));
+for (const variant of variants) console.log(`${variant.name}: ${results.filter((r) => r.variant === variant.name && r.ok).length}/${SCENARIOS.length}`);

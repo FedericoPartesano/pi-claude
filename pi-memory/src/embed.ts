@@ -25,7 +25,8 @@ export const MODELS: Record<string, ModelProfile> = {
 	e5: { name: "Xenova/multilingual-e5-small", queryPrefix: "query: ", passagePrefix: "passage: ", semFloor: 0.78, semSpan: 0.12 },
 	minilm: { name: "Xenova/paraphrase-multilingual-MiniLM-L12-v2", queryPrefix: "", passagePrefix: "", semFloor: 0.35, semSpan: 0.35 },
 };
-export const DEFAULT_MODEL = "minilm";
+/** e5: the answer two links away stayed at 95% from 1k to 5k memories, minilm fell to 78% (bench/deep-bench.ts). */
+export const DEFAULT_MODEL = "e5";
 
 const words = (text: string) => text.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").split(/[^a-z0-9]+/).filter((word) => word.length > 2);
 

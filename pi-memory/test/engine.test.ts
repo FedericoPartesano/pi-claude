@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { createFakeEmbedder } from "../src/embed.ts";
 import { saveStore, loadStore, type MemoryRecord } from "../src/store.ts";
 import { Recaller, fillVectors, appendRecallLog } from "../src/engine.ts";
+import { RecallIndex } from "../src/recall.ts";
 
 const rec = (id: string, text: string, extra: Partial<MemoryRecord> = {}): MemoryRecord => ({ id, type: "fatto", text, pinned: false, confirmations: 1, created: "2026-10-01", last: "2026-10-06", status: "active", entities: [], ...extra });
 const tmp = () => mkdtempSync(join(tmpdir(), "pi-engine-"));
@@ -53,4 +54,120 @@ test("recall log: one JSON line per recall, also when nothing is injected", () =
 	assert.deepEqual(line.injected, []);
 	assert.ok(line.timestamp);
 	assert.ok(existsSync(join(dir, "recall-log.jsonl")));
+});
+
+test("Recaller: the merged index (project + global) and its vectors are built once, until a store changes", async () => {
+	const root = mkdtempSync(join(tmpdir(), "rec-"));
+	const project = join(root, "p");
+	const global = join(root, "g");
+	const record = (id: string, text: string) => ({ id, type: "fatto", text, pinned: false, confirmations: 1, created: "2026-10-01", last: "2026-10-01", status: "active" as const, entities: [] });
+	saveStore(project, { records: [record("r1", "Le esportazioni Excel usano exceljs")], vectors: new Map(), model: "fake" });
+	saveStore(global, { records: [record("r1", "Rispondi sempre in italiano")], vectors: new Map(), model: "fake" });
+	const recaller = new Recaller();
+	const first = recaller.indexFor({ project, global });
+	assert.equal(recaller.indexFor({ project, global }), first, "same index object on the next request");
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	saveStore(project, { records: [record("r1", "Le esportazioni Excel usano exceljs"), record("r2", "I report usano pdfkit")], vectors: new Map(), model: "fake" });
+	const second = recaller.indexFor({ project, global });
+	assert.notEqual(second, first, "rebuilt after a change");
+	assert.equal(second.index.records.length, 3);
+});
+
+test("forgotten memories (forgotten.jsonl) are found by a deep search, never by the cues of a request", async () => {
+	const project = join(tmp(), "p");
+	saveStore(project, { records: [rec("r1", "Il logger è in src/lib/logger.ts")], vectors: new Map() });
+	const { writeFileSync } = await import("node:fs");
+	writeFileSync(join(project, "forgotten.jsonl"), `${JSON.stringify({ ...rec("r9", "La procedura di deploy passa da GitHub Actions sul branch release"), state: "dormant", forgottenAt: "2026-09-01" })}\n`);
+	const recaller = new Recaller();
+	const cues = await recaller.run("come facciamo il deploy su release?", { project }, "2026-10-09");
+	assert.deepEqual(cues.ids, []);
+	const deep = await recaller.run("come facciamo il deploy su release?", { project }, "2026-10-09", undefined, { includeSuperseded: true, threshold: 0.25 });
+	assert.deepEqual(deep.hits.map((hit) => hit.record.id), ["r9"]);
+	assert.equal(deep.hits[0].record.forgottenAt, "2026-09-01");
+});
+
+test("open: a memory by id with its state and its neighbours in the graph (links first)", async () => {
+	const project = join(tmp(), "p");
+	saveStore(project, {
+		records: [
+			rec("r1", "L'esportazione usa ReportBuilder", { links: ["r2"], entities: ["builder.ts"] }),
+			rec("r2", "La coda reports ha concorrenza 1 per la RAM del pod", { confirmations: 3, last: "2026-09-01" }),
+			rec("r3", "builder.ts genera anche i PDF", { entities: ["builder.ts"] }),
+			rec("r4", "Le date si salvano in UTC"),
+		],
+		vectors: new Map(),
+	});
+	const recaller = new Recaller();
+	const text = recaller.open({ project }, "r1");
+	assert.match(text, /^#r1 \[fatto\] L'esportazione usa ReportBuilder/);
+	assert.match(text, /Collegati:\n- #r2 .*concorrenza 1/);
+	assert.match(text, /#r3 .*PDF/);
+	assert.doesNotMatch(text, /#r4/);
+	assert.match(recaller.open({ project }, "#r2"), /conferme 3/);
+	assert.match(recaller.open({ project }, "r99"), /non trovato/);
+});
+
+test("core: the project overview (gist.md) plus pinned memories not already in it, within the budget", async () => {
+	const project = join(tmp(), "p");
+	saveStore(project, { records: [rec("r1", "Risposte sempre in italiano", { pinned: true }), rec("r2", "Le date in UTC", { pinned: true })], vectors: new Map() });
+	const { writeFileSync } = await import("node:fs");
+	writeFileSync(join(project, "gist.md"), "Progetto: gestionale ordini in NestJS. Le date in UTC.\n");
+	const core = new Recaller().core({ project }) ?? "";
+	assert.match(core, /Quadro del progetto/);
+	assert.match(core, /gestionale ordini/);
+	assert.match(core, /italiano/);
+	assert.equal(core.match(/date in UTC/gi)?.length, 1, "a pinned memory already in the overview is not repeated");
+	assert.ok(core.length <= 1700);
+});
+
+test("forFile: active memories that cite a file (by its path in the project), strongest first, at most 3", () => {
+	const project = join(tmp(), "p");
+	saveStore(project, {
+		records: [
+			rec("r1", "builder.ts non deve caricare tutte le righe in memoria", { entities: ["src/report/builder.ts"], confirmations: 3 }),
+			rec("r2", "I test di builder.ts usano fixture in tests/report", { entities: ["src/report/builder.ts"] }),
+			rec("r3", "Vecchia nota su builder.ts", { entities: ["src/report/builder.ts"], state: "dormant" }),
+			rec("r4", "Le date in UTC", { entities: ["src/date.ts"] }),
+		],
+		vectors: new Map(),
+	});
+	const recaller = new Recaller();
+	assert.deepEqual(recaller.forFile({ project }, "src/report/builder.ts", "2026-10-09").map((record) => record.id), ["r1", "r2"]);
+	assert.deepEqual(recaller.forFile({ project }, "/abs/repo/src/report/builder.ts", "2026-10-09").map((record) => record.id), ["r1", "r2"], "absolute paths match by their tail");
+	assert.deepEqual(recaller.forFile({ project }, "src/other.ts", "2026-10-09"), []);
+});
+
+test("fillVectors never overwrites memories saved while it was embedding (an edit in /memory was lost)", async () => {
+	const dir = join(tmp(), "p");
+	saveStore(dir, { records: [rec("r1", "Testo vecchio"), rec("r2", "Le date in UTC")], vectors: new Map() });
+	const slow = createFakeEmbedder();
+	const embedder = {
+		...slow,
+		model: "fake",
+		async embed(texts: string[], kind?: "query" | "passage") {
+			// While embedding, the user edits r1 and adds r3 (another writer).
+			saveStore(dir, { records: [rec("r1", "Testo nuovo"), rec("r2", "Le date in UTC"), rec("r3", "Aggiunto nel frattempo")], vectors: new Map() });
+			return slow.embed(texts, kind);
+		},
+	};
+	await fillVectors(dir, embedder);
+	const after = loadStore(dir);
+	assert.deepEqual(after.records.map((record) => record.text), ["Testo nuovo", "Le date in UTC", "Aggiunto nel frattempo"]);
+	assert.ok(after.vectors.has("r2"), "the unchanged memory got its vector");
+	assert.ok(!after.vectors.has("r1"), "no vector of the old text on the edited memory");
+});
+
+test("the merged index is built once for project + global, whatever the model asking", async () => {
+	const project = join(tmp(), "p");
+	const global = join(tmp(), "g");
+	saveStore(project, { records: [rec("r1", "Le esportazioni Excel usano exceljs")], vectors: new Map() });
+	saveStore(global, { records: [rec("r1", "Rispondi in italiano")], vectors: new Map() });
+	const recaller = new Recaller();
+	const before = RecallIndex.builds;
+	recaller.indexFor({ project, global }, "a");
+	recaller.indexFor({ project, global }, "b");
+	recaller.indexFor({ project, global });
+	recaller.core({ project, global });
+	await recaller.run("esportazioni excel", { project, global }, "2026-10-09");
+	assert.equal(RecallIndex.builds - before, 1);
 });

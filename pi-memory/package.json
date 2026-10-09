@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Deep recall memory for Pi: local multilingual embeddings, hybrid recall, bounded injection",
   "scripts": {
-    "test": "node --test test/*.test.ts",
+    "test": "node --test --test-concurrency=1 test/*.test.ts",
     "check": "tsc -p .",
     "bench": "node bench/recall-bench.ts"
   },

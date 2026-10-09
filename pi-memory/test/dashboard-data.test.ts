@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { appendFileSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { answerPrompt, appendDreamRun, appendRecallEvent, readDreamRuns, readRecallEvents, recallStats, type DreamRun, type RecallEvent } from "../src/dashboard-data.ts";
+import { answerPrompt, appendDreamRun, appendRecallEvent, readDreamRuns, readRecallEvents, recallStats, type DreamRun, type RecallEvent, logUsage } from "../src/dashboard-data.ts";
 import type { MemoryRecord } from "../src/store.ts";
 
 const rec = (id: string, text: string, extra: Partial<MemoryRecord> = {}): MemoryRecord => ({ id, type: "preferenza", text, pinned: false, confirmations: 1, created: "2026-10-01", last: "2026-10-06", status: "active", entities: [], ...extra });
@@ -19,13 +19,12 @@ test("dream runs: appended, read newest first, corrupt lines skipped", () => {
 	assert.deepEqual(readDreamRuns(dir).map((r) => r.counts.added), [3, 1]);
 });
 
-test("recall events: newest first and capped to the last `max`", () => {
+test("recall events: newest first, between max and twice max kept", () => {
 	const dir = mkdtempSync(join(tmpdir(), "dash-data-"));
-	for (let i = 0; i < 7; i++) appendRecallEvent(dir, event(`2026-10-07T10:00:0${i}.000Z`, [`r${i}`]), 5);
+	for (let i = 0; i < 12; i++) appendRecallEvent(dir, event(`2026-10-07T10:00:${String(i).padStart(2, "0")}.000Z`, [`r${i}`]), 5);
 	const events = readRecallEvents(dir);
-	assert.equal(events.length, 5);
-	assert.equal(events[0].hits[0].id, "r6");
-	assert.equal(readFileSync(join(dir, "recall-events.jsonl"), "utf8").trim().split("\n").length, 5);
+	assert.ok(events.length >= 5 && events.length <= 10, `${events.length}`);
+	assert.equal(events[0].hits[0].id, "r11");
 	assert.deepEqual(readRecallEvents(join(dir, "nope")), []);
 });
 
@@ -46,4 +45,56 @@ test("answerPrompt: the question, every memory with its id, answer only from the
 	assert.match(prompt, /solo/i);
 	assert.match(prompt, /\[r12\]/);
 	assert.match(answerPrompt("x", []), /nessun ricordo/i);
+});
+
+test("logUsage: personal memories recalled in a project are logged in the global store too (else they looked unused)", async () => {
+	const { mkdtempSync } = await import("node:fs");
+	const { tmpdir } = await import("node:os");
+	const { join } = await import("node:path");
+	const project = mkdtempSync(join(tmpdir(), "use-"));
+	const global = mkdtempSync(join(tmpdir(), "use-"));
+	logUsage({ project, global }, { at: "2026-10-09T10:00:00Z", query: "q", hits: [{ id: "r1", score: 1 }, { id: "g:r4", score: 0.9 }], ms: 1 });
+	logUsage({ project, global }, { at: "2026-10-09T11:00:00Z", query: "q2", hits: [{ id: "r2", score: 1 }], ms: 1 });
+	assert.equal(readRecallEvents(project).length, 2);
+	assert.deepEqual(readRecallEvents(global).map((event) => event.hits.map((hit) => hit.id)), [["g:r4"]]);
+});
+
+test("the recall log keeps the last events without rewriting the file on every request", async () => {
+	const { mkdtempSync, statSync } = await import("node:fs");
+	const { tmpdir } = await import("node:os");
+	const { join } = await import("node:path");
+	const dir = mkdtempSync(join(tmpdir(), "use-"));
+	for (let i = 0; i < 30; i++) appendRecallEvent(dir, { at: `2026-10-09T10:00:${String(i).padStart(2, "0")}Z`, query: `q${i}`, hits: [], ms: 0 }, 10);
+	const events = readRecallEvents(dir);
+	assert.ok(events.length >= 10 && events.length <= 20, `${events.length}`);
+	assert.equal(events[0].query, "q29", "newest first");
+	assert.ok(statSync(join(dir, "recall-events.jsonl")).size > 0);
+});
+
+test("appending a recall event does not read the log back (only when it is trimmed)", async () => {
+	const fs = await import("node:fs");
+	const { tmpdir } = await import("node:os");
+	const { join } = await import("node:path");
+	const dir = fs.mkdtempSync(join(tmpdir(), "use-"));
+	for (let i = 0; i < 500; i++) appendRecallEvent(dir, { at: `2026-10-09T10:00:${String(i % 60).padStart(2, "0")}Z`, query: `domanda abbastanza lunga numero ${i} ${"x".repeat(200)}`, hits: [{ id: "r1", score: 1 }], ms: 0 }, 1000);
+	const file = join(dir, "recall-events.jsonl");
+	const before = fs.statSync(file).atimeMs;
+	const { syncBuiltinESMExports } = await import("node:module");
+	const cjs = fs.default as unknown as { readFileSync: typeof fs.readFileSync };
+	const original = cjs.readFileSync;
+	let reads = 0;
+	// The official way to spy on a builtin seen through ESM named imports: patch the CommonJS object, then sync.
+	cjs.readFileSync = ((...args: Parameters<typeof fs.readFileSync>) => {
+		if (String(args[0]).endsWith("recall-events.jsonl")) reads++;
+		return original(...args);
+	}) as typeof fs.readFileSync;
+	syncBuiltinESMExports();
+	try {
+		for (let i = 0; i < 20; i++) appendRecallEvent(dir, { at: "2026-10-09T11:00:00Z", query: "q", hits: [], ms: 0 }, 1000);
+	} finally {
+		cjs.readFileSync = original;
+		syncBuiltinESMExports();
+	}
+	assert.equal(reads, 0);
+	assert.ok(before >= 0);
 });

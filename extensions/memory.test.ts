@@ -182,3 +182,15 @@ test("the project memory folder is ignored by git locally (.git/info/exclude), n
 	assert.equal(existsSync(join(dir, ".gitignore")), false);
 	ensureLocalIgnore(mkdtempSync(join(tmpdir(), "nogit-")));
 });
+
+test("fileNote: memories about a file read or edited, short lines with their #id", async () => {
+	const { fileNote } = await import("./memory.ts");
+	const note = fileNote([
+		{ id: "r1", type: "decisione", text: "builder.ts non deve caricare tutte le righe in memoria: con file da 200MB il pod andava in OOM e si è passati allo streaming con exceljs, che ora è obbligatorio per ogni export grande" },
+		{ id: "g:r2", type: "fatto", text: "I test di builder.ts usano fixture in tests/report" },
+	]);
+	assert.match(note, /^\[memoria su questo file\]/);
+	assert.match(note, /- \[decisione\] builder\.ts non deve .*… #r1/);
+	assert.match(note, /#g:r2$/);
+	assert.ok(note.split("\n").every((line) => line.length <= 200));
+});

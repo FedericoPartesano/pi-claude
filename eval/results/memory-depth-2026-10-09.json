@@ -1,0 +1,120 @@
+[
+  {
+    "scenario": "chain: export -> queue -> RAM",
+    "variant": "new",
+    "ok": true,
+    "injected": [
+      "r1",
+      "r2",
+      "r3"
+    ],
+    "seconds": 8,
+    "answer": "Alzare la concorrenza della coda `reports` non è una buona idea: era stata fissata a 1 perché con più worker il pod da 512MB andava in OOM (decisione confermata il 2026-10-01).\nPer file grandi conviene invece fare lo streaming o la paginazione dentro il singolo job, a memoria costante, oppure alzare la memoria del pod e poi riprovare con più worker."
+  },
+  {
+    "scenario": "chain: export -> queue -> RAM",
+    "variant": "old",
+    "ok": false,
+    "injected": [
+      "r1"
+    ],
+    "seconds": 7,
+    "answer": "Probabilmente sì: se `ReportBuilder` (src/report/builder.ts) elabora le fatture in sequenza, puoi dividerle in chunk e processarle in parallelo (worker threads o `Promise.all` con concorrenza limitata), poi unire i risultati in ordine. Se il collo di bottiglia è I/O o memoria, aiuta di più lo streaming della scrittura che il parallelismo, ma senza leggere il codice non posso confermarlo."
+  },
+  {
+    "scenario": "chain: login -> tenant -> policy",
+    "variant": "new",
+    "ok": true,
+    "injected": [
+      "r1",
+      "r2",
+      "r3"
+    ],
+    "seconds": 7,
+    "answer": "Perché il provider OIDC tenant-acme emette token con la durata fissata in `auth-policy.json`, cioè 15 minuti, per un requisito di sicurezza (la motivazione è troncata nei miei appunti), quindi la sessione scade spesso."
+  },
+  {
+    "scenario": "chain: login -> tenant -> policy",
+    "variant": "old",
+    "ok": false,
+    "injected": [
+      "r1"
+    ],
+    "seconds": 5,
+    "answer": "Senza guardare il codice non posso dirlo con certezza: so solo che il portale usa il provider OIDC tenant-acme. Di solito il login ripetuto dipende da una scadenza breve dell'access token o della sessione e da un refresh token mancante o scaduto. Può contare anche la durata della sessione impostata sul provider. Se vuoi la causa esatta, posso controllare la configurazione."
+  },
+  {
+    "scenario": "chain: layout -> job -> customer",
+    "variant": "new",
+    "ok": true,
+    "injected": [
+      "r1",
+      "r2",
+      "r3"
+    ],
+    "seconds": 7,
+    "answer": "Sì: il tracciato è prodotto da nightly-ship e letto dall'ERP del cliente, quindi va concordato prima con il referente Bianchi tramite ticket MC."
+  },
+  {
+    "scenario": "chain: layout -> job -> customer",
+    "variant": "old",
+    "ok": false,
+    "injected": [
+      "r1"
+    ],
+    "seconds": 6,
+    "answer": "Chi gestisce il job notturno `nightly-ship` (che produce il file) e soprattutto i consumatori a valle del file, ma io non so chi siano: posso cercarli nel repo se vuoi."
+  },
+  {
+    "scenario": "superseded fact",
+    "variant": "new",
+    "ok": true,
+    "injected": [
+      "r2"
+    ],
+    "seconds": 4,
+    "answer": "JSON"
+  },
+  {
+    "scenario": "superseded fact",
+    "variant": "old",
+    "ok": true,
+    "injected": [
+      "r2"
+    ],
+    "seconds": 4,
+    "answer": "JSON"
+  },
+  {
+    "scenario": "unrelated request",
+    "variant": "new",
+    "ok": true,
+    "injected": [],
+    "seconds": 6,
+    "answer": "Onde grigie e fredde,\nil vento morde la riva,\nil mare sospira."
+  },
+  {
+    "scenario": "unrelated request",
+    "variant": "old",
+    "ok": true,
+    "injected": [],
+    "seconds": 5,
+    "answer": "Onde grigie e sole stanco,\nil vento sale dal largo —\nil mare tace il suo gelo."
+  },
+  {
+    "scenario": "small talk",
+    "variant": "new",
+    "ok": true,
+    "injected": [],
+    "seconds": 4,
+    "answer": "Ready. What would you like me to do in this repository?"
+  },
+  {
+    "scenario": "small talk",
+    "variant": "old",
+    "ok": true,
+    "injected": [],
+    "seconds": 4,
+    "answer": "Got it. What would you like me to do in `/tmp/memdepth-aJz5Zs`?"
+  }
+]

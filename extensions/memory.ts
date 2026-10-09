@@ -9,14 +9,15 @@
  *   PI_MEMORY_GLOBAL_PATH   global memory file (default ~/.pi/agent/memory.md; "" = no global memory)
  *   PI_MEMORY_MODE          deep (default: everything on disk, recalled per request) | capped (memory.md within a cap)
  *   PI_MEMORY_RECALL_LOG=1  append one JSON line per request to <cwd>/.pi/memory/recall-log.jsonl (evaluation)
- *   PI_MEMORY_MODEL         embedding model: minilm (default) | e5
+ *   PI_MEMORY_MODEL         embedding model: e5 (default, deeper recall at scale) | minilm
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative as relativePath, resolve as resolvePath } from "node:path";
 import type { BeforeAgentStartEvent, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	applyProposal,
+	filterProposal,
 	bm25Search,
 	buildDreamPrompt,
 	contextLine,
@@ -33,14 +34,17 @@ import {
 	type MemoryEntry,
 	type Proposal,
 } from "./memory-core.ts";
-import { WorkerEmbedder } from "../pi-memory/src/embed.ts";
-import { Recaller, appendRecallLog, fillVectors, type StoreDirs } from "../pi-memory/src/engine.ts";
+import { MemoryWorker } from "../pi-memory/src/memory-worker-client.ts";
+import { appendRecallLog, type StoreDirs } from "../pi-memory/src/engine.ts";
 import { isSmallTalk, recallMessage } from "../pi-memory/src/recall.ts";
-import { entriesToRecords, recordsToEntries } from "../pi-memory/src/reconcile.ts";
-import { loadStore, migrateLegacy, pruneVectors, saveStore, storeExists, type MemoryRecord } from "../pi-memory/src/store.ts";
+import { entriesToRecords, movePersonal, rebaseOnCurrent, recordsToEntries } from "../pi-memory/src/reconcile.ts";
+import { withStoreLockAsync } from "../pi-memory/src/lock.ts";
+import { renderVault } from "../pi-memory/src/vault.ts";
+import { lastId, loadStore, migrateLegacy, pruneVectors, saveStore, storeExists, type MemoryRecord } from "../pi-memory/src/store.ts";
+import { applyUsage, lifecycle, newestEvent } from "../pi-memory/src/forget.ts";
 import { applyAction, dreamEntry, memoryStatus, recordLabel, recordPreview, summarize, type DreamEntry, type MemoryAction } from "../pi-memory/src/dashboard.ts";
 import type { DashboardResult, View } from "../pi-memory/src/dashboard-tui.ts";
-import { answerPrompt, appendDreamRun, appendRecallEvent, readDreamRuns, readRecallEvents, type MemoryDashboardSource, type SearchHit } from "../pi-memory/src/dashboard-data.ts";
+import { answerPrompt, appendDreamRun, logUsage, readDreamRuns, readRecallEvents, type MemoryDashboardSource, type SearchHit } from "../pi-memory/src/dashboard-data.ts";
 
 /** ~1.000 tokens of memory in context at most. */
 export const CONTEXT_BUDGET_CHARS = 3600;
@@ -150,11 +154,12 @@ function describe(memory: MemoryEntry[], proposal: Proposal): string[] {
 		...proposal.merge.map((item) => `⇄ ${item.ids.map(name).join(" + ")} → ${item.text}`),
 		...proposal.update.map((item) => `✎ ${name(item.id)} → ${item.text}`),
 		...proposal.forget.map((item) => `− ${name(item.id)}${item.reason ? ` (${item.reason})` : ""}`),
+		...(proposal.quadro ? [`◎ quadro del progetto aggiornato`] : []),
 	];
 }
 
-/** Embedder and recaller of the running extension, shared with the dashboard source. */
-let shared: { embedder: WorkerEmbedder; recaller: Recaller } | undefined;
+/** The memory worker of the running extension (model, index, recall), shared with the dashboard source. */
+let shared: MemoryWorker | undefined;
 
 /**
  * Data for the memory dashboard (pi-memory/src/dashboard-tui.ts): project + global records ("g:" ids), /dream and recall
@@ -172,10 +177,9 @@ export function dashboardSource(ctx: ExtensionContext): MemoryDashboardSource {
 		}),
 		search: async (question) => {
 			if (!hasStore(dirs)) return [];
-			const recaller = shared?.recaller ?? new Recaller();
-			const embedder = shared?.embedder.ready ? shared.embedder : undefined;
+			const memory = shared ?? new MemoryWorker();
 			// A question about the memory is an inquiry: no raised threshold here, and more results than a request gets.
-			const run = await recaller.run(question, dirs, today(), embedder, { includeSuperseded: true, threshold: 0.2, inquiryThreshold: 0, limit: 20 });
+			const run = await memory.recall(question, dirs, today(), { includeSuperseded: true, threshold: 0.2, inquiryThreshold: 0, limit: 20 });
 			return run.hits.map((hit): SearchHit => ({ record: hit.record, score: hit.score }));
 		},
 		answer: async (question, hits, onText, signal) => {
@@ -202,13 +206,21 @@ export function dashboardSource(ctx: ExtensionContext): MemoryDashboardSource {
 			const global = id.startsWith("g:");
 			const dir = global ? dirs.global : dirs.project;
 			if (!dir || !storeExists(dir)) return;
-			const store = loadStore(dir);
-			const next = applyAction(store.records, global ? id.slice(2) : id, action, today());
-			saveStore(dir, { records: next, vectors: pruneVectors(store.records, next, store.vectors), model: store.model });
+			await withStoreLockAsync(dir, () => {
+				const store = loadStore(dir);
+				const next = applyAction(store.records, global ? id.slice(2) : id, action, today());
+				saveStore(dir, { records: next, vectors: pruneVectors(store.records, next, store.vectors), model: store.model });
+			});
 			// An edited text needs its embedding again to be recalled semantically.
-			if (shared?.embedder.ready) await fillVectors(dir, shared.embedder).catch(() => 0);
+			if (shared?.ready) await shared.fillVectors(dir).catch(() => 0);
 		},
 	};
+}
+
+/** The note appended to a read/edit/write result: what the memory knows about that file (≤ 3 short lines). */
+export function fileNote(records: { id: string; type: string; text: string }[]): string {
+	const clipLine = (text: string) => (text.length > 150 ? `${text.slice(0, 149)}…` : text);
+	return ["[memoria su questo file]", ...records.map((record) => `- [${record.type}] ${clipLine(record.text)} #${record.id}`)].join("\n");
 }
 
 /**
@@ -243,9 +255,9 @@ export function shouldAutoDream(input: { today: string; lastAutoDream?: string; 
 }
 
 export default function (pi: ExtensionAPI) {
-	const embedder = new WorkerEmbedder();
-	const recaller = new Recaller();
-	shared = { embedder, recaller };
+	// Model, index and recall in a worker thread: Pi's interface never builds an index or waits for one.
+	const memoryWorker = new MemoryWorker();
+	shared = memoryWorker;
 	const logRecall = process.env.PI_MEMORY_RECALL_LOG === "1";
 	/** Footer/panel line about memory (pi-ui shows it): loading, consolidating, or how many memories and recalled. */
 	const showStatus = (ctx: ExtensionContext, extra: { loading?: boolean; dreaming?: boolean; recalled?: number } = {}) => {
@@ -268,18 +280,17 @@ export default function (pi: ExtensionAPI) {
 		const dirs = deepDirs(ctx.cwd);
 		const log = (injected: string[], chars: number, ready: boolean) => logRecall && appendRecallLog(dirs.project, { mode: "deep", query: event.prompt, injected, chars, estTokens: Math.round(chars / 3.6), embedderReady: ready, ms: Math.round((performance.now() - started) * 10) / 10 });
 		if (!hasStore(dirs)) return void log([], 0, false);
-		const core = recaller.core(dirs);
+		const core = await memoryWorker.core(dirs);
 		if (core) event.systemPromptOptions.sections.memory = core;
 		// "procedi", "ok": nothing to recall (the pinned core above still holds).
-		if (isSmallTalk(event.prompt)) return void log([], 0, embedder.ready);
+		if (isSmallTalk(event.prompt)) return void log([], 0, memoryWorker.ready);
 		// Without a UI (pi -p) nobody waits for a background load: give the model a few seconds so recall is semantic.
-		if (!ctx.hasUI && !embedder.ready && recaller.hasVectors(dirs)) await Promise.race([embedder.start(), new Promise((resolve) => setTimeout(resolve, 8000).unref())]);
-		const run = await recaller.run(event.prompt, dirs, date, embedder.ready ? embedder : undefined);
+		const run = await memoryWorker.recall(event.prompt, dirs, date, { waitModelMs: ctx.hasUI ? undefined : 8000 });
 		log(run.ids, run.chars, run.embedderReady);
 		// Always kept (last 500): the dashboard shows what was recalled, when and with which score.
 		try {
 			const injected = new Set(run.ids);
-			appendRecallEvent(dirs.project, { at: new Date().toISOString(), query: event.prompt.slice(0, 300), hits: run.hits.filter((hit) => injected.has(hit.record.id)).map((hit) => ({ id: hit.record.id, score: Math.round(hit.score * 1000) / 1000 })), ms: run.ms });
+			logUsage(dirs, { at: new Date().toISOString(), query: event.prompt.slice(0, 300), hits: run.hits.filter((hit) => injected.has(hit.record.id)).map((hit) => ({ id: hit.record.id, score: Math.round(hit.score * 1000) / 1000 })), ms: run.ms });
 		} catch {
 			// A read-only project folder must not break the request.
 		}
@@ -287,6 +298,84 @@ export default function (pi: ExtensionAPI) {
 		if (!run.text) return;
 		return { message: { customType: "memory-recall", content: recallMessage(run.text, event.prompt), display: false } };
 	});
+
+	// While working: reading or editing a file brings what the memory knows about it (once per file and session, and
+	// again after a compaction). Nothing when no memory cites the file: an entity lookup in the worker.
+	const notedFiles = new Set<string>();
+	pi.on("session_compact", () => notedFiles.clear());
+	pi.on("tool_result", async (event, ctx) => {
+		if (!deepMode() || process.env.PI_MEMORY_CONTEXT === "0" || event.isError || !["read", "edit", "write"].includes(event.toolName)) return undefined;
+		const path = String((event.input as { path?: string }).path ?? "");
+		if (!path) return undefined;
+		const absolute = resolvePath(ctx.cwd, path);
+		if (notedFiles.has(absolute)) return undefined;
+		notedFiles.add(absolute);
+		const dirs = deepDirs(ctx.cwd);
+		if (!hasStore(dirs)) return undefined;
+		const records = await memoryWorker.forFile(dirs, relativePath(ctx.cwd, absolute), today()).catch(() => []);
+		if (records.length === 0) return undefined;
+		try {
+			logUsage(dirs, { at: new Date().toISOString(), query: `file: ${path}`.slice(0, 300), hits: records.map((record) => ({ id: record.id, score: 1 })), ms: 0 });
+		} catch {
+			// Usage is a hint.
+		}
+		return { content: [...event.content, { type: "text" as const, text: fileNote(records) }] };
+	});
+
+	/** The ricorda tool costs tokens on every request: active only where there are memories to open. */
+	const activateRecallTool = (ctx: ExtensionContext) => {
+		if (!deepMode() || process.env.PI_MEMORY_TOOL === "0" || !hasStore(deepDirs(ctx.cwd))) return;
+		const active = pi.getActiveTools();
+		if (!active.includes("ricorda")) pi.setActiveTools([...active, "ricorda"]);
+	};
+	pi.on("session_start", (_event, ctx) => activateRecallTool(ctx));
+
+	// Depth on demand: the cues carry #ids; the model opens one (full text, state, neighbours in the graph) or searches
+	// deep (also dormant, superseded and forgotten memories). Each use counts for the forgetting lifecycle.
+	if (deepMode() && process.env.PI_MEMORY_TOOL !== "0") {
+		pi.registerTool({
+			name: "ricorda",
+			label: "Ricorda",
+			description: "Project memory. id: open #r12 with linked ones; query: deep search; episodio: search past sessions.",
+			parameters: { type: "object", properties: { id: { type: "string" }, query: { type: "string" }, episodio: { type: "string" } } } as never,
+			// Off until the project has a memory (~90 tokens per request otherwise for nothing): see activateRecallTool.
+			defaultActive: false,
+			async execute(_id, raw, _signal, _update, ctx) {
+				const params = raw as { id?: string; query?: string; episodio?: string };
+				const dirs = deepDirs(ctx.cwd);
+				if (params.episodio?.trim()) {
+					// Past conversations of the project (not only what /dream kept): the passage that answers.
+					let current: string | undefined;
+					try {
+						current = ctx.sessionManager.getSessionFile();
+					} catch {}
+					const files = sessionFiles(ctx).filter((file) => file !== current);
+					const hits = await memoryWorker.episodes(files, params.episodio, today());
+					if (hits.length === 0) return { content: [{ type: "text" as const, text: "Nessuna sessione passata ne parla." }], details: {} };
+					return { content: [{ type: "text" as const, text: hits.map((hit) => `Sessione del ${hit.date}:\n${hit.text}`).join("\n\n") }], details: {} };
+				}
+				const reply = (text: string, isError = false) => ({ content: [{ type: "text" as const, text }], details: {}, ...(isError ? { isError: true } : {}) });
+				if (!hasStore(dirs)) return reply("Nessun ricordo per questo progetto.");
+				const used = (ids: string[], query: string) => {
+					try {
+						logUsage(dirs, { at: new Date().toISOString(), query: `ricorda: ${query}`.slice(0, 300), hits: ids.map((id) => ({ id, score: 1 })), ms: 0 });
+					} catch {
+						// Usage is a hint, never a reason to fail.
+					}
+				};
+				if (params.id) {
+					const text = await memoryWorker.open(dirs, params.id);
+					used([params.id.replace(/^#/, "")], params.id);
+					return reply(text);
+				}
+				if (!params.query?.trim()) return reply("Serve id oppure query.", true);
+				const run = await memoryWorker.recall(params.query, dirs, today(), { includeSuperseded: true, threshold: 0.25, inquiryThreshold: 0, limit: 8 });
+				used(run.hits.map((hit) => hit.record.id), params.query);
+				if (run.hits.length === 0) return reply("Nessun ricordo trovato.");
+				return reply(run.hits.map(({ record }) => `- #${record.id} [${record.type}] ${record.text}${record.status === "superseded" ? " (superato)" : record.forgottenAt ? ` (dimenticato il ${record.forgottenAt})` : record.state === "dormant" ? " (dormiente)" : ""}`).join("\n"));
+			},
+		});
+	}
 
 	// Capped mode (previous behavior): memory.md in the prompt within a cap.
 	const capped = (event: BeforeAgentStartEvent, ctx: ExtensionContext) => {
@@ -319,7 +408,11 @@ export default function (pi: ExtensionAPI) {
 				// Up to 3 batches (a project with many sessions); the rest on the next day or with /dream.
 				void (async () => {
 					for (let run = 0; run < 3; run++) {
+						lastDreamSaved = false;
 						await dream("", ctx, { auto: true });
+						// Only after a consolidation that was saved: an early return (invalid or empty reply) left an old
+						// "pending" behind and the loop paid the same model call again.
+						if (!lastDreamSaved) break;
 						let pending = 0;
 						try {
 							pending = JSON.parse(readFileSync(projectFiles(ctx.cwd).last, "utf8")).pending ?? 0;
@@ -343,10 +436,13 @@ export default function (pi: ExtensionAPI) {
 			if (hasStore(dirs)) {
 				showStatus(ctx, { loading: true });
 				setTimeout(() => {
-					void embedder.start().then(async (ready) => {
+					// The keyword index first (in the worker), then the model, missing vectors and the vector index.
+					void memoryWorker.warm(dirs).catch(() => 0);
+					void memoryWorker.start().then(async (ready) => {
 						showStatus(ctx);
 						if (!ready) return;
-						for (const dir of [dirs.project, dirs.global]) if (dir && storeExists(dir)) await fillVectors(dir, embedder).catch(() => 0);
+						for (const dir of [dirs.project, dirs.global]) if (dir && storeExists(dir)) await memoryWorker.fillVectors(dir).catch(() => 0);
+						await memoryWorker.warm(dirs).catch(() => 0);
 					});
 				}, 1500).unref();
 			}
@@ -388,6 +484,7 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
+	let lastDreamSaved = false;
 	const dream = async (args: string, ctx: ExtensionContext, options: { auto?: boolean } = {}) => {
 		const global = /--global\b/.test(args);
 		const globalTarget = globalFiles();
@@ -416,13 +513,15 @@ export default function (pi: ExtensionAPI) {
 		const memory = split ? split.memory : parseMemory(read(target.memory));
 		const archive = split ? split.archive : parseMemory(read(target.archive));
 		ctx.ui.notify(`Consolido la memoria${global ? " globale" : ""}…`, "info");
-		const answer = await consolidate(ctx, buildDreamPrompt(memory, sessions, date, deep ? { global, deep: true } : { global, capChars: CONTEXT_BUDGET_CHARS }));
+		const answer = await consolidate(ctx, buildDreamPrompt(memory, sessions, date, deep ? { global, deep: true, quadro: global ? undefined : read(join(storeDir, "gist.md")) } : { global, capChars: CONTEXT_BUDGET_CHARS }));
 		const parsed = answer.error ? { ok: false as const, error: answer.error } : parseProposal(answer.text, memory.length);
 		if (!parsed.ok) {
 			write(target.proposal, `# Proposta non valida\n\n${parsed.error}\n\n${answer.text}\n`);
 			return ctx.ui.notify(`/dream: ${parsed.error} (risposta in ${target.proposal})`, "error");
 		}
-		const proposal = parsed.proposal;
+		// What to keep is checked by code too: additions without content dropped, near-twins turned into confirmations.
+		const filtered = deep ? filterProposal(parsed.proposal, memory) : { proposal: parsed.proposal, dropped: [] as string[] };
+		const proposal = filtered.proposal;
 		// Fading is decided by code, not by the model.
 		// Deep mode never fades by deletion: weak memories are just harder to recall.
 		if (!deep) for (const id of staleIds(memory, date, FADE_DAYS)) if (!proposal.forget.some((item) => item.id === id)) proposal.forget.push({ id, reason: `sbiadito (nessuna conferma da ${FADE_DAYS} giorni)` });
@@ -464,6 +563,7 @@ export default function (pi: ExtensionAPI) {
 					merge: await pick(proposal.merge, (item) => `⇄ ${item.text}`),
 					update: await pick(proposal.update, (item) => `✎ ${name(item.id)} → ${item.text}`),
 					forget: await pick(proposal.forget, (item) => `− ${name(item.id)}`),
+					...(proposal.quadro && (await keep(`◎ quadro del progetto:\n${proposal.quadro}`)) ? { quadro: proposal.quadro } : {}),
 				};
 			}
 		}
@@ -474,15 +574,59 @@ export default function (pi: ExtensionAPI) {
 		const capped = deep ? { memory: applied.memory, archive: applied.archive, moved: 0 } : enforceCap(applied.memory, applied.archive, CONTEXT_BUDGET_CHARS, date);
 		const result = { ...applied, memory: capped.memory, archive: capped.archive };
 		let deepRecords: ReturnType<typeof entriesToRecords> | undefined;
+		let lifecycleNote = "";
+		let movedToGlobal = false;
+		/** Side effects of the lifecycle, done only once the store is saved (under its lock). */
+		const afterSave: (() => void)[] = [];
 		if (deep && previous) {
-			deepRecords = entriesToRecords(result.memory, result.archive, previous.records, date);
-			saveStore(storeDir, { records: deepRecords, vectors: pruneVectors(previous.records, deepRecords, previous.vectors), model: previous.model });
+			deepRecords = entriesToRecords(result.memory, result.archive, previous.records, date, lastId(storeDir));
+			// Long term: what was recalled counts as used; unused memories go dormant, then are forgotten (kept aside).
+			if (process.env.PI_MEMORY_FORGET !== "0") {
+				const sinceFile = join(storeDir, "usage-since");
+				// The global store has its own log (logUsage writes personal hits there from every project).
+				const events = readRecallEvents(global && dirs.global ? dirs.global : dirs.project);
+				deepRecords = applyUsage(deepRecords, events, global ? "g:" : "", existsSync(sinceFile) ? readFileSync(sinceFile, "utf8").trim() : "");
+				if (events.length) afterSave.push(() => write(sinceFile, `${newestEvent(events)}\n`));
+				const cycle = lifecycle(deepRecords, date, { fileExists: global ? undefined : (path) => existsSync(join(ctx.cwd, path)) });
+				deepRecords = cycle.records;
+				// Written with the store, under its lock: never a forgotten.jsonl entry for a save that did not happen.
+				if (cycle.forgotten.length) afterSave.push(() => appendFileSync(join(storeDir, "forgotten.jsonl"), cycle.forgotten.map((record) => `${JSON.stringify({ ...record, forgottenAt: date })}\n`).join("")));
+				lifecycleNote = [cycle.dormant.length ? `${cycle.dormant.length} addormentati` : "", cycle.woken.length ? `${cycle.woken.length} risvegliati` : "", cycle.forgotten.length ? `${cycle.forgotten.length} dimenticati (recuperabili)` : ""].filter(Boolean).join(" · ");
+			}
+			// Personal preferences found in a project's sessions hold everywhere: to the global store (re-read under its lock).
+			if (!global && dirs.global) {
+				const globalDir = dirs.global;
+				const split = movePersonal(deepRecords, []);
+				if (split.moved) {
+					const personal = deepRecords.filter((record) => !split.project.includes(record));
+					deepRecords = split.project;
+					await withStoreLockAsync(globalDir, () => {
+						const current = storeExists(globalDir) ? loadStore(globalDir) : { records: [], vectors: new Map<string, Float32Array>(), model: undefined };
+						saveStore(globalDir, { ...current, records: movePersonal(personal, current.records, lastId(globalDir)).global });
+					});
+					movedToGlobal = true;
+					lifecycleNote = [lifecycleNote, `${split.moved} nella memoria personale`].filter(Boolean).join(" · ");
+				}
+			}
+			// The model took minutes: rebase on what was saved meanwhile (an edit in /memory, another session's /dream),
+			// one writer at a time.
+			const proposed = deepRecords;
+			deepRecords = await withStoreLockAsync(storeDir, () => {
+				const current = storeExists(storeDir) ? loadStore(storeDir) : { records: [], vectors: new Map<string, Float32Array>(), model: previous.model };
+				const rebased = rebaseOnCurrent(previous.records, current.records, proposed, lastId(storeDir));
+				saveStore(storeDir, { records: rebased, vectors: pruneVectors(current.records, rebased, current.vectors), model: current.model ?? previous.model });
+				for (const effect of afterSave) effect();
+				return rebased;
+			});
+			// The overview in the system prompt: rewritten only when the model proposes a new one.
+			if (!global && approved.quadro) write(join(storeDir, "gist.md"), `${approved.quadro}\n`);
 		} else {
 			write(target.memory, renderMemory(result.memory));
 			write(target.archive, renderMemory(result.archive, "archive"));
 		}
 		const now = batch.until;
 		write(target.state, JSON.stringify({ lastConsolidated: now }));
+		lastDreamSaved = true;
 		if (global) write(stateFile, JSON.stringify({ ...state, lastConsolidated: state.lastConsolidated ?? "" }));
 		const contextChars = deep ? 0 : fitBudget(result.memory, CONTEXT_BUDGET_CHARS).map(contextLine).join("\n").length;
 		const summary = { ...result.counts, overCap: capped.moved, pending: batch.pending, entries: result.memory.length, contextTokens: Math.round(contextChars / 3.6), usage: answer.usage };
@@ -498,10 +642,15 @@ export default function (pi: ExtensionAPI) {
 		if (deep) {
 			// New or edited memories get their embedding now, so the next request can recall them semantically.
 			ctx.ui.notify("Calcolo gli embedding dei ricordi nuovi…", "info");
-			if (await embedder.start()) await fillVectors(storeDir, embedder).catch(() => 0);
+			activateRecallTool(ctx);
+			if (await memoryWorker.start()) {
+				await memoryWorker.fillVectors(storeDir).catch(() => 0);
+				// Memories just moved to the personal store need their vectors there too.
+				if (movedToGlobal && dirs.global) await memoryWorker.fillVectors(dirs.global).catch(() => 0);
+			}
 			// The result stays in the chat (a notification disappears and leaves the user unsure it was saved).
 			const active = deepRecords?.filter((record) => record.status === "active") ?? [];
-			pi.appendEntry("memory-dream", dreamEntry(result.counts, describe(memory, approved), { active: active.length, pinned: active.filter((record) => record.pinned).length, pending: batch.pending }));
+			pi.appendEntry("memory-dream", dreamEntry(result.counts, [...describe(memory, approved), ...filtered.dropped.slice(0, 3), ...(lifecycleNote ? [`… ${lifecycleNote}`] : [])], { active: active.length, pinned: active.filter((record) => record.pinned).length, pending: batch.pending }));
 			return ctx.ui.notify(`${options.auto ? "Memoria aggiornata in automatico (/memory per vederla)" : "Memoria aggiornata"}: +${added} nuovi, ${reinforced} rinforzati, ${merged} uniti, ${updated} aggiornati (superati), ${forgotten} dimenticati · ${deepRecords?.filter((record) => record.status === "active").length ?? 0} ricordi attivi, nessun tetto${batch.pending ? ` · restano ${batch.pending} sessioni: rilancia /dream` : ""}`, "info");
 		}
 		pi.appendEntry("memory-dream", dreamEntry(result.counts, describe(memory, approved), { active: result.memory.length, pinned: result.memory.filter((entry) => entry.pinned).length, pending: batch.pending }));
@@ -510,8 +659,18 @@ export default function (pi: ExtensionAPI) {
 
 	/** /memory: summary on top, every memory with its preview; Enter → pin, edit, mark superseded or delete. */
 	pi.registerCommand("memory", {
-		description: "Dashboard della memoria: ricordi, cronologia dei /dream, richiami, e domande alla memoria",
-		handler: async (_args, ctx) => {
+		description: "Dashboard della memoria: ricordi, cronologia dei /dream, richiami, domande · /memory export: vault Obsidian del grafo",
+		handler: async (args, ctx) => {
+			if (args.trim() === "export" && deepMode()) {
+				// The graph as an Obsidian vault (a view; the store stays the source of truth).
+				const dirs = deepDirs(ctx.cwd);
+				if (!hasStore(dirs)) return ctx.ui.notify("Nessun ricordo da esportare.", "info");
+				const out = join(dirs.project, "vault");
+				rmSync(out, { recursive: true, force: true });
+				const files = renderVault(loadStore(dirs.project).records);
+				for (const [name, content] of files) write(join(out, name), `${content}\n`);
+				return ctx.ui.notify(`Vault Obsidian in ${out} (${files.size} note): apri la cartella in Obsidian → vista Grafo.`, "info");
+			}
 			if (!deepMode()) return ctx.ui.notify("La dashboard serve la memoria profonda (il default; ora PI_MEMORY_MODE=capped): i ricordi sono in .pi/memory.md.", "info");
 			migrate(ctx.cwd, today());
 			const source = dashboardSource(ctx);
@@ -546,10 +705,9 @@ export default function (pi: ExtensionAPI) {
 				migrate(ctx.cwd, today());
 				const dirs = deepDirs(ctx.cwd);
 				if (!hasStore(dirs)) return ctx.ui.notify("Nessun ricordo trovato.", "info");
-				if (!embedder.ready) await Promise.race([embedder.start(), new Promise((resolve) => setTimeout(resolve, 8000).unref())]);
-				const run = await recaller.run(query, dirs, today(), embedder.ready ? embedder : undefined, { includeSuperseded: true, threshold: 0.25 });
+				const run = await memoryWorker.recall(query, dirs, today(), { includeSuperseded: true, threshold: 0.25, waitModelMs: 8000 });
 				if (run.hits.length === 0) return ctx.ui.notify("Nessun ricordo trovato.", "info");
-				const lines = run.hits.map(({ record }) => `- [${record.type}] ${record.text}${record.status === "superseded" ? ` (superato${record.reason ? `: ${record.reason}` : ""})` : ""}`).join("\n");
+				const lines = run.hits.map(({ record }) => `- [${record.type}] ${record.text}${record.status === "superseded" ? ` (superato${record.reason ? `: ${record.reason}` : ""})` : record.forgottenAt ? ` (dimenticato il ${record.forgottenAt})` : record.state === "dormant" ? " (dormiente)" : ""}`).join("\n");
 				ctx.ui.notify(lines, "info");
 				if (use || (ctx.hasUI && (await ctx.ui.confirm("Mettere questi ricordi nel contesto?", lines)))) {
 					pi.sendMessage({ customType: "memory-recall", content: `Ricordi richiamati:\n${lines}`, display: true });
