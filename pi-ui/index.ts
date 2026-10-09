@@ -383,7 +383,7 @@ export default function (pi: ExtensionAPI) {
 			if (procfs && watch.pid === undefined) watch.pid = findCommandProcess(process.pid, watch.command);
 			if (procfs && watch.pid !== undefined) watch.sample = sampleActivity(watch.pid, watch.sample) ?? watch.sample;
 			const sample = procfs ? watch.sample : undefined;
-			watch.live.activity = describeActivity({ cpu: sample?.cpu, state: sample?.state, comm: sample?.comm, silentMs: now - (watch.lastOutputAt ?? watch.startedAt) });
+			watch.live.activity = describeActivity({ cpu: sample?.cpu, state: sample?.state, comm: sample?.comm, wait: sample?.wait, silentMs: now - (watch.lastOutputAt ?? watch.startedAt) });
 		}
 	};
 	const stopWatch = (id: string) => {
