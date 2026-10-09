@@ -9,7 +9,13 @@ export type DocFile = { path?: string; name?: string; kind?: string; size?: numb
 /** A terminal Pi's status line (pi-ui), read through desk-link. */
 export type RemoteStatus = { mode: "idle" | "working" | "waiting" | "done" | "stopped"; activity?: string; step?: number; startedAt?: number; endedAt?: number; tokensIn?: number; tokensOut?: number; question?: string; phase?: string; thought?: string; warning?: string };
 
+/** Header and sidebar facts (main process: git, usage file, Pi's get_state / get_session_stats). */
+export type Info = { project: string; branch?: string; changes?: number; usage?: { fiveHour?: number; sevenDay?: number; overage?: boolean; updatedAt?: string }; model?: string; thinking?: string; sessionName?: string; sessionFile?: string; context?: number; user?: string };
+
 export interface Desk {
+	info(): Promise<Info>;
+	fork(text: string, occurrence: number): Promise<{ text?: string; cancelled?: boolean; items: TranscriptItem[] }>;
+	openExternal(target: string): Promise<unknown>;
 	prompt(text: string, images?: { type: "image"; data: string; mimeType: string }[]): Promise<{ disposition?: string }>;
 	abort(): Promise<void>;
 	answer(id: string, fields: object): void;

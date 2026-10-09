@@ -20,6 +20,9 @@ contextBridge.exposeInMainWorld("desk", {
 	sendToSession: (pid, text) => ipcRenderer.invoke("session-send", pid, text),
 	sessionStatus: (pid) => ipcRenderer.invoke("session-status", pid),
 	answerSession: (pid, value) => ipcRenderer.invoke("session-answer", pid, value),
+	info: () => ipcRenderer.invoke("info"),
+	fork: (text, occurrence) => ipcRenderer.invoke("fork", text, occurrence),
+	openExternal: (target) => ipcRenderer.invoke("open-external", target),
 	on: (channel, listener) => {
 		const allowed = ["pi-event", "pi-ui", "pi-stderr", "pi-exit", "browser-url", "project", "home", "session-append", "download"];
 		if (!allowed.includes(channel)) return;

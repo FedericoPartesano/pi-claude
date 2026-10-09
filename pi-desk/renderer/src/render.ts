@@ -74,8 +74,14 @@ function inline(raw) {
 		.replace(/(^|[^_\w])_([^_\s][^_\n]*?)_(?!\w)/g, "$1<em>$2</em>")
 		.replace(/~~([^~\n]+)~~/g, "<del>$1</del>");
 	text = text.replace(/\\\((.+?)\\\)/g, (_, tex) => `<span class="math" data-tex="${tex}">${tex}</span>`).replace(/\$\$([^$\n]+?)\$\$/g, (_, tex) => `<span class="math" data-tex="${tex}">${tex}</span>`);
-	return text.replace(/\u0000(\d+)\u0000/g, (_, index) => `<code>${codes[Number(index)]}</code>`);
+	return text.replace(/\u0000(\d+)\u0000/g, (_, index) => {
+		const code = codes[Number(index)];
+		const file = FILE_REF.exec(code);
+		return file ? `<code class="file" data-path="${file[1]}">${code}</code>` : `<code>${code}</code>`;
+	});
 }
+/** "src/cart.js:5", "package.json": a path with an extension the viewer opens, optionally with line (and column). */
+const FILE_REF = /^((?:[\w.@-]+\/)*[\w@-][\w.@-]*\.(?:pdf|png|jpe?g|gif|webp|svg|md|csv|tsv|json|jsonl|html?|txt|log|ts|tsx|js|mjs|cjs|jsx|py|rb|go|rs|java|kt|cs|c|h|cpp|css|scss|sql|sh|ya?ml|toml|xml|vue|svelte|php))(?::\d+){0,2}$/;
 
 // ---- Blocks ---------------------------------------------------------------------------------------------------
 const LIST = /^(\s*)([-*+•]|\d+[.)])\s+(.*)$/;

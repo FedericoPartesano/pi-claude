@@ -13,8 +13,8 @@ export type Part =
 	| { kind: "steps"; steps: Step[] }
 	| { kind: "error"; text: string };
 export type Turn =
-	| { id: number; role: "user"; text: string; images?: Img[] }
-	| { id: number; role: "pi"; parts: Part[]; suggestions: string[]; done: boolean }
+	| { id: number; role: "user"; text: string; images?: Img[]; at?: number }
+	| { id: number; role: "pi"; parts: Part[]; suggestions: string[]; done: boolean; seconds?: number; tokensIn?: number; tokensOut?: number }
 	| { id: number; role: "note"; text: string; tone?: "error" };
 
 let nextId = 1;
@@ -22,7 +22,7 @@ const id = () => nextId++;
 
 export function createChat() {
 	// What Pi is doing now (the terminal's "AL LAVORO" line) and the last turn's totals ("FATTO").
-	const [work, setWork] = createStore({ phase: "idle" as "idle" | "thinking" | "tool" | "writing" | "done" | "compacting", activity: "", thought: "", started: 0, steps: 0, tokensIn: 0, tokensOut: 0, seconds: 0, queued: 0, retry: "" });
+	const [work, setWork] = createStore({ phase: "idle" as "idle" | "thinking" | "tool" | "writing" | "done" | "compacting", activity: "", thought: "", started: 0, steps: 0, tokensIn: 0, tokensOut: 0, seconds: 0, queued: 0, queuedText: "", retry: "", error: "" });
 	let phaseBeforeCompaction: typeof work.phase = "idle";
 	const k = (count: number) => (count >= 1000 ? `${Math.round(count / 1000)}k` : String(count));
 	const REASONS: Record<string, string> = { threshold: "contesto oltre la soglia", overflow: "contesto pieno", manual: "richiesta manuale" };
@@ -125,11 +125,11 @@ export function createChat() {
 				if (!event.success) set("turns", (turns) => [...turns, { id: id(), role: "note", tone: "error", text: `Il provider non risponde: ${event.finalError ?? "errore"} (${event.attempt} tentativi)` }]);
 				break;
 			case "queue_update":
-				setWork({ queued: (event.steering?.length ?? 0) + (event.followUp?.length ?? 0) });
+				setWork({ queued: (event.steering?.length ?? 0) + (event.followUp?.length ?? 0), queuedText: String([...(event.steering ?? []), ...(event.followUp ?? [])].pop() ?? "") });
 				break;
 			case "agent_start":
 				set({ busy: true, status: "sta lavorando…", exited: undefined });
-				if (work.phase === "idle" || work.phase === "done") setWork({ phase: "thinking", activity: "", thought: "", started: Date.now(), steps: 0, tokensIn: 0, tokensOut: 0, seconds: 0 });
+				if (work.phase === "idle" || work.phase === "done") setWork({ phase: "thinking", activity: "", thought: "", started: Date.now(), steps: 0, tokensIn: 0, tokensOut: 0, seconds: 0, error: "" });
 				break;
 			case "message_start":
 				if (event.message?.role === "assistant") {
@@ -158,6 +158,7 @@ export function createChat() {
 				if (event.message?.errorMessage) {
 					piTurn();
 					set("turns", turn, produce((t: any) => t.parts.push({ kind: "error", text: event.message.errorMessage })));
+					setWork({ error: String(event.message.errorMessage) });
 				}
 				text = -1;
 				break;
@@ -198,7 +199,7 @@ export function createChat() {
 			case "agent_settled":
 				flushNow();
 				closeThinking();
-				if (turn >= 0) set("turns", turn, produce((t: any) => (t.done = true)));
+				if (turn >= 0) set("turns", turn, produce((t: any) => Object.assign(t, { done: true, seconds: Math.round((Date.now() - work.started) / 1000), tokensIn: work.tokensIn, tokensOut: work.tokensOut })));
 				turn = -1;
 				text = -1;
 				steps = -1;
@@ -223,7 +224,7 @@ export function createChat() {
 		onEvent,
 		onUi,
 		closeDialog: () => set("dialog", undefined),
-		addUser: (text: string, images?: Img[]) => set("turns", (turns) => [...turns, { id: id(), role: "user", text, images }]),
+		addUser: (text: string, images?: Img[]) => set("turns", (turns) => [...turns, { id: id(), role: "user", text, images, at: Date.now() }]),
 		addNote: (text: string, tone?: "error") => set("turns", (turns) => [...turns, { id: id(), role: "note", text, tone }]),
 		exited: (code: string) => set({ busy: false, status: "Pi fermo", exited: code }),
 		restarted: () => set({ exited: undefined, status: "pronto" }),

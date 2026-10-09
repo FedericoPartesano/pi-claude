@@ -5,13 +5,14 @@
  *
  *   npm start [-- <project folder>]      PI_DESK_PI=<pi command>   PI_DESK_CDP_PORT=9339
  */
-import { app, BrowserWindow, WebContentsView, clipboard, ipcMain, session as electronSession } from "electron";
+import { app, BrowserWindow, WebContentsView, clipboard, ipcMain, shell, session as electronSession } from "electron";
+import { externalTarget, forkEntry, gitInfo, readUsage } from "./info.mjs";
 import { PICKER_SCRIPT } from "./picker.mjs";
 import { readForPanel } from "./files.mjs";
 import { DESK_PROMPT } from "./prompt.mjs";
 import { clipboardImage } from "./clipboard.mjs";
 import { existsSync, mkdirSync, readFileSync, unwatchFile, watchFile } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, userInfo } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PiRpc } from "./rpc.mjs";
@@ -176,6 +177,38 @@ app.whenReady().then(() => {
 		const rect = { x: Math.round(pick.rect.x), y: Math.round(pick.rect.y), width: Math.max(1, Math.round(pick.rect.width)), height: Math.max(1, Math.round(pick.rect.height)) };
 		const image = await contents.capturePage(rect).catch(() => undefined);
 		return { ...pick, image: image && !image.isEmpty() ? image.toPNG().toString("base64") : undefined };
+	});
+	// Header and sidebar facts, all local: git, usage file, Pi's own state (no model call, no tokens).
+	ipcMain.handle("info", async () => {
+		const [git, state, stats] = await Promise.all([gitInfo(project), pi.send("get_state").catch(() => undefined), pi.send("get_session_stats").catch(() => undefined)]);
+		return {
+			project,
+			...git,
+			usage: readUsage(),
+			model: state?.model?.name ?? state?.model?.id,
+			thinking: state?.thinkingLevel,
+			sessionName: state?.sessionName,
+			sessionFile: state?.sessionFile,
+			context: stats?.contextUsage?.percent ?? undefined,
+			user: userInfo().username,
+		};
+	});
+	// "dirama": a new session from the n-th user message of this one (its text comes back for the composer).
+	// "dirama": a new session from a user message of this one, found by its text (the n-th time it was sent: slash
+	// commands typed here leave no user message in the session, so positions would drift). Its text comes back.
+	ipcMain.handle("fork", async (_event, text, occurrence) => {
+		const { messages = [] } = await pi.send("get_fork_messages");
+		const entryId = forkEntry(messages, text, occurrence);
+		if (!entryId) throw new Error("messaggio non trovato nella sessione");
+		const result = await pi.send("fork", { entryId });
+		const state = await pi.send("get_state").catch(() => undefined);
+		return { ...result, items: state?.sessionFile ? readTranscript(state.sessionFile).items : [] };
+	});
+	ipcMain.handle("open-external", (_event, target) => {
+		const { url, path, reveal } = externalTarget(target, project);
+		if (url) return shell.openExternal(url);
+		if (path) return shell.openPath(path);
+		if (reveal) shell.showItemInFolder(reveal);
 	});
 	ipcMain.handle("restart", () => {
 		pi.stop();
