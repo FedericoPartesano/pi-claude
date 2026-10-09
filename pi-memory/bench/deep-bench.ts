@@ -48,7 +48,7 @@ for (const size of sizes) {
 			const batch = corpus.records.slice(i, i + 64);
 			(await embedder.embed(batch.map(embedText), "passage")).forEach((vector, j) => vectors!.set(batch[j].id, vector));
 		}
-		if (cacheFile) writeVectors(cacheFile, corpus.records.map((record) => vectors!.get(record.id)! as unknown as Float32Array<ArrayBuffer>));
+		if (cacheFile) writeVectors(cacheFile, corpus.records.map((record) => Float32Array.from(vectors!.get(record.id)!)));
 	}
 	const embedMs = performance.now() - started;
 	global.gc?.();

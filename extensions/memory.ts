@@ -33,8 +33,8 @@ import {
 	type MemoryEntry,
 	type Proposal,
 } from "./memory-core.ts";
-import { WorkerEmbedder } from "../pi-memory/src/embed.ts";
-import { Recaller, appendRecallLog, fillVectors, type StoreDirs } from "../pi-memory/src/engine.ts";
+import { MemoryWorker } from "../pi-memory/src/memory-worker-client.ts";
+import { appendRecallLog, type StoreDirs } from "../pi-memory/src/engine.ts";
 import { isSmallTalk, recallMessage } from "../pi-memory/src/recall.ts";
 import { entriesToRecords, recordsToEntries } from "../pi-memory/src/reconcile.ts";
 import { loadStore, migrateLegacy, pruneVectors, saveStore, storeExists, type MemoryRecord } from "../pi-memory/src/store.ts";
@@ -153,8 +153,8 @@ function describe(memory: MemoryEntry[], proposal: Proposal): string[] {
 	];
 }
 
-/** Embedder and recaller of the running extension, shared with the dashboard source. */
-let shared: { embedder: WorkerEmbedder; recaller: Recaller } | undefined;
+/** The memory worker of the running extension (model, index, recall), shared with the dashboard source. */
+let shared: MemoryWorker | undefined;
 
 /**
  * Data for the memory dashboard (pi-memory/src/dashboard-tui.ts): project + global records ("g:" ids), /dream and recall
@@ -172,10 +172,9 @@ export function dashboardSource(ctx: ExtensionContext): MemoryDashboardSource {
 		}),
 		search: async (question) => {
 			if (!hasStore(dirs)) return [];
-			const recaller = shared?.recaller ?? new Recaller();
-			const embedder = shared?.embedder.ready ? shared.embedder : undefined;
+			const memory = shared ?? new MemoryWorker();
 			// A question about the memory is an inquiry: no raised threshold here, and more results than a request gets.
-			const run = await recaller.run(question, dirs, today(), embedder, { includeSuperseded: true, threshold: 0.2, inquiryThreshold: 0, limit: 20 });
+			const run = await memory.recall(question, dirs, today(), { includeSuperseded: true, threshold: 0.2, inquiryThreshold: 0, limit: 20 });
 			return run.hits.map((hit): SearchHit => ({ record: hit.record, score: hit.score }));
 		},
 		answer: async (question, hits, onText, signal) => {
@@ -206,7 +205,7 @@ export function dashboardSource(ctx: ExtensionContext): MemoryDashboardSource {
 			const next = applyAction(store.records, global ? id.slice(2) : id, action, today());
 			saveStore(dir, { records: next, vectors: pruneVectors(store.records, next, store.vectors), model: store.model });
 			// An edited text needs its embedding again to be recalled semantically.
-			if (shared?.embedder.ready) await fillVectors(dir, shared.embedder).catch(() => 0);
+			if (shared?.ready) await shared.fillVectors(dir).catch(() => 0);
 		},
 	};
 }
@@ -243,9 +242,9 @@ export function shouldAutoDream(input: { today: string; lastAutoDream?: string; 
 }
 
 export default function (pi: ExtensionAPI) {
-	const embedder = new WorkerEmbedder();
-	const recaller = new Recaller();
-	shared = { embedder, recaller };
+	// Model, index and recall in a worker thread: Pi's interface never builds an index or waits for one.
+	const memoryWorker = new MemoryWorker();
+	shared = memoryWorker;
 	const logRecall = process.env.PI_MEMORY_RECALL_LOG === "1";
 	/** Footer/panel line about memory (pi-ui shows it): loading, consolidating, or how many memories and recalled. */
 	const showStatus = (ctx: ExtensionContext, extra: { loading?: boolean; dreaming?: boolean; recalled?: number } = {}) => {
@@ -268,13 +267,12 @@ export default function (pi: ExtensionAPI) {
 		const dirs = deepDirs(ctx.cwd);
 		const log = (injected: string[], chars: number, ready: boolean) => logRecall && appendRecallLog(dirs.project, { mode: "deep", query: event.prompt, injected, chars, estTokens: Math.round(chars / 3.6), embedderReady: ready, ms: Math.round((performance.now() - started) * 10) / 10 });
 		if (!hasStore(dirs)) return void log([], 0, false);
-		const core = recaller.core(dirs);
+		const core = await memoryWorker.core(dirs);
 		if (core) event.systemPromptOptions.sections.memory = core;
 		// "procedi", "ok": nothing to recall (the pinned core above still holds).
-		if (isSmallTalk(event.prompt)) return void log([], 0, embedder.ready);
+		if (isSmallTalk(event.prompt)) return void log([], 0, memoryWorker.ready);
 		// Without a UI (pi -p) nobody waits for a background load: give the model a few seconds so recall is semantic.
-		if (!ctx.hasUI && !embedder.ready && recaller.hasVectors(dirs)) await Promise.race([embedder.start(), new Promise((resolve) => setTimeout(resolve, 8000).unref())]);
-		const run = await recaller.run(event.prompt, dirs, date, embedder.ready ? embedder : undefined);
+		const run = await memoryWorker.recall(event.prompt, dirs, date, { waitModelMs: ctx.hasUI ? undefined : 8000 });
 		log(run.ids, run.chars, run.embedderReady);
 		// Always kept (last 500): the dashboard shows what was recalled, when and with which score.
 		try {
@@ -343,10 +341,13 @@ export default function (pi: ExtensionAPI) {
 			if (hasStore(dirs)) {
 				showStatus(ctx, { loading: true });
 				setTimeout(() => {
-					void embedder.start().then(async (ready) => {
+					// The keyword index first (in the worker), then the model, missing vectors and the vector index.
+					void memoryWorker.warm(dirs).catch(() => 0);
+					void memoryWorker.start().then(async (ready) => {
 						showStatus(ctx);
 						if (!ready) return;
-						for (const dir of [dirs.project, dirs.global]) if (dir && storeExists(dir)) await fillVectors(dir, embedder).catch(() => 0);
+						for (const dir of [dirs.project, dirs.global]) if (dir && storeExists(dir)) await memoryWorker.fillVectors(dir).catch(() => 0);
+						await memoryWorker.warm(dirs).catch(() => 0);
 					});
 				}, 1500).unref();
 			}
@@ -498,7 +499,7 @@ export default function (pi: ExtensionAPI) {
 		if (deep) {
 			// New or edited memories get their embedding now, so the next request can recall them semantically.
 			ctx.ui.notify("Calcolo gli embedding dei ricordi nuovi…", "info");
-			if (await embedder.start()) await fillVectors(storeDir, embedder).catch(() => 0);
+			if (await memoryWorker.start()) await memoryWorker.fillVectors(storeDir).catch(() => 0);
 			// The result stays in the chat (a notification disappears and leaves the user unsure it was saved).
 			const active = deepRecords?.filter((record) => record.status === "active") ?? [];
 			pi.appendEntry("memory-dream", dreamEntry(result.counts, describe(memory, approved), { active: active.length, pinned: active.filter((record) => record.pinned).length, pending: batch.pending }));
@@ -546,8 +547,7 @@ export default function (pi: ExtensionAPI) {
 				migrate(ctx.cwd, today());
 				const dirs = deepDirs(ctx.cwd);
 				if (!hasStore(dirs)) return ctx.ui.notify("Nessun ricordo trovato.", "info");
-				if (!embedder.ready) await Promise.race([embedder.start(), new Promise((resolve) => setTimeout(resolve, 8000).unref())]);
-				const run = await recaller.run(query, dirs, today(), embedder.ready ? embedder : undefined, { includeSuperseded: true, threshold: 0.25 });
+				const run = await memoryWorker.recall(query, dirs, today(), { includeSuperseded: true, threshold: 0.25, waitModelMs: 8000 });
 				if (run.hits.length === 0) return ctx.ui.notify("Nessun ricordo trovato.", "info");
 				const lines = run.hits.map(({ record }) => `- [${record.type}] ${record.text}${record.status === "superseded" ? ` (superato${record.reason ? `: ${record.reason}` : ""})` : ""}`).join("\n");
 				ctx.ui.notify(lines, "info");

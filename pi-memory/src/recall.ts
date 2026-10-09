@@ -74,25 +74,48 @@ class Lists {
 	/** Optional per-item byte (term frequency for postings). */
 	readonly extra?: Uint8Array;
 
-	constructor(map: Map<string, number[]>, withExtra = false) {
-		let size = 0;
-		for (const list of map.values()) size += withExtra ? list.length / 2 : list.length;
-		this.starts = new Int32Array(map.size + 1);
-		this.data = new Int32Array(size);
-		if (withExtra) this.extra = new Uint8Array(size);
-		let offset = 0;
+	/** Built a slice of keys at a time, the event loop free in between (see RecallIndex.build). */
+	static async build(map: Map<string, number[]>, withExtra = false, slice = 4000): Promise<Lists> {
+		const lists = new Lists(new Map(), withExtra, map);
 		let k = 0;
 		for (const [key, list] of map) {
-			this.keys.set(key, k);
-			this.starts[k] = offset;
-			if (withExtra) for (let i = 0; i < list.length; i += 2) {
-				this.data[offset] = list[i];
-				this.extra![offset++] = list[i + 1];
-			}
-			else for (const value of list) this.data[offset++] = value;
-			k++;
+			lists.push(key, list);
+			if (++k % slice === 0) await new Promise((resolve) => setImmediate(resolve));
 		}
-		this.starts[k] = offset;
+		lists.close();
+		return lists;
+	}
+
+	private offset = 0;
+	private count = 0;
+	private readonly withExtra: boolean;
+
+	private push(key: string, list: number[]) {
+		this.keys.set(key, this.count);
+		this.starts[this.count++] = this.offset;
+		if (this.withExtra) for (let i = 0; i < list.length; i += 2) {
+			this.data[this.offset] = list[i];
+			this.extra![this.offset++] = list[i + 1];
+		}
+		else for (const value of list) this.data[this.offset++] = value;
+	}
+
+	private close() {
+		this.starts[this.count] = this.offset;
+	}
+
+	/** `sized` gives the sizes when the content is pushed later (async build); otherwise `map` is copied at once. */
+	constructor(map: Map<string, number[]>, withExtra = false, sized?: Map<string, number[]>) {
+		this.withExtra = withExtra;
+		const source = sized ?? map;
+		let size = 0;
+		for (const list of source.values()) size += withExtra ? list.length / 2 : list.length;
+		this.starts = new Int32Array(source.size + 1);
+		this.data = new Int32Array(size);
+		if (withExtra) this.extra = new Uint8Array(size);
+		if (sized) return;
+		for (const [key, list] of map) this.push(key, list);
+		this.close();
 	}
 
 	/** [start, end) of a key's slice in data/extra; [0, 0] when absent. */
@@ -104,6 +127,63 @@ class Lists {
 	get(key: string): Int32Array {
 		const [start, end] = this.range(key);
 		return this.data.subarray(start, end);
+	}
+}
+
+/** Accumulates what RecallIndex needs, one record at a time (so a build can be split into slices). */
+class IndexBuilder {
+	readonly positions: Map<string, number>;
+	readonly lengths: Uint16Array;
+	readonly postings = new Map<string, number[]>();
+	readonly entityIndex = new Map<string, number[]>();
+	readonly entityTokens = new Map<string, number[]>();
+	readonly links = new Map<number, Set<number>>();
+	total = 0;
+	private readonly records: MemoryRecord[];
+
+	constructor(records: MemoryRecord[]) {
+		this.records = records;
+		this.positions = new Map(records.map((record, position) => [record.id, position]));
+		this.lengths = new Uint16Array(records.length);
+	}
+
+	private link(from: number, to: number) {
+		const set = this.links.get(from) ?? new Set<number>();
+		set.add(to);
+		this.links.set(from, set);
+	}
+
+	add(position: number) {
+		const record = this.records[position];
+		const counts = new Map<string, number>();
+		const terms = stems(record.text);
+		for (const term of terms) counts.set(term, (counts.get(term) ?? 0) + 1);
+		this.lengths[position] = Math.min(65535, terms.length);
+		this.total += terms.length;
+		// Pairs (position, frequency) flattened in one array per term.
+		for (const [term, frequency] of counts) {
+			const list = this.postings.get(term) ?? [];
+			list.push(position, Math.min(255, frequency));
+			this.postings.set(term, list);
+		}
+		const tokens = new Set<string>();
+		for (const entity of record.entities) {
+			const list = this.entityIndex.get(entity) ?? [];
+			list.push(position);
+			this.entityIndex.set(entity, list);
+			for (const token of stems(entity)) tokens.add(token);
+		}
+		for (const token of tokens) {
+			const list = this.entityTokens.get(token) ?? [];
+			list.push(position);
+			this.entityTokens.set(token, list);
+		}
+		for (const id of record.links ?? []) {
+			const other = this.positions.get(id);
+			if (other === undefined || other === position) continue;
+			this.link(position, other);
+			this.link(other, position);
+		}
 	}
 }
 
@@ -122,56 +202,36 @@ export class RecallIndex {
 	/** stems() of entities, for the few hundred candidates of a request (bounded). */
 	private entityStemCache = new Map<string, string[]>();
 
-	constructor(records: MemoryRecord[]) {
+	constructor(records: MemoryRecord[], prepared?: IndexBuilder, lists?: { postings: Lists; entityIndex: Lists; entityTokens: Lists }) {
 		this.records = records;
-		this.positions = new Map(records.map((record, position) => [record.id, position]));
-		this.lengths = new Uint16Array(records.length);
-		const postings = new Map<string, number[]>();
-		const entityIndex = new Map<string, number[]>();
-		const entityTokens = new Map<string, number[]>();
-		const links = new Map<number, Set<number>>();
-		const link = (from: number, to: number) => {
-			const set = links.get(from) ?? new Set<number>();
-			set.add(to);
-			links.set(from, set);
-		};
-		let total = 0;
-		records.forEach((record, position) => {
-			const counts = new Map<string, number>();
-			const terms = stems(record.text);
-			for (const term of terms) counts.set(term, (counts.get(term) ?? 0) + 1);
-			this.lengths[position] = Math.min(65535, terms.length);
-			total += terms.length;
-			// Pairs (position, frequency) flattened in one array per term.
-			for (const [term, frequency] of counts) {
-				const list = postings.get(term) ?? [];
-				list.push(position, Math.min(255, frequency));
-				postings.set(term, list);
-			}
-			const tokens = new Set<string>();
-			for (const entity of record.entities) {
-				const list = entityIndex.get(entity) ?? [];
-				list.push(position);
-				entityIndex.set(entity, list);
-				for (const token of stems(entity)) tokens.add(token);
-			}
-			for (const token of tokens) {
-				const list = entityTokens.get(token) ?? [];
-				list.push(position);
-				entityTokens.set(token, list);
-			}
-			for (const id of record.links ?? []) {
-				const other = this.positions.get(id);
-				if (other === undefined || other === position) continue;
-				link(position, other);
-				link(other, position);
-			}
-		});
-		this.average = total / (records.length || 1) || 1;
-		this.postings = new Lists(postings, true);
-		this.entityIndex = new Lists(entityIndex);
-		this.entityTokens = new Lists(entityTokens);
-		for (const [position, set] of links) this.links.set(position, Int32Array.from(set));
+		let builder = prepared;
+		if (!builder) {
+			builder = new IndexBuilder(records);
+			for (let position = 0; position < records.length; position++) builder.add(position);
+		}
+		this.positions = builder.positions;
+		this.lengths = builder.lengths;
+		this.average = builder.total / (records.length || 1) || 1;
+		this.postings = lists?.postings ?? new Lists(builder.postings, true);
+		this.entityIndex = lists?.entityIndex ?? new Lists(builder.entityIndex);
+		this.entityTokens = lists?.entityTokens ?? new Lists(builder.entityTokens);
+		for (const [position, set] of builder.links) this.links.set(position, Int32Array.from(set));
+	}
+
+	/**
+	 * The same index, built a slice at a time with the event loop free in between: at 100k memories the constructor
+	 * held the UI thread for seconds (typing frozen). Used to warm the index in the background.
+	 */
+	static async build(records: MemoryRecord[], slice = 2000): Promise<RecallIndex> {
+		const builder = new IndexBuilder(records);
+		for (let position = 0; position < records.length; position++) {
+			builder.add(position);
+			if (position % slice === slice - 1) await new Promise((resolve) => setImmediate(resolve));
+		}
+		const postings = await Lists.build(builder.postings, true);
+		const entityIndex = await Lists.build(builder.entityIndex);
+		const entityTokens = await Lists.build(builder.entityTokens);
+		return new RecallIndex(records, builder, { postings, entityIndex, entityTokens });
 	}
 
 	private entityStems(entity: string): string[] {
