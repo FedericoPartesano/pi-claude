@@ -64,6 +64,12 @@ export const DEPTH = {
 	slotShare: 0.4,
 	/** Below this PPR mass relative to the top seed a reached memory is not worth a cue. */
 	minMass: 1e-3,
+	/**
+	 * Deep cues follow the best hit's own walk first, then the walk from all seeds. Measured at 1M memories: near-tie
+	 * seeds (more of them as the store grows) filled the deep cues with their neighbours, and the best hit's two-hop
+	 * answer fell out (75% → see MISURE.md).
+	 */
+	bestFirst: true,
 };
 
 /**
@@ -435,14 +441,23 @@ export function recall(index: RecallIndex, query: string, options: RecallOptions
 		// but its hits lead to (the reason two links away) fills the reserved cues, strongest mass first.
 		const top = directHits[0].score;
 		const seeds = directHits.filter((item) => item.score >= top * DEPTH.seedShare).slice(0, DEPTH.seeds);
-		const mass = pushPpr(new Map(seeds.map((seed) => [`m${seed.position}`, seed.score ** DEPTH.power])), index.neighbors, { alpha: DEPTH.alpha, epsilon: DEPTH.epsilon });
-		const reference = Math.max(...seeds.map((seed) => mass.get(`m${seed.position}`) ?? 0)) || 1;
+		const walk = (from: typeof seeds) => {
+			const mass = pushPpr(new Map(from.map((seed) => [`m${seed.position}`, seed.score ** DEPTH.power])), index.neighbors, { alpha: DEPTH.alpha, epsilon: DEPTH.epsilon });
+			const reference = Math.max(...from.map((seed) => mass.get(`m${seed.position}`) ?? 0)) || 1;
+			return [...mass]
+				.map(([node, value]) => ({ position: Number(node.slice(1)), share: value / reference }))
+				.filter((item) => !taken.has(item.position) && item.share >= DEPTH.minMass && eligible(index.records[item.position]))
+				.sort((a, b) => b.share - a.share);
+		};
 		const taken = new Set(chosen.map((item) => item.position));
-		const reached = [...mass]
-			.map(([node, value]) => ({ position: Number(node.slice(1)), share: value / reference }))
-			.filter((item) => !taken.has(item.position) && item.share >= DEPTH.minMass && eligible(index.records[item.position]))
-			.sort((a, b) => b.share - a.share)
-			.slice(0, slots);
+		const reached: { position: number; share: number }[] = [];
+		const seen = new Set<number>();
+		for (const item of [...(DEPTH.bestFirst && seeds.length > 1 ? walk(seeds.slice(0, 1)) : []), ...walk(seeds)]) {
+			if (reached.length >= slots) break;
+			if (seen.has(item.position)) continue;
+			seen.add(item.position);
+			reached.push(item);
+		}
 		for (const item of reached) hits.push({ record: index.records[item.position], score: top * Math.min(1, item.share), via: "deep" });
 		// Unused deep slots go back to direct hits.
 		for (const item of directHits.slice(chosen.length, chosen.length + slots - reached.length)) hits.push({ record: index.records[item.position], score: item.score });
