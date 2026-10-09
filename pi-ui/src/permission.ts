@@ -10,10 +10,24 @@ const DANGEROUS: [RegExp, string][] = [
 	[/\bgit\s+(reset\s+--hard|clean\s+-\w*f)/, "butta via modifiche locali"],
 	[/\bmkfs(\.\w+)?\b|\bdd\s+if=.*\bof=\/dev\//, "scrive su un disco"],
 	[/\b(curl|wget)\b[^|]*\|\s*(ba|z)?sh\b/, "esegue uno script scaricato"],
+	// From claude-mods' dangerous-cmd-warn: databases, more git, containers, processes, printing secrets.
+	[/\b(DROP\s+(TABLE|DATABASE|SCHEMA)|TRUNCATE\s+TABLE)\b/i, "cancella dati in un database"],
+	[/\bDELETE\s+FROM\s+[\w."\[\]]+\s*(;|"|'|$)/i, "cancella tutte le righe di una tabella (DELETE senza WHERE)"],
+	[/\bdb\.(dropDatabase\(\)|\w+\.drop\(\)|\w+\.(deleteMany|remove)\(\s*\{\s*\}\s*\))/, "cancella dati in MongoDB"],
+	[/\bgit\s+(checkout\s+--\s+\.(\s|$)|branch\s+-D\b|stash\s+(drop|clear)\b)/, "butta via lavoro git non salvato"],
+	[/\bdocker\s+(system\s+prune\s+.*-a|volume\s+prune)\b/, "cancella dati di Docker"],
+	[/\bkubectl\s+delete\s+(namespace\b|.*\s--all\b)/, "cancella risorse Kubernetes in blocco"],
+	[/\bkill\s+-9\s+1\b|\bkillall\s+-9\b/, "termina processi senza farli chiudere"],
+	[/(^|[;&|(]\s*)(printenv|env)\s*($|[;&|)])/, "stampa le variabili d'ambiente (possono contenere segreti)"],
+	[/(^|[;&|(]\s*)(cat|bat|less|more|head|tail)\s+(\S*\/)?\.env(\.(?!example\b|sample\b|template\b|dist\b|defaults\b)[\w-]+)?(\s|$)/, "mostra un file di segreti (.env)"],
 ];
+
+/** UPDATE without WHERE (a lookahead-free check, as a regex alone cannot say "no WHERE anywhere after"). */
+const updateWithoutWhere = (command: string) => /\bUPDATE\s+[\w."\[\]]+\s+SET\s/i.test(command) && !/\bWHERE\b/i.test(command);
 
 /** Why a command needs confirmation, or undefined when it is ordinary. */
 export function dangerReason(command: string): string | undefined {
+	if (updateWithoutWhere(command)) return "modifica tutte le righe di una tabella (UPDATE senza WHERE)";
 	return DANGEROUS.find(([pattern]) => pattern.test(command))?.[1];
 }
 
