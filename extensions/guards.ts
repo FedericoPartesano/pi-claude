@@ -11,6 +11,7 @@ import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, relative, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { assessPackage, parseInstalls, registryInfo } from "./guard/packages.ts";
 import { PeerGuard } from "./guard/peers.ts";
 import { describeHidden, instructionFiles, scanHidden, stripHidden } from "./guard/unicode.ts";
 
@@ -109,6 +110,22 @@ export default function (pi: ExtensionAPI) {
 			if (start === undefined) return;
 			bashStarted.delete(event.toolCallId);
 			guard.noteBash(start, Date.now());
+		});
+	}
+
+	if (on("PACKAGES")) {
+		// Before an install runs (its scripts run at once): stopped once with the reason; repeated, it goes through.
+		const warned = new Set<string>();
+		pi.on("tool_call", async (event, ctx) => {
+			if (event.toolName !== "bash") return undefined;
+			const command = String((event.input as { command?: unknown }).command ?? "");
+			const installs = parseInstalls(command);
+			if (installs.length === 0 || warned.has(command)) return undefined;
+			const findings = (await Promise.all(installs.slice(0, 8).map(async (install) => assessPackage(install, await registryInfo(install))))).filter((finding): finding is string => Boolean(finding));
+			if (findings.length === 0) return undefined;
+			warned.add(command);
+			if (ctx.hasUI) ctx.ui.notify(`⚠ installazione da verificare:\n${findings.join("\n")}`, "warning");
+			return { block: true, reason: `Installazione fermata per un controllo: ${findings.join("; ")}. Verifica il nome giusto (o chiedi all'utente); se è davvero quello voluto, ripeti lo stesso comando.` };
 		});
 	}
 }
