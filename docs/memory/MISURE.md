@@ -73,6 +73,14 @@ simulato identico giorno per giorno.
 arriva all'88–90%, e i mancati sono catene il cui primo anello non entra tra i colpi diretti (rango 10 in BM25). Far
 partire camminate da colpi così deboli riempirebbe gli spunti di rumore, quindi non viene fatto.
 
+### Latenza per messaggio, da dove viene
+
+Su un archivio reale (32 ricordi) il richiamo registrava 42–186 ms per messaggio, mentre il bench dà meno di 1 ms a
+quella scala. Il tempo è quasi tutto nell'embedding e5 del messaggio: 22 ms al p50, 48 al p90, 116 al massimo, a modello
+caldo nel worker; il primo messaggio dopo il caricamento costa di più. Il richiamo sul grafo resta sotto 1 ms. Su una
+risposta del modello di 2–6 s pesa tra l'1% e il 4% e non blocca mai l'interfaccia. Le chiacchiere ("ok", "procedi")
+saltano sia l'embedding sia il richiamo.
+
 ## 2. Un anno simulato (`test/longterm.ts`, `bench/longterm-sim.ts`)
 
 60 argomenti che nascono e muoiono (~60 giorni ciascuno), ricordi nuovi ogni giorno con link, 8 richieste al giorno
