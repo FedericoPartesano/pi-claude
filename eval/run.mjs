@@ -41,6 +41,9 @@ async function runJob({ testCase, harnessName }) {
 				extraArgs: ["-e", join(evalDirectory, "../pi-team")],
 				environment: { PI_TEAM_AUTO_APPROVE: "1" },
 			})
+		: harnessName === "pi-parallel" || harnessName === "pi-parallel-forced"
+		? // Pi with pi-team loaded directly (parallel active, no tool-groups), left free to choose unless forced.
+			new PiHarness(directory, model, join(logDirectory, `${testCase.id}-${harnessName}.log`), { extraArgs: ["-e", join(evalDirectory, "../pi-team")] })
 		: harnessName === "pi"
 		? new PiHarness(directory, model, join(logDirectory, `${testCase.id}-pi.log`))
 		: harnessName === "pi-lean"
@@ -51,7 +54,7 @@ async function runJob({ testCase, harnessName }) {
 	const started = Date.now();
 	const turns = [];
 	for (const prompt of testCase.turns) {
-		const turn = await harness.runTurn(harnessName === "pi-team" ? `Usa il tool team per questo lavoro.\n\n${prompt}` : prompt);
+		const turn = await harness.runTurn(harnessName === "pi-team" ? `Usa il tool team per questo lavoro.\n\n${prompt}` : harnessName === "pi-parallel-forced" ? `Usa il tool parallel per questo lavoro.\n\n${prompt}` : prompt);
 		turns.push(turn);
 		if (turn.errors.some((error) => error.startsWith("process exited"))) break;
 	}
@@ -84,12 +87,18 @@ async function runJob({ testCase, harnessName }) {
 		// Team sub-agents run in their own processes: add their usage from the team report.
 		inputTokens: turns.reduce((sum, turn) => sum + turn.inputTokens + Number(/token input (\d+)/.exec(turn.teamReport ?? "")?.[1] ?? 0), 0),
 		outputTokens: turns.reduce((sum, turn) => sum + turn.outputTokens + Number(/output (\d+) ·/.exec(turn.teamReport ?? "")?.[1] ?? 0), 0),
+		// Main session usage by kind (cache reads and writes cost differently).
+		mainUsage: turns.reduce((sum, turn) => { for (const key of Object.keys(sum)) sum[key] += turn.usage?.[key] ?? 0; return sum; }, { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 }),
 		teamOutcome: turns.map((turn) => /# Report del team — (.*)/.exec(turn.teamReport ?? "")?.[1]).filter(Boolean).join(" | ") || undefined,
 		teamTasks: turns.reduce((sum, turn) => sum + ((turn.teamReport ?? "").match(/^- [✓✗⤼] /gm) ?? []).length, 0),
 		errors: turns.flatMap((turn) => turn.errors),
 		timeouts: turns.filter((turn) => turn.timedOut).length,
 		denials: turns.reduce((sum, turn) => sum + turn.denials, 0),
 		tools: turns.flatMap((turn) => turn.tools),
+		// Batching: answers asking for 2+ tool calls at once, and the largest batch.
+		batchedAnswers: turns.reduce((sum, turn) => sum + turn.batches.filter((size) => size > 1).length, 0),
+		toolAnswers: turns.reduce((sum, turn) => sum + turn.batches.length, 0),
+		largestBatch: Math.max(0, ...turns.flatMap((turn) => turn.batches)),
 		turns: turns.map((turn) => ({ prompt: turn.prompt.slice(0, 80), seconds: turn.seconds, requests: turn.requests, inputTokens: turn.inputTokens, answer: turn.answer.slice(0, 400), teamReport: turn.teamReport })),
 	};
 	appendFileSync(resultsFile, `${JSON.stringify(record)}\n`);

@@ -68,7 +68,7 @@ class JsonLineProcess {
 }
 
 function emptyTurn(prompt) {
-	return { prompt, answer: "", seconds: 0, requests: 0, inputTokens: 0, outputTokens: 0, tools: [], errors: [], denials: 0, timedOut: false };
+	return { prompt, answer: "", seconds: 0, requests: 0, inputTokens: 0, outputTokens: 0, usage: { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 }, tools: [], batches: [], errors: [], denials: 0, timedOut: false };
 }
 
 /**
@@ -195,13 +195,16 @@ export class PiHarness {
 					const message = record.message;
 					turn.requests++;
 					turn.inputTokens += (message.usage?.input ?? 0) + (message.usage?.cacheRead ?? 0) + (message.usage?.cacheWrite ?? 0);
+					for (const key of ["input", "cacheRead", "cacheWrite", "output"]) turn.usage[key] += message.usage?.[key] ?? 0;
 					turn.outputTokens += message.usage?.output ?? 0;
 					const text = message.content.filter((block) => block.type === "text").map((block) => block.text).join("");
 					if (text) turn.answer = text;
+					const calls = message.content.filter((block) => block.type === "toolCall").length;
+					if (calls) turn.batches.push(calls);
 					if (message.errorMessage) turn.errors.push(`[${message.stopReason}] ${message.errorMessage}`);
 				}
 				if (record.type === "tool_execution_start") turn.tools.push(record.toolName);
-				if (record.type === "tool_execution_end" && record.toolName === "team") {
+				if (record.type === "tool_execution_end" && (record.toolName === "team" || record.toolName === "parallel")) {
 					turn.teamReport = (record.result?.content ?? []).map((block) => block.text ?? "").join("");
 				}
 				if (record.type === "response" && record.success === false) turn.errors.push(`rpc: ${record.error}`);

@@ -8,3 +8,8 @@ eval/logs/intent-*/
 
 # Memory evaluation logs (transcripts and /dream outputs): results/ keeps the metrics.
 eval/logs/memory-*/
+
+# Benchmark logs of pi-team (child transcripts, ~1 MB each): results/ keeps the metrics.
+eval/logs/bench-*/
+eval/logs/collab-*/
+eval/logs/parallel-*/
