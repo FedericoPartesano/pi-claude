@@ -10,19 +10,27 @@
  * Nothing runs until the first use; no tool and no prompt text for the model.
  *
  * Environment:
- *   PI_VOICE_MODEL=…    Whisper model (default mlx-community/whisper-small-mlx; whisper-large-v3-turbo is more accurate)
- *   PI_VOICE_DEVICE=…   avfoundation audio input (default "default"; `ffmpeg -f avfoundation -list_devices true -i ""`)
- *   PI_VOICE_PYTHON=…   Python with mlx_whisper (default: the one in mlx_whisper's shebang, else python3)
+ *   PI_VOICE_MODEL=…    Whisper model (macOS: mlx-community/whisper-small-mlx; Linux/WSL: faster-whisper "small")
+ *   PI_VOICE_DEVICE=…   audio input: avfoundation on macOS, PulseAudio on Linux/WSL (default "default"; WSLg provides it)
+ *   PI_VOICE_PYTHON=…   Python with mlx_whisper (macOS; default: its shebang) or faster-whisper (Linux/WSL; default python3)
+ *   PI_VOICE_STEP=…     seconds between live previews (macOS 1.5, Linux/WSL 4)
+ * Linux/WSL setup: only ffmpeg (apt install ffmpeg). On first use the extension creates ~/.pi/voice-venv by
+ * itself (uv, or python3 -m venv) and installs faster-whisper + numpy there; PI_VOICE_PYTHON skips all of it.
  */
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 export const MAX_SECONDS = 120;
-const MODEL = process.env.PI_VOICE_MODEL ?? "mlx-community/whisper-small-mlx";
+const MAC = process.platform === "darwin";
+/** macOS: mlx_whisper (Apple Silicon). Linux/WSL: faster-whisper on CPU. */
+const MODEL = process.env.PI_VOICE_MODEL ?? (MAC ? "mlx-community/whisper-small-mlx" : "small");
+/** Seconds of new audio between live previews: a CPU without GPU needs longer to keep up. */
+const STEP = process.env.PI_VOICE_STEP ?? (MAC ? "1.5" : "4");
 const DEVICE = process.env.PI_VOICE_DEVICE ?? "default";
 const WORKER = join(dirname(fileURLToPath(import.meta.url)), "voice-worker.py");
 /** Preview lines above the editor: the end of the text, so the newest words are always visible. */
@@ -49,8 +57,8 @@ export function appendDictation(current: string, dictated: string): string {
 }
 
 /** ffmpeg: microphone → raw 16 kHz mono s16le on stdout, stopped by "q" on stdin or the time limit. */
-export const recordArgs = (device = DEVICE) =>
-	["-hide_banner", "-loglevel", "error", "-f", "avfoundation", "-i", `:${device}`, "-ac", "1", "-ar", "16000", "-t", String(MAX_SECONDS), "-f", "s16le", "pipe:1"];
+export const recordArgs = (device = DEVICE, mac = MAC) =>
+	["-hide_banner", "-loglevel", "error", ...(mac ? ["-f", "avfoundation", "-i", `:${device}`] : ["-f", "pulse", "-i", device]), "-ac", "1", "-ar", "16000", "-t", String(MAX_SECONDS), "-f", "s16le", "pipe:1"];
 
 /** The Python that has mlx_whisper: PI_VOICE_PYTHON, else the interpreter in the mlx_whisper script's shebang. */
 export function findPython(path = process.env.PATH ?? ""): string {
@@ -62,6 +70,35 @@ export function findPython(path = process.env.PATH ?? ""): string {
 		if (shebang && existsSync(shebang)) return shebang;
 	}
 	return "python3";
+}
+
+export const VENV = join(homedir(), ".pi", "voice-venv");
+const VENV_PYTHON = join(VENV, "bin", "python");
+
+const run = (command: string, args: string[]) =>
+	new Promise<{ ok: boolean; error: string }>((resolve) => {
+		let error = "";
+		const child = spawn(command, args, { stdio: ["ignore", "ignore", "pipe"] });
+		child.stderr!.on("data", (chunk: Buffer) => (error = (error + chunk.toString("utf8")).slice(-400)));
+		child.on("error", (e) => resolve({ ok: false, error: String(e.message) }));
+		child.on("close", (code) => resolve({ ok: code === 0, error }));
+	});
+
+/** Linux/WSL without a configured Python: the private venv with faster-whisper, created on first use. Undefined: use findPython(). */
+export async function ensureVenv(notify: (message: string) => void): Promise<string | undefined> {
+	if (MAC || process.env.PI_VOICE_PYTHON) return undefined;
+	const ready = async () => (await run(VENV_PYTHON, ["-c", "import numpy, faster_whisper"])).ok;
+	if (existsSync(VENV_PYTHON) && (await ready())) return VENV_PYTHON;
+	notify("Voce: prima configurazione (installo faster-whisper, un paio di minuti)…");
+	let made = await run("uv", ["venv", "--clear", VENV]);
+	if (made.ok) made = await run("uv", ["pip", "install", "--python", VENV_PYTHON, "faster-whisper", "numpy"]);
+	else {
+		made = await run("python3", ["-m", "venv", "--clear", VENV]);
+		if (made.ok) made = await run(VENV_PYTHON, ["-m", "pip", "install", "faster-whisper", "numpy"]);
+		else throw new Error(`non riesco a creare l'ambiente Python (installa uv o python3-venv). ${made.error.trim().split("\n").pop() ?? ""}`);
+	}
+	if (!made.ok || !(await ready())) throw new Error(`installazione di faster-whisper non riuscita. ${made.error.trim().split("\n").pop() ?? ""}`);
+	return VENV_PYTHON;
 }
 
 /** Wraps the preview to the width and keeps the last lines. */
@@ -91,7 +128,7 @@ const describe = (error: unknown, program: string, install: string) =>
 type Dictation = { recorder: ChildProcess; worker: ChildProcess; final: Promise<string | undefined>; timer: ReturnType<typeof setInterval> };
 
 export default function (pi: ExtensionAPI) {
-	let state: "idle" | "recording" | "transcribing" = "idle";
+	let state: "idle" | "preparing" | "recording" | "transcribing" = "idle";
 	let current: Dictation | undefined;
 
 	const preview = (ctx: ExtensionContext, text: string) => {
@@ -102,8 +139,8 @@ export default function (pi: ExtensionAPI) {
 		}));
 	};
 
-	const start = (ctx: ExtensionContext) => {
-		const worker = spawn(findPython(), ["-I", WORKER, MODEL], { stdio: ["pipe", "pipe", "pipe"] });
+	const start = (ctx: ExtensionContext, python: string) => {
+		const worker = spawn(python, ["-I", WORKER, MODEL, STEP], { stdio: ["pipe", "pipe", "pipe"] });
 		const recorder = spawn("ffmpeg", recordArgs(), { stdio: ["pipe", "pipe", "pipe"] });
 		let failure: string | undefined;
 		let workerErrors = "";
@@ -111,7 +148,7 @@ export default function (pi: ExtensionAPI) {
 		worker.stderr!.on("data", (chunk: Buffer) => (workerErrors = (workerErrors + chunk.toString("utf8")).slice(-800)));
 		recorder.stderr!.on("data", (chunk: Buffer) => (recorderErrors = (recorderErrors + chunk.toString("utf8")).slice(-600)));
 		worker.on("error", (error) => (failure ??= describe(error, "python", "imposta PI_VOICE_PYTHON")));
-		recorder.on("error", (error) => (failure ??= describe(error, "ffmpeg", "brew install ffmpeg")));
+		recorder.on("error", (error) => (failure ??= describe(error, "ffmpeg", MAC ? "brew install ffmpeg" : "sudo apt install ffmpeg")));
 		worker.stdin!.on("error", () => {}); // the worker died: reported through its exit
 		recorder.stdout!.pipe(worker.stdin!);
 
@@ -180,10 +217,18 @@ export default function (pi: ExtensionAPI) {
 
 	const toggle = async (ctx: ExtensionContext) => {
 		if (!ctx.hasUI || ctx.mode !== "tui") return;
-		if (process.platform !== "darwin") return ctx.ui.notify("Voce: per ora solo su macOS.", "warning");
+		if (process.platform !== "darwin" && process.platform !== "linux") return ctx.ui.notify("Voce: solo su macOS e Linux/WSL.", "warning");
 		if (state === "recording") return stop(ctx);
 		if (state === "transcribing") return ctx.ui.notify("Voce: sto ancora trascrivendo.", "info");
-		return start(ctx);
+		if (state === "preparing") return ctx.ui.notify("Voce: configurazione in corso, un attimo.", "info");
+		state = "preparing";
+		try {
+			const python = (await ensureVenv((message) => ctx.ui.notify(message, "info"))) ?? findPython();
+			return start(ctx, python);
+		} catch (error) {
+			state = "idle";
+			ctx.ui.notify(`Voce: ${(error as Error).message}`, "error");
+		}
 	};
 
 	pi.registerShortcut("ctrl+alt+v", { description: "Dettatura vocale in italiano (premi di nuovo per finire)", handler: toggle });

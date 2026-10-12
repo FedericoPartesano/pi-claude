@@ -21,10 +21,17 @@ test("dictation is appended to what was already typed", () => {
 });
 
 test("ffmpeg streams raw 16 kHz mono to stdout with a time limit", () => {
-	const args = recordArgs("0");
+	const args = recordArgs("0", true);
 	assert.deepEqual(args.slice(args.indexOf("-i"), args.indexOf("-i") + 2), ["-i", ":0"]);
 	assert.ok(args.includes("16000") && args.includes(String(MAX_SECONDS)) && args.includes("s16le"));
 	assert.equal(args.at(-1), "pipe:1");
+});
+
+test("linux/wsl records from PulseAudio, macOS from avfoundation", () => {
+	const linux = recordArgs("default", false);
+	assert.deepEqual(linux.slice(linux.indexOf("-f"), linux.indexOf("-f") + 4), ["-f", "pulse", "-i", "default"]);
+	assert.ok(!linux.includes("avfoundation"));
+	assert.ok(recordArgs("0", true).includes("avfoundation"));
 });
 
 test("preview: wrapped to the width, only the newest lines, every line fits", () => {

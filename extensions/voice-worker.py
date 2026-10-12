@@ -13,11 +13,17 @@ import threading
 import time
 
 import numpy as np
-import mlx_whisper
 
-MODEL = sys.argv[1] if len(sys.argv) > 1 else "mlx-community/whisper-small-mlx"
+try:
+    import mlx_whisper  # macOS, Apple Silicon
+except ImportError:
+    mlx_whisper = None
+    from faster_whisper import WhisperModel  # Linux / WSL, CPU
+
+MODEL = sys.argv[1] if len(sys.argv) > 1 else ("mlx-community/whisper-small-mlx" if mlx_whisper else "small")
+faster = WhisperModel(MODEL, device="cpu", compute_type="int8") if mlx_whisper is None else None
 RATE = 16_000
-STEP = 1.5      # seconds of new audio before the next partial
+STEP = float(sys.argv[2]) if len(sys.argv) > 2 else 1.5      # seconds of new audio before the next partial
 WINDOW = 30     # partials look at the last WINDOW seconds only, so they stay fast on long dictations
 MIN_SECONDS = 0.4
 SILENCE_RMS = 0.002  # ~-54 dBFS: a quiet room is ~-62, speech is far louder; Whisper invents subtitles on silence
@@ -50,6 +56,12 @@ def audio(last_seconds=None):
 def transcribe(samples, temperature):
     if len(samples) < MIN_SECONDS * RATE or float(np.sqrt(np.mean(samples ** 2))) < SILENCE_RMS:
         return ""
+    if faster is not None:
+        segments, _ = faster.transcribe(
+            samples, language="it", task="transcribe", condition_on_previous_text=False,
+            temperature=temperature, beam_size=1,
+        )
+        return " ".join(segment.text.strip() for segment in segments).strip()
     result = mlx_whisper.transcribe(
         samples, path_or_hf_repo=MODEL, language="it", task="transcribe",
         condition_on_previous_text=False, temperature=temperature, verbose=None,
