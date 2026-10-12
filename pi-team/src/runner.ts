@@ -22,6 +22,8 @@ export interface AgentRequest {
 	cwd: string;
 	signal?: AbortSignal;
 	timeoutMs?: number;
+	/** Every JSON event of the child, as it arrives (live view of the agents). */
+	onEvent?: (event: any) => void;
 }
 
 export type RunAgent = (request: AgentRequest) => Promise<AgentRun>;
@@ -29,7 +31,7 @@ export type RunAgent = (request: AgentRequest) => Promise<AgentRun>;
 /** Set in child processes so a team agent never loads the team tool itself. */
 export const CHILD_ENVIRONMENT_FLAG = "PI_TEAM_CHILD";
 
-export const runAgent: RunAgent = ({ role, prompt, cwd, signal, timeoutMs = 20 * 60_000 }) => {
+export const runAgent: RunAgent = ({ role, prompt, cwd, signal, timeoutMs = 20 * 60_000, onEvent }) => {
 	const started = Date.now();
 	const run: AgentRun = { ok: false, text: "", inputTokens: 0, outputTokens: 0, requests: 0, seconds: 0 };
 	const args = [
@@ -56,6 +58,11 @@ export const runAgent: RunAgent = ({ role, prompt, cwd, signal, timeoutMs = 20 *
 				event = JSON.parse(line);
 			} catch {
 				return;
+			}
+			try {
+				onEvent?.(event);
+			} catch {
+				// A broken view must never stop the agent.
 			}
 			if (event.type === "message_end" && event.message?.role === "assistant") {
 				const message = event.message;

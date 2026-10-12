@@ -59,7 +59,7 @@ test empirici come giudice + revisore, budget adattivo, sotto-progetto 1 = orche
 - `pi-team/package.json`, `tsconfig.json`, `npm install` fatto.
 - `src/plan.ts` (schema TeamPlan/TeamTask, `validatePlan` con cicli/dipendenze/ruoli/verify obbligatorio per chi scrive, `renderPlan`)
 - `src/roles.ts` (`parseRole`, `loadRoles` da `roles/` + override `~/.pi/agent/team/roles/`)
-- `src/budget.ts` (`decideBudget`: 5h <50%→3, <70%→2, <90%→1, ≥90% o overage→0; `readUsage` da `~/.pi/agent/claude-code-usage.json`)
+- `src/budget.ts` (`decideBudget`: 5h <80%→8, <90%→3, <95%→1, ≥95% o overage→0, tetto `PI_PARALLEL_MAX`; `liveConcurrency` lo rilegge a ogni passo; `readUsage` da `~/.pi/agent/claude-code-usage.json`)
 - `src/verify.ts` (`runVerifyCommand(s)`: bash, timeout, coda output)
 - `src/runner.ts` (`runAgent`: `pi --mode json -p --no-session --provider claude-code --model --thinking --tools --append-system-prompt <ruolo> <prompt>`, env `PI_TEAM_CHILD=1`)
 - `roles/`: scout (haiku, read+bash), implementer (sonnet, writes), tester (sonnet, writes), reviewer (sonnet, verdetto `VERDETTO: APPROVATO|MODIFICHE`)
