@@ -33,3 +33,9 @@ test("regularWidth: one column short behind ConPTY, unchanged elsewhere", () => 
 	assert.equal(regularWidth(160, 40, true), 118);
 	assert.equal(regularWidth(30, 40, true), 20);
 });
+
+test("isTerminalReplyLeak: stray terminal answers yes, typing and real text no", async () => {
+	const { isTerminalReplyLeak } = await import("../src/terminal.ts");
+	for (const leak of ["95", "4;9", "]4;9;rgb:ffff/0000/aaaa", "4;12;rgb:1a/2b/3c", "[?65;4;6c", "[48;20R"]) assert.ok(isTerminalReplyLeak(leak), leak);
+	for (const real of ["9", "a", "95 anni", "ciao", "\x1b[A", "\r", "12 aprile"]) assert.ok(!isTerminalReplyLeak(real), real);
+});

@@ -87,3 +87,13 @@ test("worker: partials while audio arrives, then the whole sentence", { skip: !(
 	const final = messages.find((m) => typeof m.final === "string")?.final as string;
 	assert.match(final.toLowerCase(), /calcolo dello sconto nel carrello/);
 });
+
+test("spaceEvent: legacy space and kitty press, repeat and release; nothing else", async () => {
+	const { spaceEvent } = await import("./voice.ts");
+	assert.deepEqual(spaceEvent(" "), { event: "press", kitty: false });
+	assert.deepEqual(spaceEvent("\x1b[32u"), { event: "press", kitty: true });
+	assert.deepEqual(spaceEvent("\x1b[32;1:1u"), { event: "press", kitty: true });
+	assert.deepEqual(spaceEvent("\x1b[32;1:2u"), { event: "repeat", kitty: true });
+	assert.deepEqual(spaceEvent("\x1b[32;1:3u"), { event: "release", kitty: true });
+	for (const other of ["a", "  ", "\x1b[97u", "\x1b[320u", "\r"]) assert.equal(spaceEvent(other), undefined, other);
+});

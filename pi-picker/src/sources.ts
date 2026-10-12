@@ -275,3 +275,33 @@ export function listSource(items: PickerItem[], preview?: (item: PickerItem) => 
 	return { start: "", list: () => items, preview };
 }
 
+
+// ---- Sessions -----------------------------------------------------------------------------------------------
+
+export interface SessionRow {
+	path: string;
+	cwd: string;
+	/** Name set with /name or by session-title; absent for sessions never named. */
+	name?: string;
+	firstMessage: string;
+	messageCount: number;
+	modified: Date;
+}
+
+/** One line of text, cut at `max` characters. */
+const oneLine = (text: string, max: number) => {
+	const flat = text.replace(/\s+/g, " ").trim();
+	return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
+};
+
+/** Sessions to resume, most recent first: the name (or the first message) and how long ago. value = session path. */
+export function sessionsSource(rows: SessionRow[], now = Date.now()): PickerSource {
+	const items = [...rows]
+		.sort((a, b) => b.modified.getTime() - a.modified.getTime())
+		.map((row): PickerItem => ({
+			value: row.path,
+			label: oneLine(row.name || row.firstMessage || "(sessione vuota)", 70),
+			description: ago(row.modified.getTime(), now),
+		}));
+	return { start: "", list: () => items, describe: () => "Le più recenti in alto" };
+}

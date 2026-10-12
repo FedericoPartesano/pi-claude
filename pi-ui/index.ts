@@ -24,7 +24,7 @@ import { renderImageEntry, renderImageLoading, thumbnailColumns } from "./src/im
 import { findImageRefs, thumbnailFor, type Thumbnail } from "./src/images.ts";
 import { C, bg, bold, fg, fit, hud, label, usePalette } from "./src/palette.ts";
 import { PINNED_MIN_COLUMNS, sidebarRoot, type SidebarRoot } from "./src/sidebar.ts";
-import { behindConPty, imageProtocolFor, regularMode, regularWidth } from "./src/terminal.ts";
+import { behindConPty, imageProtocolFor, isTerminalReplyLeak, regularMode, regularWidth } from "./src/terminal.ts";
 import { activeIntent, planFromBranch, planFromDetails, type PlanTask } from "./src/sources.ts";
 import { PANEL_KEY, PANEL_WIDTH, parseAheadBehind, parseNumstat, parsePorcelain, renderPanel, statusesChanged, type ChangedFile, type PanelInfo } from "./src/panel.ts";
 import { shouldNotify, toastScript } from "./src/notify.ts";
@@ -38,7 +38,7 @@ import { completeStep, renderTurn, type Step } from "./src/steps.ts";
 import { describeActivity, findCommandProcess, sampleActivity, slowCommandHint, type Sample } from "./src/liveness.ts";
 import { checkOutcome, failingTests } from "./src/test-output.ts";
 import { renderFooter } from "./src/footer.ts";
-import { renderStatusBar } from "./src/status-bar.ts";
+import { renderStatusBar, renderVoiceBar } from "./src/status-bar.ts";
 import { elapsedSeconds, initialStatus, nextStatus, type StatusEvent } from "./src/status.ts";
 import { RESTART_FILE, writeRestartRequest } from "./src/restart.ts";
 import { restoreSession } from "./src/restore.ts";
@@ -310,6 +310,16 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx: ExtensionContext) => {
 		if (ctx.mode !== "tui") return;
+		// The terminal's late answers to Pi's startup color questions can arrive as plain text ("95"): drop them for the
+		// first seconds, and clear the prompt if one already got in.
+		const startedAt = Date.now();
+		// Measured in WezTerm/ConPTY: the tail of a startup answer arrives key by key ("9", "5", ESC \) ~0.6 s after start.
+		const stopGuard = ctx.ui.onTerminalInput((data) =>
+			isTerminalReplyLeak(data) || (Date.now() - startedAt < 1500 && /^(?:[\d;:]|\x1b\\)$/.test(data)) ? { consume: true } : undefined);
+		setTimeout(() => {
+			stopGuard();
+			if (isTerminalReplyLeak(ctx.ui.getEditorText())) ctx.ui.setEditorText("");
+		}, 3000).unref?.();
 		const session = (await runtimeAgentSession(process.argv[1], AgentSession)) as { prototype: Parameters<typeof patchPromptRace>[0] };
 		patchPromptRace(session.prototype);
 		active = true;
@@ -341,7 +351,8 @@ export default function (pi: ExtensionAPI) {
 				syncSidebar();
 				// The palette follows Pi's theme (/settings → Theme: neon-night, lilla or night-city): on a switch, redraw everything once.
 				if (usePalette(ctx.ui.theme.name)) widgetTui.requestRender();
-				return renderStatusBar(status, width, Date.now(), frame);
+				const voice = statuses.get("voice");
+				return voice ? renderVoiceBar(voice, width) : renderStatusBar(status, width, Date.now(), frame);
 			});
 		}, { placement: "aboveEditor" });
 		ctx.ui.setEditorComponent((editorTui, theme, keybindings) => new PromptEditor(editorTui, theme, keybindings));

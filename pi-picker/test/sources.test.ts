@@ -94,3 +94,15 @@ test("projectsSource starts from recent projects plus a browse entry", async () 
 	assert.equal(items.at(-1)?.enter, home);
 	assert.equal(source.parent?.(source.start), undefined);
 });
+
+test("sessionsSource: most recent first, name before first message, age in the description", async () => {
+	const { sessionsSource } = await import("../src/sources.ts");
+	const now = Date.parse("2026-10-12T12:00:00Z");
+	const row = (path: string, minutesAgo: number, extra = {}) => ({ path, cwd: "/tmp/p", firstMessage: `primo ${path}`, messageCount: 4, modified: new Date(now - minutesAgo * 60_000), ...extra });
+	const source = sessionsSource([row("vecchia", 3000), row("nuova", 5, { name: "Fix voce senza numpy" }), row("media", 120)], now);
+	const items = await source.list("");
+	assert.deepEqual(items.map((item) => item.value), ["nuova", "media", "vecchia"]);
+	assert.equal(items[0]!.label, "Fix voce senza numpy");
+	assert.equal(items[1]!.label, "primo media");
+	assert.equal(items[0]!.description, "5 min fa");
+});

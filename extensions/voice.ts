@@ -1,5 +1,5 @@
 /**
- * Voice dictation: ctrl+alt+v (or /voice) starts recording, the same key stops it, and the Italian
+ * Voice dictation: hold the space bar on an empty prompt (release to finish), or Alt+M (or /voice) starts recording, the same key stops it, and the Italian
  * transcript goes into the editor, to read and send with Enter. While you talk, a grey preview above the
  * editor shows what has been understood so far; the editor is only touched at the end.
  *
@@ -10,6 +10,7 @@
  * Nothing runs until the first use; no tool and no prompt text for the model.
  *
  * Environment:
+ *   PI_VOICE_KEY=…      shortcut (default alt+m; alt+v and ctrl+v are Pi's image paste)
  *   PI_VOICE_MODEL=…    Whisper model (macOS: mlx-community/whisper-small-mlx; Linux/WSL: faster-whisper "small")
  *   PI_VOICE_DEVICE=…   audio input: avfoundation on macOS, PulseAudio on Linux/WSL (default "default"; WSLg provides it)
  *   PI_VOICE_PYTHON=…   Python with mlx_whisper (macOS; default: its shebang) or faster-whisper (Linux/WSL; default python3)
@@ -31,6 +32,8 @@ const MAC = process.platform === "darwin";
 const MODEL = process.env.PI_VOICE_MODEL ?? (MAC ? "mlx-community/whisper-small-mlx" : "small");
 /** Seconds of new audio between live previews: a CPU without GPU needs longer to keep up. */
 const STEP = process.env.PI_VOICE_STEP ?? (MAC ? "1.5" : "4");
+const KEY = (process.env.PI_VOICE_KEY || "alt+m").toLowerCase();
+const KEY_LABEL = KEY.replace(/\b[a-z]/g, (c) => c.toUpperCase());
 const DEVICE = process.env.PI_VOICE_DEVICE ?? "default";
 const WORKER = join(dirname(fileURLToPath(import.meta.url)), "voice-worker.py");
 /** Preview lines above the editor: the end of the text, so the newest words are always visible. */
@@ -99,6 +102,18 @@ export async function ensureVenv(notify: (message: string) => void): Promise<str
 	}
 	if (!made.ok || !(await ready())) throw new Error(`installazione di faster-whisper non riuscita. ${made.error.trim().split("\n").pop() ?? ""}`);
 	return VENV_PYTHON;
+}
+
+export type SpaceEvent = "press" | "repeat" | "release";
+/**
+ * The space bar in raw terminal input: legacy " " (repeats are more " "), or the kitty protocol
+ * (CSI 32 ; mods : type u, type 1 press / 2 repeat / 3 release). Undefined for anything else.
+ */
+export function spaceEvent(data: string): { event: SpaceEvent; kitty: boolean } | undefined {
+	if (data === " ") return { event: "press", kitty: false };
+	const match = /^\x1b\[32(?:::\d+)?(?:;\d*(?::([123]))?)?u$/.exec(data);
+	if (!match) return undefined;
+	return { event: match[1] === "3" ? "release" : match[1] === "2" ? "repeat" : "press", kitty: true };
 }
 
 /** Wraps the preview to the width and keeps the last lines. */
@@ -183,7 +198,7 @@ export default function (pi: ExtensionAPI) {
 		const started = Date.now();
 		const show = () => {
 			const time = elapsed(Math.round((Date.now() - started) / 1000));
-			ctx.ui.setStatus("voice", ready ? `● ${time} parla · ctrl+alt+v per finire` : `● ${time} carico il modello, parla pure · ctrl+alt+v per finire`);
+			ctx.ui.setStatus("voice", ready ? `● ${time} parla · ${KEY_LABEL} per finire` : `● ${time} carico il modello, parla pure · ${KEY_LABEL} per finire`);
 		};
 		show();
 		current = { recorder, worker, final: final.then((text) => (failure ? undefined : text)), timer: setInterval(show, 1000) };
@@ -222,22 +237,72 @@ export default function (pi: ExtensionAPI) {
 		if (state === "transcribing") return ctx.ui.notify("Voce: sto ancora trascrivendo.", "info");
 		if (state === "preparing") return ctx.ui.notify("Voce: configurazione in corso, un attimo.", "info");
 		state = "preparing";
+		ctx.ui.setStatus("voice", "◌ preparo la voce…");
 		try {
-			const python = (await ensureVenv((message) => ctx.ui.notify(message, "info"))) ?? findPython();
+			const python = (await ensureVenv((message) => ctx.ui.setStatus("voice", `◌ ${message.replace(/^Voce:\s*/, "")}`))) ?? findPython();
 			return start(ctx, python);
 		} catch (error) {
 			state = "idle";
+			ctx.ui.setStatus("voice", undefined);
 			ctx.ui.notify(`Voce: ${(error as Error).message}`, "error");
 		}
 	};
 
-	pi.registerShortcut("ctrl+alt+v", { description: "Dettatura vocale in italiano (premi di nuovo per finire)", handler: toggle });
+	pi.registerShortcut(KEY as Parameters<typeof pi.registerShortcut>[0], { description: "Dettatura vocale in italiano (premi di nuovo per finire)", handler: toggle });
 	pi.registerCommand("voice", {
-		description: "Dettatura vocale in italiano, trascritta in locale: avvia o ferma la registrazione (anche ctrl+alt+v)",
+		description: `Dettatura vocale in italiano, trascritta in locale: avvia o ferma la registrazione (anche ${KEY_LABEL})`,
 		handler: async (_args, ctx) => toggle(ctx),
 	});
 
+	// Hold to talk. Terminals that report key release (kitty protocol): record while the key is down. The others:
+	// the held key repeats, so recording starts at the first repeat and ends when the repeats stop.
+	let hold: "idle" | "pending" | "active" = "idle";
+	let holdTimer: ReturnType<typeof setTimeout> | undefined;
+	let holdOwned = false;
+	let offInput: (() => void) | undefined;
+	const clearHoldTimer = () => holdTimer && clearTimeout(holdTimer);
+	const endHold = (ctx: ExtensionContext) => {
+		clearHoldTimer();
+		const wasActive = hold === "active";
+		hold = "idle";
+		if (wasActive && holdOwned && state === "recording") void stop(ctx);
+		holdOwned = false;
+	};
+	const beginHold = (ctx: ExtensionContext, silence: number) => {
+		hold = "active";
+		holdOwned = state === "idle";
+		clearHoldTimer();
+		holdTimer = setTimeout(() => endHold(ctx), silence);
+		if (!holdOwned) return;
+		// Released while the first-use setup was still running: stop as soon as recording has started.
+		void toggle(ctx).then(() => { if (hold === "idle" && holdOwned && state === "recording") void stop(ctx); });
+	};
+	const onInput = (ctx: ExtensionContext) => (data: string): { consume: true } | undefined => {
+		const key = spaceEvent(data);
+		if (!key) return undefined;
+		if (hold === "idle") {
+			if (key.event === "release" || state !== "idle" || ctx.ui.getEditorText() !== "") return undefined;
+			hold = "pending";
+			clearHoldTimer();
+			holdTimer = setTimeout(() => (key.kitty ? beginHold(ctx, 1500) : (hold = "idle")), key.kitty ? 350 : 1000);
+			return { consume: true };
+		}
+		if (key.event === "release") return endHold(ctx), { consume: true };
+		if (hold === "pending") return beginHold(ctx, key.kitty ? 1500 : 350), { consume: true };
+		clearHoldTimer();
+		holdTimer = setTimeout(() => endHold(ctx), key.kitty ? 1500 : 350);
+		return { consume: true };
+	};
+	pi.on("session_start", async (_event, ctx) => {
+		offInput?.();
+		if (ctx.mode !== "tui" || !ctx.hasUI) return;
+		offInput = ctx.ui.onTerminalInput(onInput(ctx));
+	});
+
 	pi.on("session_shutdown", async () => {
+		offInput?.();
+		offInput = undefined;
+		clearHoldTimer();
 		if (!current) return;
 		clearInterval(current.timer);
 		current.recorder.kill("SIGKILL");

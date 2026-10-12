@@ -42,3 +42,12 @@ export function regularWidth(width: number, panelColumns: number, conpty: boolea
 	const room = conpty ? width - 1 : width;
 	return panelColumns > 0 ? Math.max(20, room - panelColumns - 1) : room;
 }
+
+/**
+ * Leftovers of the terminal's answers to Pi's startup questions (colors, device attributes): behind ConPTY a late or
+ * split answer loses its escape bytes and arrives as plain text ("95", "4;9;rgb:…"), which would land in the prompt.
+ * Typing arrives one key at a time, so a multi-character chunk made only of such characters is never the user.
+ */
+export function isTerminalReplyLeak(data: string): boolean {
+	return /^[\d;:?]{2,}$/.test(data) || /^\]?\d+;(?:\d+;)?rgb:[0-9a-f/]+$/i.test(data) || /^\[\??[\d;]*[cRtu]$/.test(data);
+}

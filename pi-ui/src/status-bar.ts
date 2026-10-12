@@ -50,3 +50,10 @@ export function renderStatusBar(status: TurnStatus, width: number, now: number, 
 			return fit(stateTag(C.faint, " PRONTO "), "", width);
 	}
 }
+
+/** Voice dictation (extensions/voice.ts sets the "voice" status): it takes over the bar while recording or transcribing. */
+export function renderVoiceBar(text: string, width: number): string {
+	const body = text.replace(/^[●◌]\s*/, "");
+	const [color, name] = text.startsWith("●") ? [C.err, " ● REGISTRO "] : /^trascrivo/.test(body) ? [C.yel, " ◌ TRASCRIVO "] : [C.yel, " ◌ PREPARO "];
+	return fit(`${stateTag(color, name)}  ${fg(C.text, truncateToWidth(body, Math.max(4, width - 18)))}`, "", width);
+}
