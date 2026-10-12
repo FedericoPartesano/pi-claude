@@ -88,7 +88,7 @@ test("recall without embedder: BM25 + entities; @file mention + one-step associa
 	const hit = recall(index, "correggi @src/lib/price.ts", { today: "2026-10-06" });
 	assert.deepEqual(hit.hits.slice(0, 2).map((h) => h.record.id).sort(), ["r4", "r6"]);
 	assert.equal(recall(index, "ciao", { today: "2026-10-06" }).hits.length, 0);
-	// includeSuperseded is for /ricorda only
+	// includeSuperseded is for /recall only
 	assert.ok(recall(index, "prezzi float", { today: "2026-10-06", includeSuperseded: true, threshold: 0.15 }).hits.some((h) => h.record.id === "r5"));
 });
 

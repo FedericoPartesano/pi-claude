@@ -8,7 +8,7 @@
  * - `file:riga` in answers link to VS Code where the terminal supports links; answers start with ⬢.
  * - Up to 4 suggestions after a turn, picked with keys 1-4; dangerous commands asked in the status bar (s/n/a);
  *   a Windows notification after long turns. The dangerous-command check stays on even with PI_UI=off.
- * - Alt+S (or /pannello; PI_UI_PANEL_KEY changes the key): session panel on the right (goal/loop/team, changed files,
+ * - Alt+S (or /panel; PI_UI_PANEL_KEY changes the key): session panel on the right (goal/loop/team, changed files,
  *   failing tests, last image, usage).
  * Interactive TUI only; PI_UI=off turns it off (the theme stays selectable in /settings → Theme).
  */
@@ -771,7 +771,7 @@ export default function (pi: ExtensionAPI) {
 		}, 50);
 	});
 	pi.registerShortcut(panelKey as Parameters<typeof pi.registerShortcut>[0], { description: "Pannello della sessione: goal/loop/team, file, test, immagini, uso", handler: togglePanel });
-	pi.registerCommand("pannello", { description: `Apre o chiude il pannello della sessione (come ${panelKey})`, handler: async (_args, ctx) => togglePanel(ctx) });
+	pi.registerCommand("panel", { description: `Apre o chiude il pannello della sessione (come ${panelKey})`, handler: async (_args, ctx) => togglePanel(ctx) });
 
 	// /custom-reload: full restart on the same conversation (Pi's /reload only reloads resources inside this process).
 	pi.registerCommand("custom-reload", {

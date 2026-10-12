@@ -399,7 +399,7 @@ export interface RecallOptions {
 	/** Cosine range above the floor mapped to full similarity (default: up to cosine 1). */
 	semSpan?: number;
 	threshold?: number;
-	/** Threshold for read-only inquiries (default INQUIRY_THRESHOLD; 0 = same as threshold, e.g. /ricorda). */
+	/** Threshold for read-only inquiries (default INQUIRY_THRESHOLD; 0 = same as threshold, e.g. /recall). */
 	inquiryThreshold?: number;
 	limit?: number;
 	includeSuperseded?: boolean;

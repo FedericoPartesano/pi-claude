@@ -1,6 +1,6 @@
 /**
  * Memory ("human-like"): /dream consolidates past sessions into .pi/memory.md (project) or ~/.pi/agent/memory.md
- * (global), loaded into the prompt within a cap; /ricorda searches the archive; /memory shows and edits the memories.
+ * (global), loaded into the prompt within a cap; /recall searches the archive; /memory shows and edits the memories.
  * The /dream result stays in the chat and setStatus("memory") tells what memory is doing. Zero cost without memory files.
  *
  *   PI_DREAM_SESSIONS_DIR   sessions root to read (default: this project's Pi session folder)
@@ -713,12 +713,12 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerCommand("ricorda", {
-		description: "Cerca nei ricordi archiviati: /ricorda <cosa> [--use per metterli nel contesto]",
+	pi.registerCommand("recall", {
+		description: "Cerca nei ricordi archiviati: /recall <cosa> [--use per metterli nel contesto]",
 		handler: async (args, ctx) => {
 			const use = /--use\b/.test(args);
 			const query = args.replace(/--use\b/, "").trim();
-			if (!query) return ctx.ui.notify("Uso: /ricorda <cosa> [--use]", "info");
+			if (!query) return ctx.ui.notify("Uso: /recall <cosa> [--use]", "info");
 			if (deepMode()) {
 				migrate(ctx.cwd, today());
 				const dirs = deepDirs(ctx.cwd);

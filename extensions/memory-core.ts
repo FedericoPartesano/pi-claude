@@ -1,5 +1,5 @@
 /**
- * Memory core: pure functions behind /dream and /ricorda (no Pi imports, tested with node --test).
+ * Memory core: pure functions behind /dream and /recall (no Pi imports, tested with node --test).
  *
  * Human-memory model: sessions are short-term memory; /dream consolidates them into memory.md (long-term, always in
  * context, capped) and memory-archive.md (episodes, superseded and faded memories, recalled on demand).
@@ -53,7 +53,7 @@ export interface Proposal {
 
 const HEADERS = {
 	memory: "# Memoria di Pi\n<!-- gestita da /dream: modificabile a mano -->\n",
-	archive: "# Archivio della memoria di Pi\n<!-- ricordi superati, sbiaditi o episodi: non in contesto, cercali con /ricorda -->\n",
+	archive: "# Archivio della memoria di Pi\n<!-- ricordi superati, sbiaditi o episodi: non in contesto, cercali con /recall -->\n",
 };
 
 // ---- Format ---------------------------------------------------------------------------------------------------
