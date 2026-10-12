@@ -276,3 +276,30 @@ test("@ in the composer: a file of the project as a chip, sent as a mention", { 
 	}
 });
 
+
+test("team card: the team step shows pi-team's board live, then the outcome", { skip, timeout: 60_000 }, async () => {
+	const { js, close } = await openPage();
+	const board = (phase, t2, extra = {}) => JSON.stringify({
+		goal: "g", phase, fixRounds: 0, preexisting: [], finalChecks: [], startedAt: 0, ...extra,
+		tasks: [
+			{ id: "t1", role: "scout", model: "haiku", title: "esplora", dependsOn: [], state: "done", attempts: 1, parallel: false, tokens: 12000, seconds: 3 },
+			{ id: "t2", role: "implementer", model: "sonnet", title: "scrive il carrello", dependsOn: ["t1"], state: t2, attempts: 2, parallel: false, error: "`npm test`: not ok 1 - somma", tokens: 0, seconds: 0 },
+		],
+	});
+	try {
+		await js(`emit("pi-event", { type: "agent_start" });
+			emit("pi-event", { type: "tool_execution_start", toolCallId: "tm", toolName: "team", args: { goal: "g" } });
+			emit("pi-event", { type: "tool_execution_update", toolCallId: "tm", partialResult: { content: [], details: { board: ${board("tasks", "retry")} } } }); "ok"`);
+		await wait(120);
+		assert.equal(await js(`String(document.querySelectorAll(".team-board .tb-task").length)`), "2", "open by itself while the team works");
+		assert.match(await js(`document.querySelector(".tb-task.retry").innerText`), /riprova · 2° tentativo/);
+		assert.match(await js(`document.querySelector(".tb-task.retry .tb-err").textContent`), /not ok 1 - somma/);
+		await js(`emit("pi-event", { type: "tool_execution_end", toolCallId: "tm", isError: false, result: { content: [{ type: "text", text: "Team: VERIFICATO" }], details: { board: ${board("done", "done", { outcome: "verified", finalChecks: [{ command: "npm test", ok: true }] })} } } }); "ok"`);
+		await wait(80);
+		assert.match(await js(`document.querySelector(".tb-phase").textContent`), /verificato/);
+		assert.match(await js(`document.querySelector(".tb-checks").textContent`), /✓ npm test/);
+		assert.match(await js(`document.querySelector(".step .out").textContent`), /VERIFICATO/, "the report under the board once done");
+	} finally {
+		close();
+	}
+});

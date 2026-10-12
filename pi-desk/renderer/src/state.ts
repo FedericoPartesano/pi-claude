@@ -6,7 +6,20 @@ import type { Img, TranscriptItem, UiRequest } from "./bridge";
 // The same words the terminal uses for what a tool does ("legge src/app.ts", "esegue npm test").
 import { phrase } from "../../../pi-ui/src/phrases.ts";
 
-export type Step = { id: string; name: string; args: Record<string, unknown>; state: "run" | "ok" | "err"; ms?: number; output?: string; images?: Img[] };
+export type Step = { id: string; name: string; args: Record<string, unknown>; state: "run" | "ok" | "err"; ms?: number; output?: string; images?: Img[]; board?: TeamBoard };
+/** pi-team's structured snapshot (pi-team/src/board.ts), sent as the team tool's `details`. */
+export type TeamBoard = {
+	goal: string;
+	phase: "baseline" | "tasks" | "final" | "fix" | "review" | "done";
+	tasks: { id: string; role: string; model: string; title: string; dependsOn: string[]; state: "pending" | "running" | "verifying" | "retry" | "done" | "failed" | "skipped"; attempts: number; parallel: boolean; error?: string; summary?: string; tokens: number; seconds: number }[];
+	finalChecks: { command: string; ok: boolean }[];
+	preexisting: string[];
+	fixRounds: number;
+	review?: string;
+	outcome?: string;
+	startedAt: number;
+	endedAt?: number;
+};
 export type Part =
 	| { kind: "thinking"; text: string; live: boolean; seconds?: number }
 	| { kind: "text"; text: string }
@@ -178,6 +191,16 @@ export function createChat() {
 				setWork({ phase: "tool", activity: phrase(event.toolName, event.args ?? {}).text, steps: work.steps + 1 });
 				break;
 			}
+			case "tool_execution_update": {
+				// Tools that stream structured progress (pi-team's board): keep the latest snapshot on the step.
+				const tool = tools.get(event.toolCallId);
+				const board = event.partialResult?.details?.board;
+				if (!tool || turn < 0 || !board) break;
+				set("turns", turn, produce((t: any) => {
+					t.parts[tool.part].steps[tool.index].board = board;
+				}));
+				break;
+			}
 			case "tool_execution_end": {
 				const tool = tools.get(event.toolCallId);
 				if (!tool || turn < 0) break;
@@ -191,6 +214,7 @@ export function createChat() {
 					step.ms = Date.now() - tool.start;
 					step.output = output.length > 8000 ? `${output.slice(0, 8000)}\n… (${output.length - 8000} caratteri in più)` : output;
 					if (images.length) step.images = images;
+					if (event.result?.details?.board) step.board = event.result.details.board;
 				}));
 				set("status", "sta lavorando…");
 				setWork({ phase: "thinking", thought: "" });

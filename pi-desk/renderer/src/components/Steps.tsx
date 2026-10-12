@@ -4,6 +4,7 @@ import { phrase } from "../../../../pi-ui/src/phrases.ts";
 import { brief } from "../state";
 import { editsOf, stepResult, stepsSummary } from "../turns";
 import { actions, VIEWABLE } from "../actions";
+import { TeamBoard } from "./TeamBoard";
 
 /** "▰▰▰▱▱▱▱▱▱▱": a percentage in ten cells, as the terminal draws it. */
 export const cells = (percent = 0, n = 10) => {
@@ -35,10 +36,10 @@ function Diff(props: { step: Step }) {
 
 function StepRow(props: { step: Step; spin: () => string; open?: boolean }) {
 	const failed = () => props.step.state === "err";
-	const canOpen = () => failed() || Boolean(props.step.output) || (props.step.name === "edit" && editsOf(props.step.args).length > 0);
-	// Errors open by themselves; everything else on request.
+	const canOpen = () => failed() || Boolean(props.step.output) || Boolean(props.step.board) || (props.step.name === "edit" && editsOf(props.step.args).length > 0);
+	// Errors open by themselves, and so does the team (its board is the progress and the outcome); everything else on request.
 	const [open, setOpen] = createSignal<boolean | undefined>(undefined);
-	const isOpen = () => open() ?? failed();
+	const isOpen = () => open() ?? (failed() || Boolean(props.step.board));
 	const said = () => phrase(props.step.name, props.step.args);
 	// A file this step read or wrote that the viewer can show: its path is a link.
 	const viewable = () => {
@@ -56,7 +57,10 @@ function StepRow(props: { step: Step; spin: () => string; open?: boolean }) {
 				<span class="res"><For each={stepResult(props.step)}>{(r) => <span class={r.c}>{r.t}</span>}</For></span>
 				<span class="chev">{canOpen() ? (isOpen() ? "▾" : "▸") : ""}</span>
 			</button>
-			<Show when={isOpen()}>
+			<Show when={isOpen() && props.step.board}>
+				<TeamBoard board={props.step.board!} spin={props.spin} />
+			</Show>
+			<Show when={isOpen() && (!props.step.board || props.step.state !== "run")}>
 				<Show when={props.step.name === "edit" && !failed() && editsOf(props.step.args).length} fallback={<pre class="out">{props.step.output || "(nessun output)"}</pre>}>
 					<Diff step={props.step} />
 				</Show>
