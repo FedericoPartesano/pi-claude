@@ -37,6 +37,7 @@ import {
 import { MemoryWorker } from "../pi-memory/src/memory-worker-client.ts";
 import { appendRecallLog, type StoreDirs } from "../pi-memory/src/engine.ts";
 import { isSmallTalk, recallMessage } from "../pi-memory/src/recall.ts";
+import { loadedLines, type LoadedMemory } from "../pi-memory/src/used.ts";
 import { entriesToRecords, movePersonal, rebaseOnCurrent, recordsToEntries } from "../pi-memory/src/reconcile.ts";
 import { withStoreLockAsync } from "../pi-memory/src/lock.ts";
 import { renderVault } from "../pi-memory/src/vault.ts";
@@ -290,7 +291,10 @@ export default function (pi: ExtensionAPI) {
 
 	// Deep memory: the pinned core goes in the system prompt (small, stable → cached); everything else is recalled
 	// per request and appended after it as a message, only when relevant. No store → nothing, at no cost.
+	// What the recall loaded for the request in progress: shown under the answer once it ends (zero tokens, nothing sent to the model).
+	let loaded: LoadedMemory[] = [];
 	pi.on("before_agent_start", async (event, ctx) => {
+		loaded = [];
 		if (!deepMode()) return capped(event, ctx);
 		const started = performance.now();
 		const date = today();
@@ -314,6 +318,8 @@ export default function (pi: ExtensionAPI) {
 		}
 		showStatus(ctx, { recalled: run.ids.length });
 		if (!run.text) return;
+		const shown = new Set(run.ids);
+		loaded = run.hits.filter((hit) => shown.has(hit.record.id)).map((hit) => ({ id: hit.record.id, type: hit.record.type, text: hit.record.text, linked: hit.via === "deep" }));
 		return { message: { customType: "memory-recall", content: recallMessage(run.text, event.prompt), display: false } };
 	});
 
@@ -473,6 +479,17 @@ export default function (pi: ExtensionAPI) {
 			// No sessions folder yet.
 		}
 	});
+
+	pi.on("agent_end", async () => {
+		if (loaded.length === 0) return;
+		const memories = loaded;
+		loaded = [];
+		pi.appendEntry("memory-loaded", { memories });
+	});
+	pi.registerEntryRenderer<{ memories: LoadedMemory[] }>("memory-loaded", (entry, options, theme) => ({
+		render: (width: number) => loadedLines(entry.data?.memories ?? [], width - 2, options.expanded).map((line, index) => ` ${theme.fg(index === 0 ? "dim" : "muted", line)}`),
+		invalidate() {},
+	}));
 
 	pi.registerEntryRenderer<DreamEntry>("memory-dream", (entry, _options, theme) => ({
 		render: (width: number) => {
