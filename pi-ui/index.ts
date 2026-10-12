@@ -258,7 +258,14 @@ export default function (pi: ExtensionAPI) {
 	let contextCache: { at: number; value: ReturnType<ExtensionContext["getContextUsage"]> } | undefined;
 	const contextUsage = (ctx: ExtensionContext) => {
 		const now = Date.now();
-		if (!contextCache || now - contextCache.at > 1000) contextCache = { at: now, value: ctx.getContextUsage() };
+		if (!contextCache || now - contextCache.at > 1000) {
+			try {
+				contextCache = { at: now, value: ctx.getContextUsage() };
+			} catch {
+				// stale ctx after session replacement/reload: keep the last value
+				contextCache = { at: now, value: contextCache?.value };
+			}
+		}
 		return contextCache.value;
 	};
 	const refreshChanges = async (cwd: string) => {
@@ -659,7 +666,7 @@ export default function (pi: ExtensionAPI) {
 		const age = panelCache ? now - panelCache.at : Infinity;
 		if (!panelCache || panelCache.width !== width || panelCache.column !== column || (panelDirty && age > 100) || age > (status.mode === "working" ? 300 : 2000)) {
 			panelDirty = false;
-			panelCache = { at: now, width, column, lines: timed("pannello", () => panelLines(ctx, width, column)) };
+			panelCache = { at: now, width, column, lines: (() => { try { return timed("pannello", () => panelLines(ctx, width, column)); } catch { return panelCache?.lines ?? []; } })() };
 		}
 		return panelCache.lines;
 	};
@@ -839,5 +846,6 @@ export default function (pi: ExtensionAPI) {
 		askInBar = () => undefined;
 		pendingAnswer?.("no");
 		pendingAnswer = undefined;
+		panelCtx = undefined;
 	});
 }
