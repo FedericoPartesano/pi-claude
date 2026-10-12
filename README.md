@@ -24,7 +24,7 @@ Lo script installa Pi 1.0.4 se manca, il bridge `pi-claude-code`, gli hook `perm
 dopo `git pull` o `git checkout <tag>` basta `./install.sh` di nuovo.
 
 - `pi` — Pi minimale (4 tool base + hook di sicurezza)
-- `pi-full` — in più web, todo, domande, subagent e `pi-team`
+- `pi-full` — in più web, todo, domande, subagent e `pi-team` (`team` e `parallel` spenti finché non servono: si caricano con `load_tools` o `/tools`)
 
 In `pi-full` i tool extra partono spenti: il modello li accende da solo con `load_tools` quando un compito li richiede
 (gruppi `web`, `todo`, `subagent`, `team`), tu con `/tools web team`. Così una richiesta costa ~3,8k token invece di ~11,7k.
@@ -138,14 +138,14 @@ Con `--when` il giro è un monitoraggio: il modello fa la diagnosi in sola lettu
 passa non si spende nessun token, e lo stesso errore viene passato al modello una volta sola. Il loop scade dopo 24 h (`--for 8h`) e si ferma se l'abbonamento arriva al 90%
 della finestra di 5 ore o passa in extra usage. Se Pi è occupato, il giro aspetta che sia libero. `/loop` mostra lo stato.
 
-## Memoria (`/dream`, `/ricorda`)
+## Memoria (`/dream`, `/recall`)
 
 Come la memoria umana: le sessioni salvate sono la memoria a breve termine; `/dream` le consolida ("il sonno") in
 `.pi/memory.md` (progetto) o, con `--global`, in `~/.pi/agent/memory.md` (preferenze personali). Una sola chiamata a
 Haiku propone cosa aggiungere, rinforzare, unire, aggiornare (in caso di contraddizione vince la più recente) o
 dimenticare; approvi tu. Le correzioni dell'utente hanno la priorità; i segreti non vengono mai copiati; i ricordi non
 riconfermati da 60 giorni sbiadiscono nell'archivio (📌 = mai). La memoria entra nel prompt entro ~1k token; senza
-file non costa nulla. `/ricorda <cosa>` cerca nell'archivio (BM25 locale) e, con `--use`, rimette i ricordi nel contesto.
+file non costa nulla. `/recall <cosa>` cerca nell'archivio (BM25 locale) e, con `--use`, rimette i ricordi nel contesto.
 All'avvio una notifica gratuita segnala quando ci sono ≥ 5 sessioni da consolidare.
 
 Variabili: `PI_DREAM_SESSIONS_DIR`, `PI_DREAM_AUTO_APPROVE=1`, `PI_DREAM_MODEL` (default `haiku`),
@@ -166,7 +166,7 @@ Attiva in `pi` e `pi-full`. Temi: `neon-night` (neon su nero), `lilla` (i pastel
   costano ~70 token di istruzione in cache).
 - **Comandi pericolosi** (`rm -rf`, `sudo`, `777`, force push, `reset --hard`, `curl | sh`…): domanda nella barra,
   `s` sì · `n` no · `a` sempre per quel comando. Resta attiva anche con `PI_UI=off` (dialogo); senza interfaccia blocca.
-- **Pannello** sempre visibile come colonna a destra (fullscreen, terminale ≥ 120 colonne: la chat si restringe, niente viene coperto); `Alt+S` (o `/pannello`) lo nasconde e lo mostra, sotto le 120 colonne lo apre come overlay. `PI_UI_PANEL=float` = solo su richiesta; `PI_UI_PANEL_KEY` cambia il tasto. Sezioni: sessione, turno, **piano** (todo, passo in corso evidenziato), **intent** attivo, sub-agenti, test falliti, attività, file, suggerimenti, memoria, git, **token risparmiati** da lean-tools, immagini, uso 5h/7g/contesto; se l'altezza non basta si nascondono prima le meno utili.
+- **Pannello** sempre visibile come colonna a destra (fullscreen, terminale ≥ 120 colonne: la chat si restringe, niente viene coperto); `Alt+S` (o `/panel`) lo nasconde e lo mostra, sotto le 120 colonne lo apre come overlay. `PI_UI_PANEL=float` = solo su richiesta; `PI_UI_PANEL_KEY` cambia il tasto. Sezioni: sessione, turno, **piano** (todo, passo in corso evidenziato), **intent** attivo, sub-agenti, test falliti, attività, file, suggerimenti, memoria, git, **token risparmiati** da lean-tools, immagini, uso 5h/7g/contesto; se l'altezza non basta si nascondono prima le meno utili.
 - **Notifica** di Windows e campanella a fine turni lunghi (≥ 30 s; `PI_UI_NOTIFY=0`).
 - **Lean tools** (`extensions/lean-tools.ts`, sempre attivo in `pi`): output di bash lunghi compattati (test: fallimenti e riepilogo; altro: inizio e fine, il resto in un file), output di `grep`/`rg` raggruppati per file senza perdere righe, riletture di file invariati sostituite da una nota. Costo fisso zero, affidabilità invariata nelle prove (`eval/LEAN-REPORT.md`). `PI_LEAN=0` lo spegne; `PI_LEAN_SEARCH=1`/`PI_LEAN_OUTLINE=1` aggiungono i tool `search` e `outline`.
 - **Intro** col logo animato alla prima apertura di `pi-full` della giornata (un tasto la salta; `PI_UI_INTRO=always` sempre, `PI_UI_INTRO=0` mai).

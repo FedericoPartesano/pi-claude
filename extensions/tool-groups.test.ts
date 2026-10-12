@@ -18,7 +18,7 @@ test("ignores group tools that are not registered", () => {
 
 test("parses group lists", () => {
 	assert.deepEqual(parseGroups("web, team"), { groups: ["web", "team"], unknown: [] });
-	assert.deepEqual(parseGroups("all"), { groups: ["web", "todo", "subagent", "team"], unknown: [] });
+	assert.deepEqual(parseGroups("all"), { groups: ["web", "todo", "subagent", "team", "parallel"], unknown: [] });
 	assert.deepEqual(parseGroups("web foo"), { groups: ["web"], unknown: ["foo"] });
 	assert.deepEqual(parseGroups(undefined), { groups: [], unknown: [] });
 });

@@ -16,6 +16,7 @@ export const GROUPS = {
 	todo: { tools: ["todo"], summary: "task list to track a job with many steps" },
 	subagent: { tools: ["subagent"], summary: "delegate a self-contained subtask to one sub-agent with its own context" },
 	team: { tools: ["team"], summary: "run a large multi-part job with a team of sub-agents and verified checks" },
+	parallel: { tools: ["parallel"], summary: "hand 2+ large independent parts of a job to agents running at once (costs several times doing it yourself)" },
 } as const;
 
 export type GroupName = keyof typeof GROUPS;
