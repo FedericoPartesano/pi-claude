@@ -21,7 +21,8 @@
       "./extensions/lean-tools.ts",
       "./extensions/loop.ts",
       "./extensions/goal.ts",
-      "./extensions/memory.ts"
+      "./extensions/memory.ts",
+      "./extensions/voice.ts"
     ],
     "themes": [
       "./pi-ui/themes/*.json"
