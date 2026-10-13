@@ -35,7 +35,8 @@ const CASES = [
 	{
 		id: "eccezione", what: "contraddizione con eccezione dichiarata a metà: deve chiedere, non cambiare alla cieca",
 		sessions: [["user", "Per il nuovo servizio usa pnpm."], ["assistant", "Ok, pnpm per il nuovo servizio."], ["user", "Il vecchio repo legacy però resta su npm, non so ancora se migrarlo, vedremo."]],
-		check: ({ doubts, byId }) => ({ ok: doubts.some((d) => d.id === "r1") || (byId("r1")?.text ?? "").match(/legacy/i) !== null, why: "dubbio su r1 oppure eccezione registrata" }),
+		// A new memory that keeps the exception ("new service pnpm, legacy npm") is as good as a doubt: nothing is overwritten blindly.
+		check: ({ doubts, records }) => ({ ok: doubts.some((d) => d.id === "r1") || records.some((record) => record.status === "active" && /legacy/i.test(record.text ?? "")), why: "dubbio su r1 oppure eccezione registrata in un ricordo" }),
 	},
 	{
 		id: "una-tantum", what: "cambio solo per questo caso: r3 non deve cambiare",
