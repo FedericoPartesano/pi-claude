@@ -56,6 +56,8 @@ export function startLevel(): Level {
 }
 
 /** Il livello si cambia con /caveman lite|full|off (vale subito e resta per le prossime sessioni). PI_CAVEMAN_COMPACT=0 lascia i riassunti di Pi com'erano. */
+const COMPACT_TIMEOUT_MS = Number(process.env.PI_CAVEMAN_COMPACT_TIMEOUT_MS) || 120_000;
+
 export default function (pi: ExtensionAPI) {
 	let level = startLevel();
 	// Il footer di pi-ui mostra questo testo come badge: "lite", "full" o "off".
@@ -94,8 +96,18 @@ export default function (pi: ExtensionAPI) {
 			if (!auth.ok) return undefined;
 			const instructions = [event.customInstructions, COMPACTION_RULES].filter(Boolean).join("\n\n");
 			const { compact } = await import("@earendil-works/pi-coding-agent");
-			const compaction = await compact(event.preparation, model, auth.apiKey, auth.headers, instructions, event.signal, undefined, undefined, auth.env);
-			return { compaction };
+			// A hung call must not freeze Pi on "Auto-compacting": past the limit our attempt is dropped and Pi compacts as usual.
+			const limit = new AbortController();
+			const timer = setTimeout(() => limit.abort(), COMPACT_TIMEOUT_MS);
+			const stop = () => limit.abort();
+			event.signal?.addEventListener("abort", stop, { once: true });
+			try {
+				const compaction = await compact(event.preparation, model, auth.apiKey, auth.headers, instructions, limit.signal, undefined, undefined, auth.env);
+				return limit.signal.aborted ? undefined : { compaction };
+			} finally {
+				clearTimeout(timer);
+				event.signal?.removeEventListener("abort", stop);
+			}
 		} catch {
 			return undefined;
 		}
