@@ -80,10 +80,10 @@ export class ClaudeSession {
 	private exitError: Error | undefined;
 	private stderrTail = "";
 
-	constructor(
-		signature: string,
-		private readonly options: ClaudeSessionOptions,
-	) {
+	private readonly options: ClaudeSessionOptions;
+
+	constructor(signature: string, options: ClaudeSessionOptions) {
+		this.options = options;
 		this.signature = signature;
 		this.toolCalls = new ToolCallMatcher({ debugLog: options.debugLog });
 		this.mcpHandler = {
