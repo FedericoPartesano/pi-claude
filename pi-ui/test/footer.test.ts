@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { renderFooter } from "../src/footer.ts";
+import { modelBadge, renderFooter } from "../src/footer.ts";
 import { visibleWidth } from "@earendil-works/pi-tui";
 
 test("renderFooter: modalità senza permessi sempre visibile", () => {
@@ -36,4 +36,14 @@ test("renderFooter: mostra l'invio del bug in corso", () => {
 	const base = { project: "p", changes: 0, model: "m", thinking: "t" };
 	assert.match(renderFooter({ ...base, statuses: new Map([["bug-upload", "⏳ Invio del bug al server…"]]) }, 120), /Invio del bug al server/);
 	assert.doesNotMatch(renderFooter({ ...base, statuses: new Map() }, 120), /Invio del bug/);
+});
+
+test("renderFooter: il modello in uso è il primo blocco, in chiaro", () => {
+	const base = { statuses: new Map<string, string>(), project: "p", changes: 0, thinking: "medium" };
+	const strip = (text: string) => text.replace(/\x1b\[[0-9;]*m/g, "");
+	assert.match(strip(renderFooter({ ...base, model: "opus" }, 120)), /^ MODELLO OPUS  /);
+	assert.match(strip(renderFooter({ ...base, model: "claude-sonnet-4-5" }, 120)), /^ MODELLO SONNET /);
+	assert.match(strip(renderFooter({ ...base, model: "haiku", yolo: true }, 80)), /^ MODELLO HAIKU   SENZA PERMESSI/);
+	assert.match(strip(renderFooter({ ...base, model: "opus" }, 120)), /ragionamento medium/);
+	assert.notEqual(modelBadge("opus"), modelBadge("sonnet"), "colori diversi");
 });

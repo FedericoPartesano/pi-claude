@@ -36,8 +36,9 @@ const info: FooterInfo = {
 test("footer: session on the left, usage on the right, exact width", () => {
 	for (const width of [40, 80, 120]) assert.equal(visibleWidth(renderFooter(info, width)), width);
 	const wide = strip(renderFooter(info, 120));
-	assert.match(wide, /^GOAL 2\/5  LOOP 5m · giro 3 · prossimo 04:12 {3}shop-api ⎇ main ✚2/);
-	assert.match(wide, /5H 34% · CTX 41% · sonnet·medium$/);
+	assert.match(wide, /^ MODELLO SONNET   GOAL 2\/5  LOOP 5m · giro 3 · prossimo 04:12 {3}shop-api ⎇ main ✚2/);
+	assert.match(wide, /5H 34% · CTX 41%$/, "narrow for everything: the usage stays");
+	assert.match(strip(renderFooter(info, 160)), /5H 34% · CTX 41% · ragionamento medium$/);
 	assert.doesNotMatch(wide, /abbonamento/);
 	assert.doesNotMatch(strip(renderFooter(info, 80)), /shop-api/);
 });
@@ -51,8 +52,8 @@ test("footer shows the memory status (first part) on wide terminals", () => {
 
 test("footer without session or usage data, and with overage", () => {
 	const bare = strip(renderFooter({ ...info, statuses: new Map(), fiveHour: undefined, contextPercent: undefined, changes: 0 }, 120));
-	assert.match(bare, /^shop-api ⎇ main /);
-	assert.match(bare, /5H – · CTX – · sonnet·medium$/);
+	assert.match(bare, /^ MODELLO SONNET   shop-api ⎇ main /);
+	assert.match(bare, /5H – · CTX – · ragionamento medium$/);
 	assert.match(strip(renderFooter({ ...info, overage: true }, 120)), /⚠ EXTRA USAGE/);
 });
 
