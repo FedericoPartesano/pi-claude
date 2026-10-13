@@ -20,6 +20,7 @@
       "./extensions/desk-link.ts",
       "./extensions/intent.ts",
       "./extensions/lean-tools.ts",
+      "./extensions/caveman.ts",
       "./extensions/loop.ts",
       "./extensions/goal.ts",
       "./extensions/memory.ts",
