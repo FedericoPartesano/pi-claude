@@ -37,7 +37,7 @@ import {
 import { MemoryWorker } from "../pi-memory/src/memory-worker-client.ts";
 import { appendRecallLog, type StoreDirs } from "../pi-memory/src/engine.ts";
 import { isSmallTalk, recallMessage } from "../pi-memory/src/recall.ts";
-import { loadedLines, type LoadedMemory } from "../pi-memory/src/used.ts";
+import { BADGE, loadedLines, type LoadedMemory } from "../pi-memory/src/used.ts";
 import { entriesToRecords, movePersonal, rebaseOnCurrent, recordsToEntries } from "../pi-memory/src/reconcile.ts";
 import { withStoreLockAsync } from "../pi-memory/src/lock.ts";
 import { renderVault } from "../pi-memory/src/vault.ts";
@@ -487,7 +487,7 @@ export default function (pi: ExtensionAPI) {
 		pi.appendEntry("memory-loaded", { memories });
 	});
 	pi.registerEntryRenderer<{ memories: LoadedMemory[] }>("memory-loaded", (entry, options, theme) => ({
-		render: (width: number) => loadedLines(entry.data?.memories ?? [], width - 2, options.expanded).map((line, index) => ` ${theme.fg(index === 0 ? "dim" : "muted", line)}`),
+		render: (width: number) => loadedLines(entry.data?.memories ?? [], width - 2, options.expanded).map((line, index) => (index === 0 && line.startsWith(BADGE) ? ` ${theme.bold(theme.fg("accent", BADGE))}${theme.fg("text", line.slice(BADGE.length))}` : ` ${theme.fg("text", line)}`)),
 		invalidate() {},
 	}));
 

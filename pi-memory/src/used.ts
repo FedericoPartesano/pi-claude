@@ -12,12 +12,14 @@ export interface LoadedMemory {
 	linked?: boolean;
 }
 
+/** Start of the first line: the renderer colors it as a badge. */
+export const BADGE = "◆ RICORDI";
 const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
 const flat = (text: string) => text.replace(/\s+/g, " ").trim();
 
 /** One compact line, or (expanded) one line per memory with its type and full text. */
 export function loadedLines(memories: LoadedMemory[], width: number, expanded: boolean): string[] {
 	if (memories.length === 0) return [];
-	if (expanded) return [`◇ ricordi caricati per questa risposta (${memories.length})`, ...memories.map((m) => clip(`  #${m.id} [${m.type}]${m.linked ? " collegato:" : ""} ${flat(m.text)}`, width))];
-	return [clip(`◇ ricordi caricati: ${memories.map((m) => `#${m.id} ${flat(m.text)}`).join(" · ")}`, width)];
+	if (expanded) return [`${BADGE} ${memories.length} ricordi caricati per questa risposta`, ...memories.map((m) => clip(`  #${m.id} [${m.type}]${m.linked ? " collegato:" : ""} ${flat(m.text)}`, width))];
+	return [clip(`${BADGE} ${memories.length}  ${memories.map((m) => `#${m.id} ${flat(m.text)}`).join(" · ")}`, width)];
 }
