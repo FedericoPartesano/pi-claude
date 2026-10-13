@@ -15,7 +15,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
-import { AgentSession, CustomEditor, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { AgentSession, CustomEditor, VERSION as PI_VERSION, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getCapabilities, setCapabilityOverrides, visibleWidth, type Component, type TUI } from "@earendil-works/pi-tui";
 import { linkFileRefs, vscodeUrl, wslDistro } from "./src/answer.ts";
 import { subagentRows, teamRows, type AgentRow } from "./src/agents.ts";
@@ -38,6 +38,7 @@ import { completeStep, renderTurn, type Step } from "./src/steps.ts";
 import { describeActivity, findCommandProcess, sampleActivity, slowCommandHint, type Sample } from "./src/liveness.ts";
 import { checkOutcome, failingTests } from "./src/test-output.ts";
 import { renderFooter } from "./src/footer.ts";
+import { ownVersion } from "./src/version.ts";
 import { renderStatusBar, renderVoiceBar } from "./src/status-bar.ts";
 import { elapsedSeconds, initialStatus, nextStatus, type StatusEvent } from "./src/status.ts";
 import { RESTART_FILE, writeRestartRequest } from "./src/restart.ts";
@@ -400,6 +401,7 @@ export default function (pi: ExtensionAPI) {
 						contextPercent: contextUsage(ctx)?.percent ?? undefined,
 						model: ctx.model?.id ?? "?",
 						thinking: pi.getThinkingLevel(),
+						versions: { pi: PI_VERSION, ...ownVersion() },
 					}, width);
 				}),
 				dispose: unsubscribe,

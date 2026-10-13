@@ -13,6 +13,8 @@ export interface FooterInfo {
 	contextPercent?: number;
 	model: string;
 	thinking: string;
+	/** Versions of Pi and of this package, always shown at the far right ("pi 1.2.0 · pi-claude 0.2.0 (03c1b55)"). */
+	versions?: { pi: string; own: string; commit?: string };
 	/** Modalità senza permessi (`pi -d`): etichetta sempre visibile. */
 	yolo?: boolean;
 }
@@ -20,6 +22,7 @@ export interface FooterInfo {
 const session = () =>
 	[
 		["goal", "GOAL", C.mag],
+		["intent", "INTENT", C.ok],
 		["loop", "LOOP", C.cyan],
 		["team", "TEAM", C.yel],
 	] as const;
@@ -43,6 +46,8 @@ export function renderFooter(info: FooterInfo, width: number): string {
 	const base = badge ? `${badge}  ${base0}` : base0;
 	const left = info.yolo ? `${hud ? tag(C.err, " SENZA PERMESSI ") : bold(fg(C.err, "SENZA PERMESSI"))}  ${base}` : base;
 	const usage = info.overage ? fg(C.err, bold("⚠ EXTRA USAGE")) : fg(C.dim, `5H ${percent(info.fiveHour, 100)}`);
-	const right = `${usage}${fg(C.dim, ` · CTX ${percent(info.contextPercent)} · ${info.model}·${info.thinking}`)}`;
+	const v = info.versions;
+	const versions = !v ? "" : width >= 120 ? ` · pi ${v.pi} · pi-claude ${v.own}${v.commit ? ` (${v.commit})` : ""}` : width >= 90 ? ` · pi ${v.pi} · pi-claude ${v.own}` : "";
+	const right = `${usage}${fg(C.dim, ` · CTX ${percent(info.contextPercent)} · ${info.model}·${info.thinking}${versions}`)}`;
 	return fit(left, right, width);
 }
