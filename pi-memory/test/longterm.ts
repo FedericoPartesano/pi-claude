@@ -4,7 +4,7 @@
  * asked once a month, and every day the /dream lifecycle runs (usage from the recall log, dormant / awake / forgotten).
  */
 import { applyUsage, lifecycle } from "../src/forget.ts";
-import { RecallIndex, cueLimit, recall, renderCues } from "../src/recall.ts";
+import { RecallIndex, isSmallTalk, recall, renderCues } from "../src/recall.ts";
 import type { MemoryRecord } from "../src/store.ts";
 import { rng } from "./corpus.ts";
 
@@ -66,8 +66,8 @@ for (let d = 0; d < DAYS; d++) {
 	const index = new RecallIndex(records);
 	const ask = (query: string, options: { deep?: boolean } = {}) => {
 		const started = performance.now();
-		const limit = cueLimit(query);
-		const hits = recall(index, query, { today, limit, includeSuperseded: options.deep, threshold: options.deep ? 0.25 : undefined }).hits;
+		const limit = Math.min(12, isSmallTalk(query) ? 0 : 8);
+		const hits = recall(index, query, { today, limit, deepMinScore: 0, includeSuperseded: options.deep, threshold: options.deep ? 0.25 : undefined }).hits;
 		times.push(performance.now() - started);
 		const text = renderCues(hits, limit);
 		maxChars = Math.max(maxChars, text.length);
@@ -98,7 +98,7 @@ for (let d = 0; d < DAYS; d++) {
 		let deepFound = 0;
 		for (const topic of closed) {
 			const pool = new RecallIndex([...records, ...forgotten.map((record) => ({ ...record, state: undefined }))]);
-			const hits = recall(pool, `come funziona il modulo ${topic.name}?`, { today, limit: 6, includeSuperseded: true, threshold: 0.25 }).hits;
+			const hits = recall(pool, `come funziona il modulo ${topic.name}?`, { today, limit: 6, deepMinScore: 0, includeSuperseded: true, threshold: 0.25 }).hits;
 			if (hits.some((hit) => hit.record.entities.includes(topic.name))) deepFound++;
 		}
 		const p95 = [...times].sort((a, b) => a - b)[Math.floor(times.length * 0.95)] ?? 0;

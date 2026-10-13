@@ -63,6 +63,8 @@ export const DEPTH = {
 	power: 3,
 	/** Share of the cues reserved to memories the walk reaches (shown as "collegato"). */
 	slotShare: 0.4,
+	/** Linked memories only when the best direct hit scores at least this: a weak match's neighbours are noise. */
+	minTopScore: 0.7,
 	/** Below this PPR mass relative to the top seed a reached memory is not worth a cue. */
 	minMass: 1e-3,
 	/**
@@ -408,6 +410,8 @@ export interface RecallOptions {
 	exclude?: Set<string>;
 	/** false = no graph walk (direct hits only). */
 	deep?: boolean;
+	/** Best direct score needed for linked memories (default DEPTH.minTopScore; 0 = always walk, for benchmarks). */
+	deepMinScore?: number;
 }
 
 /** Semantic candidates kept per request (the vector index rescores a few hundred, whatever the store size). */
@@ -499,7 +503,8 @@ export function recall(index: RecallIndex, query: string, options: RecallOptions
 	// Relative cut: weak companions of a strong hit are noise (and tokens).
 	const directHits = passing.filter((item) => item.score >= (passing[0]?.score ?? 0) * RELATIVE_CUT);
 	if (directHits.length === 0) return { hits: [] };
-	const slots = options.deep === false ? 0 : Math.max(1, Math.round(limit * DEPTH.slotShare));
+	const strong = (passing[0]?.score ?? 0) >= (options.deepMinScore ?? DEPTH.minTopScore);
+	const slots = options.deep === false || !strong ? 0 : Math.max(1, Math.round(limit * DEPTH.slotShare));
 	const chosen = directHits.slice(0, Math.max(1, limit - slots));
 	const hits: Scored[] = chosen.map((item) => ({ record: index.records[item.position], score: item.score }));
 	if (slots > 0) {
@@ -561,12 +566,29 @@ export function renderRecall(hits: Scored[], budget = RECALL_BUDGET_CHARS, limit
 	return lines.length === 0 ? "" : [RECALL_HEADER, ...lines].join("\n");
 }
 
-const SMALL_TALK = new Set("ciao ok okay grazie si no va bene perfetto buongiorno buonasera hey ehi salve top fatto vai continua procedi prosegui avanti dai certo esatto giusto".split(" "));
+const SMALL_TALK = new Set("ciao ok okay grazie si no va bene perfetto buongiorno buonasera meglio credi decidi scegli tu hey ehi salve top fatto vai continua procedi prosegui avanti dai certo esatto giusto".split(" "));
 /** A short conversational reply ("procedi", "ok grazie"): it needs no memories, and recalling some made the model answer them. */
 export function isSmallTalk(prompt: string): boolean {
 	const words = normalize(prompt).split(" ").filter(Boolean);
-	return words.length === 0 || (words.length <= 3 && words.every((word) => SMALL_TALK.has(word) || word.length <= 3));
+	if (words.length === 0) return true;
+	if (words.length <= 3 && words.every((word) => SMALL_TALK.has(word) || word.length <= 3)) return true;
+	// Too little to match on: fewer than MIN_USEFUL_WORDS words besides stopwords and confirmations.
+	return stems(words.filter((word) => !SMALL_TALK.has(word)).join(" ")).length < MIN_USEFUL_WORDS;
 }
+/**
+ * Memories shown more than `maxRepeats` times in this session drop out unless they score at least `strong`: the same
+ * line again and again (17 times in one real session) is habit, not relevance. Counts the ones kept.
+ */
+export function dropRepeated(hits: Scored[], counts: Map<string, number>, maxRepeats = 2, strong = DEPTH.minTopScore): Scored[] {
+	const kept = hits.filter((hit) => (counts.get(hit.record.id) ?? 0) < maxRepeats || hit.score >= strong);
+	for (const hit of kept) counts.set(hit.record.id, (counts.get(hit.record.id) ?? 0) + 1);
+	return kept;
+}
+
+/** A message with fewer useful words than this recalls nothing: its few words match by chance. */
+export const MIN_USEFUL_WORDS = 1;
+/** Most memories one request brings in. */
+export const MAX_CUES = 3;
 
 /**
  * The recall message goes after the user's prompt, so it is the last thing the model reads: it ends by repeating the
@@ -587,7 +609,7 @@ const CUE_CHARS = 70;
 export function cueLimit(query: string): number {
 	if (isSmallTalk(query)) return 0;
 	const kind = classifyRequest(query);
-	return kind === "edit" ? 12 : kind === "inquiry" ? 6 : 8;
+	return Math.min(MAX_CUES, kind === "edit" ? 12 : kind === "inquiry" ? 6 : 8);
 }
 
 const clipTo = (text: string, max: number) => (text.length <= max ? text : `${text.slice(0, max - 1)}…`);

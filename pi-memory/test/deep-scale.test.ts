@@ -25,8 +25,8 @@ test("20k memories: the answer two links away reaches the cues, tokens stay cons
 	let worst = 0;
 	for (const chain of corpus.chains) {
 		const started = performance.now();
-		const limit = cueLimit(chain.query);
-		const text = renderCues(recall(index, chain.query, { today: "2026-10-08", limit }).hits, limit);
+		const limit = 8;
+		const text = renderCues(recall(index, chain.query, { today: "2026-10-08", limit, deepMinScore: 0 }).hits, limit);
 		worst = Math.max(worst, performance.now() - started);
 		maxChars = Math.max(maxChars, text.length);
 		if (text.includes(`#${chain.ids[2]}\n`) || text.endsWith(`#${chain.ids[2]}`)) hop2++;

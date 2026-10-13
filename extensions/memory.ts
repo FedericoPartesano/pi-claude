@@ -36,7 +36,7 @@ import {
 } from "./memory-core.ts";
 import { MemoryWorker } from "../pi-memory/src/memory-worker-client.ts";
 import { appendRecallLog, type StoreDirs } from "../pi-memory/src/engine.ts";
-import { isSmallTalk, recallMessage } from "../pi-memory/src/recall.ts";
+import { dropRepeated, isSmallTalk, recallMessage, renderCues } from "../pi-memory/src/recall.ts";
 import { BADGE, loadedLines, type LoadedMemory } from "../pi-memory/src/used.ts";
 import { entriesToRecords, movePersonal, rebaseOnCurrent, recordsToEntries } from "../pi-memory/src/reconcile.ts";
 import { withStoreLockAsync } from "../pi-memory/src/lock.ts";
@@ -329,6 +329,17 @@ export default function (pi: ExtensionAPI) {
 		if (isSmallTalk(event.prompt)) return void log([], 0, memoryWorker.ready);
 		// Without a UI (pi -p) nobody waits for a background load: give the model a few seconds so recall is semantic.
 		const run = await memoryWorker.recall(event.prompt, dirs, date, { waitModelMs: ctx.hasUI ? undefined : 8000 });
+		// The same memory again and again is habit, not relevance (PI_RECALL_REPEAT=off keeps the old behaviour).
+		if (process.env.PI_RECALL_REPEAT !== "off" && run.text) {
+			const shownNow = new Set(run.ids);
+			const kept = dropRepeated(run.hits.filter((hit) => shownNow.has(hit.record.id)), shownCounts);
+			if (kept.length !== shownNow.size) {
+				run.hits = kept;
+				run.ids = kept.map((hit) => hit.record.id);
+				run.text = renderCues(kept, kept.length);
+				run.chars = run.text.length;
+			}
+		}
 		log(run.ids, run.chars, run.embedderReady);
 		// Always kept (last 500): the dashboard shows what was recalled, when and with which score.
 		try {
@@ -346,6 +357,8 @@ export default function (pi: ExtensionAPI) {
 
 	// While working: reading or editing a file brings what the memory knows about it (once per file and session, and
 	// again after a compaction). Nothing when no memory cites the file: an entity lookup in the worker.
+	const shownCounts = new Map<string, number>();
+	pi.on("session_start", () => shownCounts.clear());
 	const notedFiles = new Set<string>();
 	pi.on("session_compact", () => notedFiles.clear());
 	pi.on("tool_result", async (event, ctx) => {

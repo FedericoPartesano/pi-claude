@@ -23,7 +23,8 @@ test("cueLimit: nothing for small talk, few for questions, more for tasks", () =
 	assert.equal(cueLimit("ciao"), 0);
 	assert.equal(cueLimit("ok grazie"), 0);
 	assert.equal(cueLimit("asd"), 0);
-	assert.equal(cueLimit("spiegami cosa fa il modulo di export"), 6);
-	assert.equal(cueLimit("aggiungi la validazione al form ordini in src/orders.ts"), 12);
-	assert.equal(cueLimit("come gestiamo le date nel progetto?"), 8);
+	assert.equal(cueLimit("spiegami cosa fa il modulo di export"), 3);
+	assert.equal(cueLimit("aggiungi la validazione al form ordini in src/orders.ts"), 3);
+	assert.equal(cueLimit("come gestiamo le date nel progetto?"), 3);
+	assert.equal(cueLimit("ok perfetto sì grazie vai"), 0);
 });
