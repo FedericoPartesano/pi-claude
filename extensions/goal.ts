@@ -28,6 +28,7 @@ const USAGE_FILE = join(homedir(), ".pi/agent/claude-code-usage.json");
 export type GoalArgs =
 	| { action: "start"; text: string; checks: string[]; max: number | undefined; intentFile?: string; metric?: MetricSpec }
 	| { action: "status" }
+	| { action: "todos" }
 	| { action: "stop" }
 	| { action: "resume" }
 	| { action: "error"; message: string };
@@ -149,6 +150,7 @@ const USAGE = 'Uso: /goal [--check "cmd"] [--max N] [--metric "cmd" [--higher] [
 
 export function parseGoalArgs(args: string): GoalArgs {
 	const trimmed = args.trim();
+	if (trimmed === "todos" || trimmed === "todo") return { action: "todos" };
 	if (trimmed === "" || trimmed === "stato" || trimmed === "status") return { action: "status" };
 	if (trimmed === "stop") return { action: "stop" };
 	if (trimmed === "resume" || trimmed === "riprendi") return { action: "resume" };
@@ -353,7 +355,16 @@ export default function (pi: ExtensionAPI) {
 		pi.setActiveTools(on ? [...others, "goal_done"] : others);
 	};
 	/** Footer status and the state pi-ui shows in its panel (pi.events "goal:state"; undefined = no goal). */
+	let savedState = "";
 	const footer = (ctx: ExtensionContext) => {
+		// The goal lives in the session too: a resume, a reload or a restart finds it again (PI_GOAL_PERSIST=0 turns it off).
+		if (process.env.PI_GOAL_PERSIST !== "0") {
+			const serialized = JSON.stringify(goal ?? null);
+			if (serialized !== savedState) {
+				savedState = serialized;
+				pi.appendEntry("goal-state", { goal: goal ?? null });
+			}
+		}
 		const snapshot = goal ? goalSnapshot(goal, readIntent(ctx.cwd, goal.intentFile)?.outcomes ?? [], Date.now()) : undefined;
 		pi.events.emit("goal:state", snapshot);
 		if (!ctx.hasUI) return;
@@ -381,6 +392,25 @@ export default function (pi: ExtensionAPI) {
 		setTool(false);
 		footer(ctx);
 	};
+
+	pi.on("session_start", (_event, ctx) => {
+		if (process.env.PI_GOAL_PERSIST === "0") return;
+		let found: GoalState | null = null;
+		for (const entry of ctx.sessionManager.getBranch() as { type: string; customType?: string; data?: { goal?: GoalState | null } }[]) {
+			if (entry.type === "custom" && entry.customType === "goal-state") found = entry.data?.goal ?? null;
+		}
+		savedState = JSON.stringify(found);
+		if (!found) {
+			goal = undefined;
+			return;
+		}
+		registerTool();
+		goal = found;
+		toolCalls = 0;
+		if (!goal.paused) goal.paused = "sessione ripresa: /goal resume per continuare";
+		setTool(true);
+		footer(ctx);
+	});
 
 	const registerTool = () => {
 		if (toolRegistered) return;
@@ -515,6 +545,16 @@ export default function (pi: ExtensionAPI) {
 		handler: async (args, ctx) => {
 			const parsed = parseGoalArgs(args);
 			if (parsed.action === "error") return tell(ctx, parsed.message, "warning");
+			if (parsed.action === "todos") {
+				let last: { subject?: string; status?: string }[] | undefined;
+				for (const entry of ctx.sessionManager.getBranch() as { message?: { role?: string; toolName?: string; details?: { tasks?: { subject?: string; status?: string }[] } } }[]) {
+					const message = entry.message;
+					if (message?.role === "toolResult" && message.toolName === "todo" && Array.isArray(message.details?.tasks)) last = message.details.tasks;
+				}
+				const mark = (status?: string) => (status === "completed" ? "✓" : status === "in_progress" ? "◐" : "○");
+				const live = (last ?? []).filter((task) => task.status !== "deleted");
+				return tell(ctx, live.length ? `Todo (${live.filter((task) => task.status === "completed").length}/${live.length}):\n${live.map((task) => `${mark(task.status)} ${task.subject}`).join("\n")}` : "Nessun todo in questa sessione.");
+			}
 			if (parsed.action === "status") {
 				// No goal: pick an open intent (prefills /goal @intents/...), or explain the usage.
 				if (!goal) return ctx.mode === "tui" && (await pickIntent(ctx)) ? undefined : tell(ctx, `Nessun goal attivo. ${USAGE}`);

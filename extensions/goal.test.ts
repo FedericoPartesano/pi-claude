@@ -236,3 +236,7 @@ test("a round that settles without goal_done continues with a reminder", async (
 		console.error = quiet;
 	}
 });
+
+test("parseGoalArgs: /goal todos mostra i todo", () => {
+	assert.deepEqual(parseGoalArgs("todos"), { action: "todos" });
+});
