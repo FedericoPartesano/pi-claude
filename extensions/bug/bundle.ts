@@ -11,6 +11,8 @@ import { basename, dirname, join } from "node:path";
 import { redact, SECRET_NAME } from "./redact.ts";
 
 export interface BugForm {
+	/** "crash": made from an entry of crashes.json at startup. */
+	kind?: "bug" | "crash";
 	title: string;
 	happened: string;
 	expected: string;
@@ -24,6 +26,8 @@ export interface BugSources {
 	home: string;
 	form: BugForm;
 	piVersion: string;
+	/** The crash entry this package is about (kind "crash"). */
+	crash?: unknown;
 	/** Folder of this extension (pi-claude): its package.json version and git commit go in the report. */
 	extensionRoot?: string;
 	model?: string;
@@ -84,6 +88,7 @@ export function writeBundle(parent: string, s: BugSources): string {
 	json("report.json", {
 		reportedAt: s.now.toISOString(),
 		form: s.form,
+		crash: s.crash,
 		pi: s.piVersion,
 		extension: extensionInfo(s.extensionRoot),
 		node: process.version,

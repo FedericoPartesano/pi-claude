@@ -175,19 +175,31 @@ Attiva in `pi` e `pi-full`. Temi: `neon-night` (neon su nero), `lilla` (i pastel
 
 `PI_UI_FPS` (default 30) limita i ridisegni dello streaming, senza toccare la digitazione. `PI_UI=off` torna alla chat originale; `PI_UI_STEPS=0`, `PI_UI_IMAGES=0`, `PI_UI_PERMISSION=0` spengono i singoli pezzi.
 
+## Segnalare un bug (`/bugreport`)
+
+`/bugreport` (o `Alt+B`) apre un modulo e salva in `~/.pi/bugs/<data>-<titolo>/` tutto quello che serve per capire il problema: sessione, chat,
+memoria, goal, intent, todo, prompt di sistema, versione di Pi e di pi-claude (con il commit). Se un server è configurato, invia anche una copia con
+chiavi e password oscurate (l'interruttore nel modulo; `PI_BUG_UPLOAD=0` spegne l'invio, `PI_BUG_URL`/`PI_BUG_TOKEN` o `~/.pi/agent/bug.json` cambiano server). Il server è in `bug-server/`.
+Due aiuti, entrambi chiedono prima:
+
+- **Crash**: all'avvio Pi guarda `~/.pi/agent/crashes.json`; se negli ultimi 7 giorni ci sono crash mai proposti, una finestra chiede se inviarli, salvarli solo sul tuo disco o ignorarli (`PI_BUG_CRASHES=0` lo spegne).
+- **Chat**: se scrivi un messaggio che descrive un problema di Pi o di pi-claude (non del tuo codice), compare un consiglio di premere `Alt+B`, e il modulo parte già con il tuo messaggio.
+  Decidono regole locali; solo nei casi dubbi una chiamata breve a haiku (`PI_BUG_WATCH=0` lo spegne).
+
+`PI_BUG=0` toglie tutto.
+
 ## Rilasci
 
-Ogni pacchetto ha la sua versione (SemVer) e le sue tag: `pi-claude-code-vX.Y.Z`, `pi-team-vX.Y.Z`, `pi-picker-vX.Y.Z`.
-I rilasci sono gestiti da [release-please](https://github.com/googleapis/release-please):
-a ogni push su `main` apre (o aggiorna) una PR di rilascio per ogni pacchetto modificato;
-il merge della PR crea tag, GitHub Release e voce nel `CHANGELOG.md` del pacchetto.
+Il pacchetto `pi-claude` ha una versione (SemVer), gestita da [release-please](https://github.com/googleapis/release-please):
+a ogni push su `main` apre (o aggiorna) una PR di rilascio; il merge crea tag, GitHub Release e voce nel `CHANGELOG.md`, e porta la versione in `package.json`
+(che il footer di Pi mostra, insieme al commit). Non si modifica la versione a mano.
 
-I commit seguono [Conventional Commits](https://www.conventionalcommits.org/), con il pacchetto come scope:
+I commit seguono [Conventional Commits](https://www.conventionalcommits.org/): senza `feat:` o `fix:` il commit non compare nel changelog e non alza la versione.
 
 ```
-fix(pi-claude-code): corregge il parsing dei tool JSON
-feat(pi-team): aggiunge il ruolo documenter
-feat(pi-team)!: cambia lo schema del piano      # breaking
+fix: corregge il parsing dei tool JSON
+feat: aggiunge il ruolo documenter
+feat!: cambia lo schema del piano      # breaking
 ```
 
-Finché la versione è `0.x`: `feat` e breaking alzano il minor, `fix` il patch.
+Finché la versione è `0.x`: `feat` e breaking alzano il minor, `fix` il patch; `docs`, `test`, `chore`, `refactor` non rilasciano.
