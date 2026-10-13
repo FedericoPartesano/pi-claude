@@ -16,6 +16,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { VERSION, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { redactedCopy, writeBundle, type BugForm } from "./bug/bundle.ts";
+import { bugLabel, downloadBug, listBugs, login, saveSession, savedPassword, savedSession, type Session } from "./bug/admin.ts";
 import { crashExists, crashForm, crashId, markSeen, readCrashes, readSeen, splitCrashes, type CrashEntry } from "./bug/crashes.ts";
 import { DETECT_SYSTEM, looksLikePiBug, parseDetect } from "./bug/detect.ts";
 import { pack, upload, uploadConfig } from "./bug/upload.ts";
@@ -79,6 +80,41 @@ export default function (pi: ExtensionAPI) {
 		handler: async (_args, ctx) => openSuggested(ctx),
 	});
 	pi.registerShortcut("alt+b" as Parameters<typeof pi.registerShortcut>[0], { description: "Segnala un bug (/bugreport)", handler: async (ctx) => openSuggested(ctx) });
+
+	// --- the admin reads what arrived (password of the bug server; PI_BUG_ADMIN=0 removes the command) ------------------
+	if (process.env.PI_BUG_ADMIN !== "0") {
+		pi.registerCommand("bugs", {
+			description: "Admin: leggi i bug ricevuti dal server (chiede la password del server dei bug)",
+			handler: async (_args, ctx) => {
+				const config = uploadConfig(process.env, homedir());
+				if (!config) return void ctx.ui.notify("Server dei bug non configurato (PI_BUG_UPLOAD=0?).", "warning");
+				const home = homedir();
+				let session: Session | undefined = savedSession(home);
+				let result = session ? await listBugs(config.url, session) : "login";
+				if (result === "login") {
+					const password = process.env.PI_BUG_ADMIN_PASSWORD || savedPassword(home) || (await ctx.ui.input("Password admin del server dei bug", ""));
+					if (!password) return;
+					const entered = await login(config.url, password);
+					if (!entered.ok) return void ctx.ui.notify(`Accesso negato: ${entered.message}`, "warning");
+					session = entered.session;
+					saveSession(home, session);
+					result = await listBugs(config.url, session);
+				}
+				if (result === "login" || "error" in result) return void ctx.ui.notify(result === "login" ? "Accesso scaduto, riprova." : result.error, "warning");
+				if (!result.bugs.length) return void ctx.ui.notify("Nessun bug ricevuto.", "info");
+				const labels = result.bugs.map(bugLabel);
+				const choice = await ctx.ui.select(`Bug ricevuti (${result.bugs.length})`, labels);
+				const bug = choice ? result.bugs[labels.indexOf(choice)] : undefined;
+				if (!bug || !session) return;
+				try {
+					const file = await downloadBug(config.url, session, bug, join(home, ".pi", "bugs", "received"));
+					ctx.ui.notify(`Scaricato: ${file}\nApri con: tar -xzf ${file} -C <cartella vuota>`, "info");
+				} catch (error) {
+					ctx.ui.notify(`Scarico non riuscito: ${(error as Error).message}`, "warning");
+				}
+			},
+		});
+	}
 
 	// --- crashes not yet reported -------------------------------------------------------------------------------------
 	if (process.env.PI_BUG_CRASHES !== "0") {

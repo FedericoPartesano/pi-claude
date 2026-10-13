@@ -14,6 +14,7 @@ services:
     environment:
       MONGO_URI: mongodb://bug-mongo:27017
       BUG_TOKEN: ${BUG_TOKEN:?set BUG_TOKEN}
+      BUG_ADMIN_PASSWORD: ${BUG_ADMIN_PASSWORD:-}
       BUG_MAX_MB: ${BUG_MAX_MB:-50}
       BUG_QUOTA_GB: ${BUG_QUOTA_GB:-2}
       BUG_PER_HOUR: ${BUG_PER_HOUR:-10}

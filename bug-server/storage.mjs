@@ -1,5 +1,5 @@
 /** MongoDB storage: each package is a GridFS file ("bugs" bucket) with the form data as metadata. */
-import { GridFSBucket, MongoClient } from "mongodb";
+import { GridFSBucket, MongoClient, ObjectId } from "mongodb";
 
 export async function mongoStorage(uri, dbName = "pi_bugs") {
 	const client = new MongoClient(uri);
@@ -13,6 +13,16 @@ export async function mongoStorage(uri, dbName = "pi_bugs") {
 			for await (const chunk of stream) if (!upload.write(chunk)) await new Promise((resolve) => upload.once("drain", resolve));
 			await new Promise((resolve, reject) => upload.end((error) => (error ? reject(error) : resolve())));
 			return upload.id;
+		},
+		/** Newest first: what the admin sees. */
+		async list(limit) {
+			const rows = await files.find({}).sort({ uploadDate: -1 }).limit(limit).toArray();
+			return rows.map((row) => ({ id: String(row._id), size: row.length, name: row.filename, title: row.metadata?.title, severity: row.metadata?.severity, receivedAt: row.metadata?.receivedAt ?? row.uploadDate }));
+		},
+		async open(id) {
+			if (!ObjectId.isValid(id)) return undefined;
+			const row = await files.findOne({ _id: new ObjectId(id) });
+			return row ? { name: String(row.filename).replace(/[^\w.-]/g, "_"), stream: bucket.openDownloadStream(row._id) } : undefined;
 		},
 		remove: (id) => bucket.delete(id),
 		async usage() {

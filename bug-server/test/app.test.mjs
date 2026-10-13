@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Readable } from "node:stream";
 import { test } from "node:test";
 import { createApp } from "../app.mjs";
 
@@ -13,6 +14,11 @@ function memoryStorage() {
 			const file = { id: next++, size: Buffer.concat(chunks).length, meta };
 			files.push(file);
 			return file.id;
+		},
+		async list() { return files.map((f) => ({ id: String(f.id), size: f.size, title: f.meta.title })).reverse(); },
+		async open(id) {
+			const f = files.find((x) => String(x.id) === id);
+			return f ? { name: "bug.tar.gz", stream: Readable.from([Buffer.alloc(f.size, 7)]) } : undefined;
 		},
 		async remove(id) { files.splice(files.findIndex((f) => f.id === id), 1); },
 		async usage() { return files.reduce((sum, f) => sum + f.size, 0); },
@@ -70,3 +76,40 @@ test("quota: toglie i più vecchi, tiene l'ultimo", () => run({ quotaBytes: 2500
 	for (let i = 0; i < 4; i++) assert.equal((await post(url, Buffer.alloc(1000))).status, 201);
 	assert.deepEqual(storage.files.map((f) => f.id), [3, 4]);
 }));
+
+const login = (url, password) => fetch(`${url}/admin/login`, { method: "POST", body: JSON.stringify({ password }) });
+
+test("admin: senza password impostata non si legge niente", () => run({}, async (url) => {
+	assert.equal((await login(url, "x")).status, 404);
+	assert.equal((await fetch(`${url}/admin/bugs`)).status, 404);
+}));
+
+test("admin: login, lista e scarico; il token di invio non basta", () => run({ adminPassword: "segreta" }, async (url) => {
+	await post(url, Buffer.alloc(10, 1));
+	assert.equal((await fetch(`${url}/admin/bugs`)).status, 401);
+	assert.equal((await fetch(`${url}/admin/bugs`, { headers: { authorization: "Bearer t" } })).status, 401, "il token di invio è pubblico: non apre la lettura");
+	assert.equal((await login(url, "sbagliata")).status, 401);
+	const { token } = await (await login(url, "segreta")).json();
+	const headers = { authorization: `Bearer ${token}` };
+	const list = await (await fetch(`${url}/admin/bugs`, { headers })).json();
+	assert.equal(list.bugs.length, 1);
+	assert.equal(list.bugs[0].title, "Todo è sparita");
+	const file = await fetch(`${url}/admin/bugs/${list.bugs[0].id}`, { headers });
+	assert.equal(file.status, 200);
+	assert.equal((await file.arrayBuffer()).byteLength, 10);
+	assert.equal((await fetch(`${url}/admin/bugs/999`, { headers })).status, 404);
+	assert.equal((await fetch(`${url}/admin/bugs/..%2F..`, { headers })).status, 404);
+}));
+
+test("admin: dopo 5 password sbagliate blocca anche quella giusta; il token scade", async () => {
+	let time = 1_000_000;
+	await run({ adminPassword: "segreta", now: () => time }, async (url) => {
+		for (let i = 0; i < 5; i++) assert.equal((await login(url, "no")).status, 401);
+		assert.equal((await login(url, "segreta")).status, 429);
+		time += 16 * 60_000;
+		const { token } = await (await login(url, "segreta")).json();
+		assert.equal((await fetch(`${url}/admin/bugs`, { headers: { authorization: `Bearer ${token}` } })).status, 200);
+		time += 13 * 3_600_000;
+		assert.equal((await fetch(`${url}/admin/bugs`, { headers: { authorization: `Bearer ${token}` } })).status, 401);
+	});
+});

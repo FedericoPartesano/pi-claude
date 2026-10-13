@@ -14,7 +14,14 @@ Receives the packages that `/bugreport` sends and keeps them in its own MongoDB 
 The server listens on `127.0.0.1:8099` only. Put a proxy or `tailscale funnel` in front to open it.
 The environment file stays out of git (see `.gitignore`).
 
-## Read the packages
+## Read the packages (admin only)
+
+Only the admin reads. Set `BUG_ADMIN_PASSWORD` in `server.env` (without it there is no way to read over HTTP). From Pi:
+`/bugs` logs in (the password is asked once, or read from `~/.pi/agent/bug-admin-password`, mode 600), lists the newest 50
+and downloads the chosen package into `~/.pi/bugs/received/`. The login token lasts 12 h and lives in server memory;
+5 wrong passwords per IP lock logins for 15 min. The public upload token never opens the reading routes.
+
+Straight from the database:
 
     docker compose exec bug-mongo mongosh --eval 'db.getSiblingDB("pi_bugs").bugs.files.find({}, {filename:1,length:1,metadata:1})'
 

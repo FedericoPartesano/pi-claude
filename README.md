@@ -191,6 +191,10 @@ Due aiuti, entrambi chiedono prima:
 
 `PI_BUG=0` toglie tutto.
 
+**Leggere i bug ricevuti (solo l'admin).** `/bugs` fa il login sul server dei bug con la password admin (chiesta una volta, oppure letta da
+`~/.pi/agent/bug-admin-password`, permessi 600), elenca gli ultimi 50 e scarica il pacchetto scelto in `~/.pi/bugs/received/`. Il token
+di invio, pubblico, non apre la lettura; 5 password sbagliate bloccano i login per 15 minuti. `PI_BUG_ADMIN=0` toglie il comando.
+
 ## Rilasci
 
 Il pacchetto `pi-claude` ha una versione (SemVer), gestita da [release-please](https://github.com/googleapis/release-please):
