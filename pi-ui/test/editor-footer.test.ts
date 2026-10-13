@@ -64,3 +64,10 @@ test("readUsage reads the subscription file and survives a missing or broken one
 	assert.equal(readUsage(join(dir, "bad.json")), undefined);
 	assert.equal(readUsage(join(dir, "missing.json")), undefined);
 });
+
+test("frameEditor keeps the autocomplete list under the frame", () => {
+	const out = frameEditor(["────────────", "/custom", "────────────", "→ custom-reload  Riavvia"], 40, false);
+	assert.equal(out.length, 4);
+	assert.match(out[3]!, /custom-reload/);
+	assert.match(out[2]!, /╱/);
+});
