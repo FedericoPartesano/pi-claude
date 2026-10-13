@@ -195,6 +195,10 @@ Due aiuti, entrambi chiedono prima:
 `~/.pi/agent/bug-admin-password`, permessi 600), elenca gli ultimi 50 e scarica il pacchetto scelto in `~/.pi/bugs/received/`. Il token
 di invio, pubblico, non apre la lettura; 5 password sbagliate bloccano i login per 15 minuti. `PI_BUG_ADMIN=0` toglie il comando.
 
+## Titolo della tab
+
+Il titolo della tab del terminale mostra se Pi lavora (spinner che gira) o aspetta te (🟢). Costa zero token. Si spegne con `PI_TAB_STATUS=0`.
+
 ## Rilasci
 
 Il pacchetto `pi-claude` ha una versione (SemVer), gestita da [release-please](https://github.com/googleapis/release-please):

@@ -26,7 +26,8 @@
       "./extensions/memory.ts",
       "./extensions/voice.ts",
       "./extensions/bug.ts",
-      "./extensions/updates.ts"
+      "./extensions/updates.ts",
+      "./extensions/tab-status.ts"
     ],
     "themes": [
       "./pi-ui/themes/*.json"
