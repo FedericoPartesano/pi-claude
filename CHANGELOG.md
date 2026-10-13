@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.5.0...pi-claude-v0.6.0) (2026-10-13)
+
+
+### Features
+
+* **memory:** topic per memory (/dream labels them), recall favours the topic named by the request; /dream told about near-duplicates ([e0e8841](https://github.com/FedericoPartesano/pi-claude/commit/e0e8841133258d15225a0786ed014e9d15db1f87))
+
 ## [0.5.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.4.1...pi-claude-v0.5.0) (2026-10-13)
 
 
