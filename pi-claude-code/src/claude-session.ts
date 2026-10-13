@@ -195,6 +195,8 @@ export class ClaudeSession {
 			this.stderrTail = (this.stderrTail + chunk.toString("utf8")).slice(-4000);
 		});
 		this.process.on("error", (error) => this.markExited(error));
+		// Writing to Claude Code after it has gone away (EPIPE) is an event on stdin: without a listener it kills Pi, with no message.
+		this.process.stdin.on("error", (error) => this.markExited(error));
 		this.process.on("exit", (code, signal) =>
 			this.markExited(
 				new Error(
