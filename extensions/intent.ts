@@ -216,6 +216,26 @@ export function activeIntent(cwd: string): { file: string; intent: Intent } | un
 	return listIntents(cwd).find(({ intent }) => intent.status === "in-progress");
 }
 
+/** True when every outcome is ticked ("[x]"): nothing left to remind. */
+export function allOutcomesDone(intent: Intent): boolean {
+	return intent.outcomes.length > 0 && intent.outcomes.every((item) => /^\[x\]/i.test(item));
+}
+
+/** Outcomes ticked and total, e.g. { done: 3, total: 7 }. */
+export function outcomeProgress(intent: Intent): { done: number; total: number } {
+	return { done: intent.outcomes.filter((item) => /^\[x\]/i.test(item)).length, total: intent.outcomes.length };
+}
+
+/** Rule for the model while an intent is open: keep the file true, so the user and the model can see how the work goes. */
+export function renderIntentUpkeep(file: string): string {
+	// Fixed text per file (no counts): a prompt that changes at every tick would break the cache of the whole conversation.
+	return [
+		`## Intent in corso: ${file}`,
+		"Tieni il file aggiornato mentre lavori: quando un outcome è dimostrato (test verde, comando eseguito, risultato letto), cambia `- [ ]` in `- [x]` e aggiungi `— prova: <cosa lo dimostra>`, con edit sul file.",
+		"Non spuntare senza prova. Quando tutti gli outcome sono fatti metti `status: done` nell'intestazione; se il lavoro è abbandonato, `status: rejected`.",
+	].join("\n");
+}
+
 /** Compact reminder of an intent, for the context after a compaction. Empty sections are left out. */
 export function renderIntentReminder(file: string, intent: Intent): string {
 	const list = (title: string, items: string[]) => (items.length > 0 ? [`${title}:`, ...items.map((item) => `- ${item}`), ""] : []);
@@ -268,11 +288,36 @@ export default function (pi: ExtensionAPI) {
 		if (active) ctx.ui.notify(`Lavoro in corso: ${active.intent.title || active.file} → /goal resume`, "info");
 	});
 
-	// After a compaction the summary may drop constraints: put the active intent back in the context.
-	pi.on("session_compact", (_event, ctx) => {
+	// Footer: "INTENT 3/7" while an intent is open. Re-read at startup and after every turn (the model ticks the file as it works).
+	// ctx is only used right away, never kept (it goes stale after a reload).
+	const showProgress = (ctx: { cwd: string; hasUI: boolean; ui: { setStatus(key: string, text: string | undefined): void } }) => {
+		if (!ctx.hasUI) return;
 		const active = activeIntent(ctx.cwd);
-		if (!active) return;
-		pi.sendMessage({ customType: "intent-reminder", content: renderIntentReminder(active.file, active.intent), display: true }, { deliverAs: "nextTurn" });
+		const { done, total } = active ? outcomeProgress(active.intent) : { done: 0, total: 0 };
+		ctx.ui.setStatus("intent", active && total > 0 ? `${done}/${total}` : undefined);
+	};
+	pi.on("session_start", (_event, ctx) => showProgress(ctx));
+	pi.on("agent_end", (_event, ctx) => showProgress(ctx));
+
+	// After a compaction the summary may drop constraints: put the active intent back in the context.
+	// The file is read when the next turn starts (not at compaction), so ticks and status are current;
+	// nothing is added when no intent is in progress or all its outcomes are already ticked.
+	let reminderPending = false;
+	pi.on("session_compact", () => {
+		reminderPending = true;
+	});
+	pi.on("before_agent_start", (event, ctx) => {
+		const active = activeIntent(ctx.cwd);
+		if (!active || allOutcomesDone(active.intent)) {
+			reminderPending = false;
+			return undefined;
+		}
+		// Upkeep rule at the end of the system prompt, only while an intent is open. PI_INTENT_UPKEEP=0 turns it off.
+		const upkeep = process.env.PI_INTENT_UPKEEP === "0" ? undefined : renderIntentUpkeep(active.file);
+		const systemPrompt = upkeep ? `${event.systemPrompt.split("\n\n## Intent in corso:")[0]}\n\n${upkeep}` : undefined;
+		if (!reminderPending) return systemPrompt ? { systemPrompt } : undefined;
+		reminderPending = false;
+		return { ...(systemPrompt ? { systemPrompt } : {}), message: { customType: "intent-reminder", content: renderIntentReminder(active.file, active.intent), display: true } };
 	});
 
 	// One advisor for every request: Pi directly, an intent first, or the team.

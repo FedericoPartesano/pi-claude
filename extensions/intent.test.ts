@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { activeIntent, intentPickerItems, intentTemplate, interviewPrompt, parseIntent, renderIntentReminder, setStatus, slugify } from "./intent.ts";
+import { activeIntent, intentPickerItems, intentTemplate, interviewPrompt, parseIntent, allOutcomesDone, outcomeProgress, renderIntentUpkeep, renderIntentReminder, setStatus, slugify } from "./intent.ts";
 
 const ITALIAN = `---
 status: ready
@@ -164,4 +164,25 @@ test("intent picker items: open work first, done/rejected hidden, preview with o
 	assert.equal(items[0].label, "Ricerca");
 	assert.match(items[1].description ?? "", /ready · 1 outcome · 1 domande aperte/);
 	assert.match(items[1].preview, /LIBRI10 = 10%[\s\S]*cumulabili\?/);
+});
+
+test("allOutcomesDone: only when every outcome is ticked", () => {
+	assert.equal(allOutcomesDone(parseIntent("# T\n\n## Outcome atteso\n- [x] A\n- [x] B\n")), true);
+	assert.equal(allOutcomesDone(parseIntent("# T\n\n## Outcome atteso\n- [x] A\n- [ ] B\n")), false);
+	assert.equal(allOutcomesDone(parseIntent("# T\n\n## Outcome atteso\n- A\n")), false);
+	assert.equal(allOutcomesDone(parseIntent("# T\n")), false);
+});
+
+test("outcomeProgress counts ticked outcomes", () => {
+	assert.deepEqual(outcomeProgress(parseIntent("# T\n\n## Outcome atteso\n- [x] A\n- [ ] B\n- [X] C\n")), { done: 2, total: 3 });
+	assert.deepEqual(outcomeProgress(parseIntent("# T\n")), { done: 0, total: 0 });
+});
+
+test("renderIntentUpkeep: fixed text per file, says to tick with proof and to set done", () => {
+	const text = renderIntentUpkeep("intents/x.md");
+	assert.match(text, /intents\/x\.md/);
+	assert.match(text, /\[x\]/);
+	assert.match(text, /prova/);
+	assert.match(text, /status: done/);
+	assert.doesNotMatch(text, /\d+\/\d+/);
 });
