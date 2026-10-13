@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.6.0...pi-claude-v0.7.0) (2026-10-13)
+
+
+### Features
+
+* **pi-ui:** model in use as the first, colored block of the footer (MODELLO OPUS/SONNET/HAIKU) ([6cd7238](https://github.com/FedericoPartesano/pi-claude/commit/6cd7238aaa4018f870af60ab0e9e031a4fc2d4c2))
+
 ## [0.6.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.5.0...pi-claude-v0.6.0) (2026-10-13)
 
 
