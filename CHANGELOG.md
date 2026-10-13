@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.5.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.4.1...pi-claude-v0.5.0) (2026-10-13)
+
+
+### Features
+
+* **bug:** upload indicator in the footer and a toast when the report is sent ([9d443eb](https://github.com/FedericoPartesano/pi-claude/commit/9d443eb38294661803124f6da0bf66cc0cee8ef9))
+* **pi-ui:** preview of pasted images above the prompt; Windows image paths recognised ([a2378d1](https://github.com/FedericoPartesano/pi-claude/commit/a2378d1411052469eccfdc074258115274b1dab9))
+
+
+### Bug Fixes
+
+* **memory:** fewer, more relevant recalls (max 3 cues, linked memories only after a strong hit, repeat penalty) ([ecd2325](https://github.com/FedericoPartesano/pi-claude/commit/ecd2325ba659d9a6c5a168c9b438127bd45361ba))
+
 ## [0.4.1](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.4.0...pi-claude-v0.4.1) (2026-10-13)
 
 
