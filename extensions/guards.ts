@@ -2,7 +2,8 @@
  * Guards that cost nothing until they find something (ideas from claude-mods, rebuilt for Pi):
  * - hidden Unicode in instruction files, installed skills and tool results (prompt injection a human cannot see);
  * - another session writing the same file right now (several Pi / Claude Code sessions on one checkout);
- * - packages about to be installed that look risky (very new, or named like a popular one).
+ * - packages about to be installed that look risky (very new, or named like a popular one);
+ * - `tools.todo` inside codemode, which loses the task list at the next compaction (PI_GUARD_TODO=0 to allow it).
  * No tool and no prompt text: nothing reaches the model unless a guard has something to say. PI_GUARDS=0 turns all
  * off; PI_GUARD_UNICODE=0, PI_GUARD_PEERS=0, PI_GUARD_PACKAGES=0 one by one.
  */
@@ -13,6 +14,7 @@ import { dirname, relative, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { assessPackage, isPopular, parseInstalls, privateRegistry, registryInfo } from "./guard/packages.ts";
 import { PeerGuard } from "./guard/peers.ts";
+import { TODO_REASON, TodoWatch, todoInsideCodemode } from "./guard/todo.ts";
 import { cleanToolText, describeHidden, instructionFiles, isSuspicious, scanHidden } from "./guard/unicode.ts";
 
 const on = (name: string) => process.env.PI_GUARDS !== "0" && process.env[`PI_GUARD_${name}`] !== "0";
@@ -54,6 +56,22 @@ export default function (pi: ExtensionAPI) {
 		});
 	}
 
+	// The todo list left behind: a line in a tool result after a few actions, a hidden reminder at the next message.
+	if (on("TODO")) {
+		let watch = new TodoWatch();
+		pi.on("session_start", (_event, ctx) => {
+			watch = TodoWatch.fromBranch(ctx.sessionManager.getBranch() as Iterable<unknown>);
+		});
+		pi.on("tool_result", (event) => {
+			const line = watch.result(event.toolName, event.details, Boolean(event.isError));
+			return line ? { content: [...event.content, { type: "text" as const, text: line }] } : undefined;
+		});
+		pi.on("before_agent_start", () => {
+			const text = watch.reminder();
+			return text ? { message: { customType: "todo-reminder", content: text, display: false } } : undefined;
+		});
+	}
+
 	if (on("PEERS")) {
 		const guard = new PeerGuard({
 			mtime: (path) => {
@@ -76,6 +94,7 @@ export default function (pi: ExtensionAPI) {
 			return typeof path === "string" && path ? resolve(cwd, path) : undefined;
 		};
 		const bashStarted = new Map<string, number>();
+		if (on("TODO")) pi.on("tool_call", (event) => (todoInsideCodemode(event.toolName, event.input) ? { block: true, reason: TODO_REASON } : undefined));
 		pi.on("tool_call", (event, ctx) => {
 			if (event.toolName !== "edit" && event.toolName !== "write") return undefined;
 			const path = target(event.input, ctx.cwd);

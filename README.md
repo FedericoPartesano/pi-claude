@@ -112,7 +112,7 @@ Screenshot (`shot`) ed errori di console e rete (`logs`) solo su richiesta.
 
 ## Guardie
 
-Attive da sole, a costo zero finché non trovano qualcosa (`PI_GUARDS=0` le spegne, `PI_GUARD_UNICODE|PEERS|PACKAGES=0` una per
+Attive da sole, a costo zero finché non trovano qualcosa (`PI_GUARDS=0` le spegne, `PI_GUARD_UNICODE|PEERS|PACKAGES|TODO=0` una per
 volta):
 - **testo invisibile**: caratteri tag, bidi e a larghezza zero in AGENTS.md/CLAUDE.md/skill (avviso all'avvio) e nei risultati
   dei tool, che vengono ripuliti prima che il modello li legga (prompt injection che a schermo non si vede);
@@ -120,6 +120,9 @@ volta):
   ferma una volta perché il modello lo rilegga prima;
 - **pacchetti**: `npm/pnpm/yarn/bun add|i`, `pip/uv/poetry` di un nome che non esiste nel registry, pubblicato da meno di 30
   giorni o simile a un pacchetto famoso si fermano una volta con il motivo (ripetuto, passa);
+- **todo dimenticati**: se la lista ha voci aperte e il modello fa 5 azioni (edit, write, bash) senza aggiornarla, un promemoria di
+  una riga si aggiunge al risultato dell'ultimo tool; al messaggio dopo, un promemoria nascosto. Un `todo` dentro codemode si ferma
+  (non verrebbe salvato);
 - **comandi distruttivi** (nel permesso di pi-ui): `DROP TABLE`, `DELETE` senza `WHERE`, `git branch -D`, `docker volume
   prune`, `kubectl delete --all`, `cat .env`, `printenv`… chiedono conferma.
 
