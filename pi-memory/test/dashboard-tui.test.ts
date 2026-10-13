@@ -10,7 +10,7 @@ const strip = (text: string) => text.replace(/\x1b\[[0-9;]*m/g, "").replace(/\x1
 const KEY = { tab: "\t", down: "\x1b[B", enter: "\r", escape: "\x1b", backspace: "\x7f" };
 const rec = (id: string, text: string, extra: Partial<MemoryRecord> = {}): MemoryRecord => ({ id, type: "preferenza", text, pinned: false, confirmations: 1, created: "2026-10-06", last: "2026-10-06", status: "active", entities: [], ...extra });
 
-function setup() {
+function setup(only?: string[]) {
 	let records = [
 		rec("r1", "Messaggi d'errore sempre in italiano.", { type: "correzione", pinned: true, confirmations: 3, created: "2026-10-05" }),
 		rec("r2", "Il package manager è pnpm.", { entities: ["pnpm"] }),
@@ -19,14 +19,24 @@ function setup() {
 	];
 	const runs: DreamRun[] = [{ at: "2026-10-06T14:09:00", date: "2026-10-06", scope: "progetto", counts: { added: 1, reinforced: 1, merged: 0, updated: 0, forgotten: 0 }, lines: ["+ [preferenza] Il package manager è pnpm.", "↑ Messaggi d'errore sempre in italiano."], tokens: 1200 }];
 	const events: RecallEvent[] = [{ at: "2026-10-07T09:12:00", query: "installa le dipendenze", hits: [{ id: "r2", score: 0.82 }], ms: 2 }];
+	let doubts = [{ id: "r2", question: "Ieri hai detto npm, oggi pnpm: vale solo pnpm?", text: "Il package manager è pnpm, mai npm.", at: "2026-10-07T08:00:00Z" }, { id: "r1", question: "Messaggi in inglese per questo progetto?", at: "2026-10-07T08:00:01Z" }];
 	const calls: string[] = [];
 	const source: MemoryDashboardSource = {
-		load: () => ({ records, runs, events, lastDream: "2026-10-06", where: ".pi/memory" }),
+		load: () => ({ records, doubts, runs, events, lastDream: "2026-10-06", where: ".pi/memory" }),
 		search: async (question) => (calls.push(`search:${question}`), [{ record: records[1], score: 0.9 }] as SearchHit[]),
 		answer: async (question, hits, onText) => {
 			calls.push(`answer:${question}:${hits.length}`);
 			onText("Usi **pnpm**");
 			return "Usi **pnpm** [r2].";
+		},
+		propose: async (record, request, comment) => {
+			calls.push(`propose:${record.id}:${request ?? "-"}:${comment}`);
+			if (comment.includes("rompi")) throw new Error("modello non raggiungibile");
+			return comment.includes("testo") ? { summary: "Era impreciso.", action: "edit", text: "Il package manager è pnpm, mai npm." } : { summary: "Non c'entra con quella richiesta.", action: "avoid" };
+		},
+		resolveDoubt: async (id) => {
+			calls.push(`resolve:${id}`);
+			doubts = doubts.filter((doubt) => doubt.id !== id);
 		},
 		act: async (id, action) => {
 			calls.push(`act:${id}:${action.kind}`);
@@ -35,7 +45,7 @@ function setup() {
 	};
 	const results: DashboardResult[] = [];
 	let renders = 0;
-	const dashboard = new MemoryDashboard(source, theme, (result) => results.push(result), () => renders++, () => 30, "2026-10-07");
+	const dashboard = new MemoryDashboard(source, theme, (result) => results.push(result), () => renders++, () => 30, "2026-10-07", "ricordi", only ? { only } : {});
 	return { dashboard, calls, results, text: (width = 120) => dashboard.render(width).map(strip).join("\n") };
 }
 const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
@@ -140,4 +150,116 @@ test("Chiedi: Enter searches the memory (no tokens), Enter again asks the model;
 	dashboard.handleInput(KEY.escape);
 	assert.deepEqual(results, [undefined]);
 	dashboard.dispose();
+});
+
+test("ricerca per id: #r2 trova solo r2, #g:r1 solo il globale, senza # l'id esatto vale anche", () => {
+	const type = (dashboard: ReturnType<typeof setup>["dashboard"], word: string) => { dashboard.handleInput("/"); for (const char of word) dashboard.handleInput(char); };
+	for (const [word, shown, hidden] of [["#r2", /package manager/, /Messaggi d'errore|Rispondi in italiano/], ["#g:r1", /Rispondi in italiano/, /package manager|Messaggi d'errore/], ["r2", /package manager/, /Messaggi d'errore/]] as const) {
+		const { dashboard, text } = setup();
+		type(dashboard, word);
+		assert.match(text(), shown, word);
+		assert.doesNotMatch(text(), hidden, word);
+	}
+});
+
+const type = (dashboard: ReturnType<typeof setup>["dashboard"], word: string) => { for (const char of word) dashboard.handleInput(char); };
+const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
+
+test("solo i ricordi caricati: elenco ristretto, a torna a tutti", () => {
+	const { dashboard, text } = setup(["r2", "g:r1"]);
+	assert.match(text(), /caricati nell'ultima risposta/);
+	assert.match(text(), /package manager/);
+	assert.match(text(), /Rispondi in italiano/);
+	assert.doesNotMatch(text(), /Messaggi d'errore/);
+	dashboard.handleInput("a");
+	assert.match(text(), /Messaggi d'errore/);
+	assert.doesNotMatch(text(), /caricati nell'ultima risposta/);
+});
+
+test("correggi: scrivi, il modello propone, invio applica (avoid con la richiesta che l'ha fatto scattare)", async () => {
+	const { dashboard, calls, text } = setup();
+	dashboard.handleInput(KEY.down); // r2 è l'ultimo richiamato dall'evento
+	dashboard.handleInput("c");
+	assert.match(text(), /CORREGGI IL RICORDO/);
+	assert.match(text(), /installa le dipendenze/);
+	type(dashboard, "non c'entra");
+	dashboard.handleInput(KEY.enter);
+	await settle();
+	assert.ok(calls.some((call) => call.startsWith("propose:r2:installa le dipendenze:non c'entra")), calls.join("|"));
+	assert.match(text(), /PROPOSTA DEL MODELLO/);
+	assert.match(text(), /non richiamarlo più per richieste come questa/);
+	assert.ok(!calls.some((call) => call.startsWith("act:")), "niente cambia prima della conferma");
+	dashboard.handleInput(KEY.enter);
+	await settle();
+	assert.ok(calls.includes("act:r2:avoid"), calls.join("|"));
+	assert.doesNotMatch(text(), /CORREGGI/);
+});
+
+test("correggi: esc annulla senza cambiare niente; n permette di riscrivere; errore del modello mostrato", async () => {
+	const { dashboard, calls, text } = setup();
+	dashboard.handleInput(KEY.down);
+	dashboard.handleInput("c");
+	type(dashboard, "rompi");
+	dashboard.handleInput(KEY.enter);
+	await settle();
+	assert.match(text(), /errore: modello non raggiungibile/);
+	for (let i = 0; i < 5; i++) dashboard.handleInput(KEY.backspace);
+	type(dashboard, "correggi il testo");
+	dashboard.handleInput(KEY.enter);
+	await settle();
+	assert.match(text(), /nuovo testo: Il package manager è pnpm, mai npm\./);
+	dashboard.handleInput("n");
+	assert.doesNotMatch(text(), /PROPOSTA DEL MODELLO/);
+	dashboard.handleInput(KEY.escape);
+	assert.doesNotMatch(text(), /CORREGGI/);
+	assert.ok(!calls.some((call) => call.startsWith("act:")));
+});
+
+test("correggi: invio con commento vuoto non chiama il modello", async () => {
+	const { dashboard, calls } = setup();
+	dashboard.handleInput(KEY.down);
+	dashboard.handleInput("c");
+	dashboard.handleInput(KEY.enter);
+	await settle();
+	assert.ok(!calls.some((call) => call.startsWith("propose:")));
+});
+
+test("tab Dubbi: elenco con conteggio, dettaglio con cosa succede se dici sì; 5 apre la tab", () => {
+	const { dashboard, text } = setup();
+	assert.match(text(), /5 Dubbi 2/);
+	dashboard.handleInput("5");
+	assert.match(text(), /Ieri hai detto npm, oggi pnpm/);
+	assert.match(text(), /DUBBIO DI \/DREAM/);
+	assert.match(text(), /diventa: Il package manager è pnpm, mai npm\./);
+	dashboard.handleInput(KEY.down);
+	assert.match(text(), /viene segnato come superato/);
+});
+
+test("tab Dubbi: s applica l'azione e toglie il dubbio; n lo toglie senza toccare il ricordo", async () => {
+	const { dashboard, calls, text } = setup();
+	dashboard.handleInput("5");
+	dashboard.handleInput("s");
+	await tick();
+	assert.deepEqual(calls.filter((call) => call.startsWith("act:") || call.startsWith("resolve:")), ["act:r2:edit", "resolve:r2"]);
+	assert.match(text(), /5 Dubbi 1/);
+	dashboard.handleInput("n");
+	await tick();
+	assert.ok(calls.includes("resolve:r1"));
+	assert.ok(!calls.includes("act:r1:supersede"));
+	assert.match(text(), /nessun dubbio in sospeso/);
+});
+
+test("tab Dubbi: invio apre la chat, il modello propone, invio applica e il dubbio sparisce", async () => {
+	const { dashboard, calls, text } = setup();
+	dashboard.handleInput("5");
+	dashboard.handleInput(KEY.enter);
+	assert.match(text(), /LA TUA RISPOSTA/);
+	for (const char of "ho cambiato idea, testo nuovo") dashboard.handleInput(char);
+	dashboard.handleInput(KEY.enter);
+	await tick();
+	assert.ok(calls.some((call) => call.startsWith("propose:r2:-:Dubbio emerso da /dream")), calls.join("|"));
+	assert.match(text(), /PROPOSTA DEL MODELLO/);
+	dashboard.handleInput(KEY.enter);
+	await tick();
+	assert.deepEqual(calls.filter((call) => call.startsWith("act:") || call.startsWith("resolve:")), ["act:r2:edit", "resolve:r2"]);
 });

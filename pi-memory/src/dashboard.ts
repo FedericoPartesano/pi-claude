@@ -2,6 +2,7 @@
  * What the user sees of the memory: the summary and rows of /memory, the actions on one memory, the status line for
  * the footer and panel, and the lasting chat entry written after /dream. Pure functions: the extension only wires them.
  */
+import { addAvoid } from "./avoid.ts";
 import type { MemoryRecord } from "./store.ts";
 
 const PLURALS: Record<string, string> = {
@@ -65,7 +66,7 @@ export function recordPreview(record: MemoryRecord): string {
 		.join("\n");
 }
 
-export type MemoryAction = { kind: "pin" } | { kind: "edit"; text: string } | { kind: "supersede" } | { kind: "delete" };
+export type MemoryAction = { kind: "pin" } | { kind: "edit"; text: string } | { kind: "supersede" } | { kind: "delete" } | { kind: "avoid"; query: string };
 
 /** A new list with the action applied to the memory `id` (the input is never changed). */
 export function applyAction(records: MemoryRecord[], id: string, action: MemoryAction, today = new Date().toISOString().slice(0, 10)): MemoryRecord[] {
@@ -74,8 +75,67 @@ export function applyAction(records: MemoryRecord[], id: string, action: MemoryA
 		if (record.id !== id) return record;
 		if (action.kind === "pin") return { ...record, pinned: !record.pinned };
 		if (action.kind === "edit") return { ...record, text: action.text, last: today };
+		if (action.kind === "avoid") return { ...record, avoid: addAvoid(record.avoid, action.query) };
 		return { ...record, status: "superseded", pinned: false, reason: `segnato superato dall'utente il ${today}` };
 	});
+}
+
+/** What the model suggests for a memory the user says fired wrongly. Nothing changes until the user confirms. */
+export interface Proposal {
+	/** One or two plain sentences: what went wrong and what is proposed. */
+	summary: string;
+	/** keep: leave as is · avoid: stop recalling it for requests like this one · edit: new text · supersede: mark outdated · delete. */
+	action: "keep" | "avoid" | "edit" | "supersede" | "delete";
+	/** The new text, only for edit. */
+	text?: string;
+}
+
+/** Prompt that asks the model to judge a memory the user flagged. `request` is the request that brought it in, if known. */
+export function fixPrompt(record: MemoryRecord, request: string | undefined, comment: string): string {
+	return [
+		"L'utente dice che un ricordo della memoria del progetto è stato richiamato per errore o è sbagliato. Decidi cosa fare e spiegalo.",
+		"",
+		`Ricordo [${record.id}] (${record.type}${record.pinned ? ", fissato" : ""}${record.status !== "active" ? ", superato" : ""}): ${record.text}`,
+		request ? `Richiesta in cui è scattato: ${request}` : "Richiesta in cui è scattato: non nota.",
+		`Commento dell'utente: ${comment}`,
+		"",
+		"Scegli UNA azione:",
+		...(request ? ['- "avoid": il ricordo è valido ma non c\'entra con richieste come quella: non va più richiamato per richieste simili.'] : []),
+		'- "edit": il ricordo è impreciso o incompleto: dai il testo corretto in "text" (stessa lingua, una frase, senza perdere negazioni, numeri, percorsi).',
+		'- "supersede": il ricordo non è più vero.',
+		'- "delete": il ricordo è sbagliato o inutile del tutto.',
+		'- "keep": il ricordo era giusto, nessuna modifica.',
+		`Nel dubbio scegli l'azione meno distruttiva.${request ? ' Non cancellare se basta "avoid".' : ""}`,
+		'Rispondi SOLO con JSON: {"summary": "...", "action": "...", "text": "..."} ("text" solo per edit). "summary" in italiano, parole semplici, max 2 frasi.',
+	].join("\n");
+}
+
+/** The model's reply as a Proposal; undefined when it cannot be read (an edit without text counts as unreadable). */
+export function parseFixProposal(reply: string): Proposal | undefined {
+	const match = /\{[\s\S]*\}/.exec(reply);
+	if (!match) return undefined;
+	try {
+		const raw = JSON.parse(match[0]) as { summary?: unknown; action?: unknown; text?: unknown };
+		const actions = ["keep", "avoid", "edit", "supersede", "delete"] as const;
+		const action = actions.find((candidate) => candidate === raw.action);
+		if (!action || typeof raw.summary !== "string" || !raw.summary.trim()) return undefined;
+		const text = typeof raw.text === "string" ? raw.text.trim() : "";
+		if (action === "edit" && !text) return undefined;
+		return { summary: raw.summary.trim(), action, ...(action === "edit" ? { text } : {}) };
+	} catch {
+		return undefined;
+	}
+}
+
+/** The store action for a proposal; undefined for keep. `request` is the request to remember for avoid. */
+export function fixAction(proposal: Proposal, request: string | undefined): MemoryAction | undefined {
+	switch (proposal.action) {
+		case "avoid": return request ? { kind: "avoid", query: request } : undefined;
+		case "edit": return { kind: "edit", text: proposal.text ?? "" };
+		case "supersede": return { kind: "supersede" };
+		case "delete": return { kind: "delete" };
+		default: return undefined;
+	}
 }
 
 /** Status text for the footer and the panel (setStatus "memory"); undefined when there is no memory. */

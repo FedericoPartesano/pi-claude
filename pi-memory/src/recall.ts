@@ -5,6 +5,7 @@ import { extractEntities } from "./entities.ts";
 import { classifyRequest } from "./request.ts";
 import { pushPpr } from "./ppr.ts";
 import { VectorIndex } from "./vector-index.ts";
+import { isAvoided } from "./avoid.ts";
 
 /** ~300 tokens (about 3.6 chars per token) at most. */
 export const RECALL_BUDGET_CHARS = 1080;
@@ -475,7 +476,7 @@ export function recall(index: RecallIndex, query: string, options: RecallOptions
 			if (value > 0) sem.set(hit.position, value);
 		}
 	}
-	const eligible = (record: MemoryRecord) => ((record.status === "active" && record.state !== "dormant") || options.includeSuperseded) && !options.exclude?.has(record.id);
+	const eligible = (record: MemoryRecord) => ((record.status === "active" && record.state !== "dormant") || options.includeSuperseded) && !options.exclude?.has(record.id) && (options.includeSuperseded || !isAvoided(record, query));
 	// Strength (confirmations, slow fading) plus recency (Generative Agents): among memories equally relevant to the
 	// request, the one touched in the last weeks comes first (the current state of a topic, not its history).
 	const factor = (record: MemoryRecord) => 0.85 + 0.15 * index.strengthOf(record, options.today) + RECENCY.weight * index.recencyOf(record, options.today);

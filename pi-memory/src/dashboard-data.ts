@@ -4,7 +4,8 @@
  */
 import { appendFileSync, statSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { MemoryAction } from "./dashboard.ts";
+import type { MemoryAction, Proposal } from "./dashboard.ts";
+import type { Doubt } from "./doubts.ts";
 import type { MemoryRecord } from "./store.ts";
 
 export interface DreamRun {
@@ -118,10 +119,14 @@ export function answerPrompt(question: string, hits: SearchHit[]): string {
 
 /** What the memory extension gives the dashboard UI. */
 export interface MemoryDashboardSource {
-	load(): { records: MemoryRecord[]; runs: DreamRun[]; events: RecallEvent[]; lastDream?: string; where: string };
+	load(): { records: MemoryRecord[]; doubts?: Doubt[]; runs: DreamRun[]; events: RecallEvent[]; lastDream?: string; where: string };
 	/** Local recall (no tokens): every match with its score, superseded ones included and marked as such. */
 	search(question: string): Promise<SearchHit[]>;
 	/** The model's answer, streamed (text so far at every delta). */
 	answer(question: string, hits: SearchHit[], onText: (textSoFar: string) => void, signal?: AbortSignal): Promise<string>;
+	/** The model's judgement of a memory the user flagged (costs tokens, changes nothing). */
+	propose(record: MemoryRecord, request: string | undefined, comment: string, signal?: AbortSignal): Promise<Proposal>;
+	/** Forgets the pending /dream doubt about this memory (answered). */
+	resolveDoubt(id: string): Promise<void>;
 	act(id: string, action: MemoryAction): Promise<void>;
 }

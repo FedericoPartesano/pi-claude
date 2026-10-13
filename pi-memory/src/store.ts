@@ -38,6 +38,8 @@ export interface MemoryRecord {
 	/** Times the model actually used it (opened with `ricorda`), and when last. */
 	uses?: number;
 	lastUsed?: string;
+	/** Requests that brought this memory in by mistake: similar requests no longer do (src/avoid.ts). */
+	avoid?: string[];
 }
 
 export interface Store {

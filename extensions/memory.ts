@@ -43,7 +43,8 @@ import { withStoreLockAsync } from "../pi-memory/src/lock.ts";
 import { renderVault } from "../pi-memory/src/vault.ts";
 import { lastId, loadStore, migrateLegacy, pruneVectors, saveStore, storeExists, type MemoryRecord } from "../pi-memory/src/store.ts";
 import { applyUsage, lifecycle, newestEvent } from "../pi-memory/src/forget.ts";
-import { applyAction, dreamEntry, memoryStatus, progressText, recordLabel, recordPreview, summarize, type DreamEntry, type MemoryAction } from "../pi-memory/src/dashboard.ts";
+import { loadDoubts, mergeDoubts, saveDoubts } from "../pi-memory/src/doubts.ts";
+import { applyAction, dreamEntry, parseFixProposal, fixPrompt, memoryStatus, progressText, recordLabel, recordPreview, summarize, type DreamEntry, type MemoryAction } from "../pi-memory/src/dashboard.ts";
 import type { DashboardResult, View } from "../pi-memory/src/dashboard-tui.ts";
 import { answerPrompt, appendDreamRun, logUsage, readDreamRuns, readRecallEvents, type MemoryDashboardSource, type SearchHit } from "../pi-memory/src/dashboard-data.ts";
 
@@ -173,6 +174,7 @@ export function dashboardSource(ctx: ExtensionContext): MemoryDashboardSource {
 			records: allRecords(dirs),
 			runs: [...readDreamRuns(dirs.project), ...(dirs.global ? readDreamRuns(dirs.global) : [])].sort((a, b) => b.at.localeCompare(a.at)),
 			events: readRecallEvents(dirs.project),
+			doubts: [...loadDoubts(dirs.project), ...(dirs.global ? loadDoubts(dirs.global).map((doubt) => ({ ...doubt, id: `g:${doubt.id}` })) : [])],
 			lastDream: readState(projectFiles(ctx.cwd).state).lastConsolidated?.slice(0, 10),
 			where: `.pi/memory${dirs.global && storeExists(dirs.global) ? " + globale" : ""}`,
 		}),
@@ -202,6 +204,25 @@ export function dashboardSource(ctx: ExtensionContext): MemoryDashboardSource {
 			const final = message.content.filter((part) => part.type === "text").map((part) => (part as { text: string }).text).join("") || text;
 			if (final !== text) onText(final);
 			return final;
+		},
+		propose: async (record, request, comment, signal) => {
+			const model = ctx.modelRegistry.find("claude-code", process.env.PI_DREAM_MODEL ?? "haiku") ?? ctx.model;
+			if (!model) throw new Error("nessun modello disponibile");
+			const message = await ctx.modelRegistry.streamSimple(model, {
+				systemPrompt: "Valuti i ricordi di un assistente di programmazione. Rispondi solo con il JSON richiesto.",
+				messages: [{ role: "user", content: [{ type: "text", text: fixPrompt(record, request, comment) }], timestamp: Date.now() }],
+			} as never, { signal } as never).result();
+			const reply = message.content.filter((part) => part.type === "text").map((part) => (part as { text: string }).text).join("");
+			const proposal = parseFixProposal(reply);
+			if (!proposal) throw new Error("risposta del modello non leggibile, riprova");
+			return proposal;
+		},
+		resolveDoubt: async (id) => {
+			const global = id.startsWith("g:");
+			const dir = global ? dirs.global : dirs.project;
+			if (!dir || !storeExists(dir)) return;
+			const bare = global ? id.slice(2) : id;
+			saveDoubts(dir, loadDoubts(dir).filter((doubt) => doubt.id !== bare));
 		},
 		act: async (id, action) => {
 			const global = id.startsWith("g:");
@@ -557,6 +578,16 @@ export default function (pi: ExtensionAPI) {
 		// What to keep is checked by code too: additions without content dropped, near-twins turned into confirmations.
 		const filtered = deep ? filterProposal(parsed.proposal, memory) : { proposal: parsed.proposal, dropped: [] as string[] };
 		const proposal = filtered.proposal;
+		// Doubts: nothing changes now; the user answers in /memory, tab Dubbi.
+		let newDoubts = 0;
+		if (deep && parsed.proposal.doubts?.length && storeExists(storeDir)) {
+			const added = parsed.proposal.doubts.flatMap((doubt) => {
+				const record = memory[Number(doubt.id.slice(1)) - 1];
+				return record?.id ? [{ id: record.id, question: doubt.question, ...(doubt.text ? { text: doubt.text } : {}), at: new Date().toISOString() }] : [];
+			});
+			saveDoubts(storeDir, mergeDoubts(loadDoubts(storeDir), added));
+			newDoubts = added.length;
+		}
 		// Fading is decided by code, not by the model.
 		// Deep mode never fades by deletion: weak memories are just harder to recall.
 		if (!deep) for (const id of staleIds(memory, date, FADE_DAYS)) if (!proposal.forget.some((item) => item.id === id)) proposal.forget.push({ id, reason: `sbiadito (nessuna conferma da ${FADE_DAYS} giorni)` });
@@ -686,7 +717,9 @@ export default function (pi: ExtensionAPI) {
 			// The result stays in the chat (a notification disappears and leaves the user unsure it was saved).
 			const active = deepRecords?.filter((record) => record.status === "active") ?? [];
 			pi.appendEntry("memory-dream", dreamEntry(result.counts, [...describe(memory, approved), ...filtered.dropped.slice(0, 3), ...(lifecycleNote ? [`… ${lifecycleNote}`] : [])], { active: active.length, pinned: active.filter((record) => record.pinned).length, pending: batch.pending }));
-			return ctx.ui.notify(`${options.auto ? "Memoria aggiornata in automatico (/memory per vederla)" : "Memoria aggiornata"}: +${added} nuovi, ${reinforced} rinforzati, ${merged} uniti, ${updated} aggiornati (superati), ${forgotten} dimenticati · ${deepRecords?.filter((record) => record.status === "active").length ?? 0} ricordi attivi, nessun tetto${batch.pending ? ` · restano ${batch.pending} sessioni: rilancia /dream` : ""}`, "info");
+			ctx.ui.notify(`${options.auto ? "Memoria aggiornata in automatico (/memory per vederla)" : "Memoria aggiornata"}: +${added} nuovi, ${reinforced} rinforzati, ${merged} uniti, ${updated} aggiornati (superati), ${forgotten} dimenticati · ${deepRecords?.filter((record) => record.status === "active").length ?? 0} ricordi attivi, nessun tetto${batch.pending ? ` · restano ${batch.pending} sessioni: rilancia /dream` : ""}`, "info");
+			if (newDoubts) ctx.ui.notify(`/dream ha ${newDoubts === 1 ? "un dubbio" : `${newDoubts} dubbi`} su cosa ricordare: rispondi con /memory doubts (tab Dubbi).`, "warning");
+			return;
 		}
 		pi.appendEntry("memory-dream", dreamEntry(result.counts, describe(memory, approved), { active: result.memory.length, pinned: result.memory.filter((entry) => entry.pinned).length, pending: batch.pending }));
 		ctx.ui.notify(`${options.auto ? "Memoria aggiornata in automatico (/memory per vederla)" : "Memoria aggiornata"}: +${added} nuovi, ${reinforced} rinforzati, ${merged} uniti, ${updated} aggiornati, ${forgotten} dimenticati${capped.moved ? `, ${capped.moved} archiviati per spazio` : ""} · ${result.memory.length} ricordi (~${summary.contextTokens} token in contesto)${batch.pending ? ` · restano ${batch.pending} sessioni: rilancia /dream` : ""}`, "info");
@@ -694,7 +727,7 @@ export default function (pi: ExtensionAPI) {
 
 	/** /memory: summary on top, every memory with its preview; Enter → pin, edit, mark superseded or delete. */
 	pi.registerCommand("memory", {
-		description: "Dashboard della memoria: ricordi, cronologia dei /dream, richiami, domande · /memory export: vault Obsidian del grafo",
+		description: "Dashboard della memoria: ricordi, cronologia dei /dream, richiami, domande · /memory export: vault Obsidian del grafo · /memory last: i ricordi dell'ultima risposta (Alt+R) · /memory doubts: i dubbi di /dream",
 		handler: async (args, ctx) => {
 			if (args.trim() === "export" && deepMode()) {
 				// The graph as an Obsidian vault (a view; the store stays the source of truth).
@@ -713,22 +746,51 @@ export default function (pi: ExtensionAPI) {
 				const data = source.load();
 				return ctx.ui.notify(summarize(data.records, { lastDream: data.lastDream, where: data.where }), "info");
 			}
-			// Modal over the chat; "e" closes it to open Pi's editor, then the dashboard comes back on the same view.
-			const { MemoryDashboard } = await import("../pi-memory/src/dashboard-tui.ts");
-			let view: View = "ricordi";
-			for (;;) {
-				const result = await ctx.ui.custom<DashboardResult>(
-					(tui, theme, _keybindings, done) =>
-						new MemoryDashboard(source, { fg: (role, text) => theme.fg(role, text), bg: (role, text) => theme.bg(role, text), bold: (text) => theme.bold(text) }, done, () => tui.requestRender(), () => Math.max(14, Math.floor((process.stdout.rows || 30) * 0.92)), today(), view),
-					{ overlay: true, overlayOptions: { anchor: "center", width: "96%", maxHeight: "94%" } },
-				);
-				if (!result) return;
-				view = result.view;
-				const text = await ctx.ui.editor("Modifica il ricordo", result.edit.text);
-				if (text?.trim() && text.trim() !== result.edit.text) await source.act(result.edit.id, { kind: "edit", text: text.trim() });
-			}
+			await openDashboard(ctx, source, args.trim() === "last" ? lastLoadedIds(ctx) : undefined, args.trim() === "doubts" ? "dubbi" : "ricordi");
 		},
 	});
+
+	/** The memories loaded for the last answer that has the "◆ RICORDI" line (ids), or undefined. */
+	const lastLoadedIds = (ctx: ExtensionContext): string[] | undefined => {
+		const branch = ctx.sessionManager.getBranch() as { type: string; customType?: string; data?: { memories?: LoadedMemory[] } }[];
+		for (let i = branch.length - 1; i >= 0; i--) {
+			const entry = branch[i];
+			if (entry.type === "custom" && entry.customType === "memory-loaded" && entry.data?.memories?.length) return entry.data.memories.map((memory) => memory.id);
+		}
+		return undefined;
+	};
+
+	// Modal over the chat; "e" closes it to open Pi's editor, then the dashboard comes back on the same view.
+	const openDashboard = async (ctx: ExtensionContext, source: MemoryDashboardSource, only?: string[], start: View = "ricordi") => {
+		const { MemoryDashboard } = await import("../pi-memory/src/dashboard-tui.ts");
+		let view: View = start;
+		for (;;) {
+			const result = await ctx.ui.custom<DashboardResult>(
+				(tui, theme, _keybindings, done) =>
+					new MemoryDashboard(source, { fg: (role, text) => theme.fg(role, text), bg: (role, text) => theme.bg(role, text), bold: (text) => theme.bold(text) }, done, () => tui.requestRender(), () => Math.max(14, Math.floor((process.stdout.rows || 30) * 0.92)), today(), view, { only }),
+				{ overlay: true, overlayOptions: { anchor: "center", width: "96%", maxHeight: "94%" } },
+			);
+			if (!result) return;
+			view = result.view;
+			const text = await ctx.ui.editor("Modifica il ricordo", result.edit.text);
+			if (text?.trim() && text.trim() !== result.edit.text) await source.act(result.edit.id, { kind: "edit", text: text.trim() });
+		}
+	};
+
+	// Alt+R: the memories under the last answer, in full, ready to correct. PI_MEMORY_KEY changes the key, "off" removes it.
+	const loadedKey = (process.env.PI_MEMORY_KEY || "alt+r").toLowerCase();
+	if (loadedKey !== "off") {
+		pi.registerShortcut(loadedKey as Parameters<typeof pi.registerShortcut>[0], {
+			description: "Apre la memoria sui ricordi caricati nell'ultima risposta (◆ RICORDI)",
+			handler: async (ctx) => {
+				if (!deepMode() || ctx.mode !== "tui") return;
+				const ids = lastLoadedIds(ctx);
+				if (!ids) return ctx.ui.notify("Nessun ricordo caricato in questa sessione.", "info");
+				migrate(ctx.cwd, today());
+				await openDashboard(ctx, dashboardSource(ctx), ids);
+			},
+		});
+	}
 
 	pi.registerCommand("recall", {
 		description: "Cerca nei ricordi archiviati: /recall <cosa> [--use per metterli nel contesto]",

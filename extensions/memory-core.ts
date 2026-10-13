@@ -49,6 +49,8 @@ export interface Proposal {
 	forget: { id: string; reason?: string }[];
 	/** The project overview, rewritten by /dream (deep mode): always in the system prompt, ≤ 1200 chars. */
 	quadro?: string;
+	/** Changes the model is unsure about: not applied, the user is asked (m<n> = the memory; text = what it would become). */
+	doubts?: { id: string; question: string; text?: string }[];
 }
 
 const HEADERS = {
@@ -395,6 +397,14 @@ export function parseProposal(text: string, memoryCount: number): { ok: true; pr
 	proposal.add = proposal.add.filter((item) => credential(item.text));
 	proposal.merge = proposal.merge.filter((item) => credential(item.text));
 	proposal.update = proposal.update.filter((item) => credential(item.text));
+	if (process.env.PI_DREAM_ASK !== "0") {
+		const doubts = list("doubts")
+			.filter((item): item is Item => typeof item === "object" && item !== null)
+			.filter((item) => knownId(item.id) && typeof item.question === "string" && item.question.trim().length > 0)
+			.map((item) => ({ id: item.id as string, question: cleanText(item.question as string).slice(0, 300), ...(typeof item.text === "string" && item.text.trim() && !CREDENTIAL_PATTERN.test(item.text) ? { text: cleanText(item.text) } : {}) }))
+			.slice(0, 3);
+		if (doubts.length > 0) proposal.doubts = doubts;
+	}
 	if (typeof raw.quadro === "string" && raw.quadro.trim()) proposal.quadro = maskSecrets(raw.quadro.trim()).slice(0, QUADRO_CHARS);
 	// Invalid items are skipped one by one (reported), never the whole consolidation.
 	return { ok: true, proposal, skipped: problems };
@@ -438,6 +448,9 @@ export function buildDreamPrompt(memory: MemoryEntry[], sessions: string, today:
 				].filter(Boolean)
 			: []),
 		"- forget solo per ricordi chiaramente sbagliati o inutili (allo sbiadire nel tempo pensa il codice).",
+		...(options.deep && process.env.PI_DREAM_ASK !== "0"
+			? ["- \"doubts\": se una sessione sembra contraddire un ricordo ma non sei sicuro quale dei due valga (o se l'utente ha solo cambiato idea per un caso), NON fare update né forget: aggiungi {\"id\":\"m2\",\"question\":\"domanda breve e chiara all'utente\",\"text\":\"come diventerebbe il ricordo se dice sì (omesso = da segnare superato)\"}. Massimo 3, solo per dubbi veri, mai per ricordi nuovi."]
+			: []),
 		...(fill >= 70 ? [`- La memoria è al ${fill}% del suo spazio: unisci i ricordi simili e sintetizza; aggiungi solo ciò che vale più di quello che c'è (il codice archivia l'eccedenza meno importante).`] : []),
 		"",
 		options.deep

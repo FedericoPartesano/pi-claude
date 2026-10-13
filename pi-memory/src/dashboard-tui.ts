@@ -1,5 +1,5 @@
 /**
- * /memory: full-screen memory dashboard drawn as a modal over the chat. Four views:
+ * /memory: full-screen memory dashboard drawn as a modal over the chat. Five views (the fifth: pending /dream doubts):
  * - Ricordi: every memory by type, with search and filters, details, and actions (pin, edit, supersede, delete).
  * - Cronologia: days when something entered the memory, with a bar per day, the /dream runs and what they saved.
  * - Richiami: which memories were added to which requests, with scores, and the most recalled ones.
@@ -7,7 +7,9 @@
  * Colors come from Pi's theme roles, so the dashboard follows /theme.
  */
 import { CURSOR_MARKER, decodeKittyPrintable, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi, type Component, type Focusable } from "@earendil-works/pi-tui";
-import type { MemoryAction } from "./dashboard.ts";
+import type { Doubt } from "./doubts.ts";
+import { doubtAction } from "./doubts.ts";
+import { fixAction, type MemoryAction, type Proposal } from "./dashboard.ts";
 import { recallStats, type DreamRun, type MemoryDashboardSource, type RecallEvent, type SearchHit } from "./dashboard-data.ts";
 import type { MemoryRecord } from "./store.ts";
 import { strength } from "./strength.ts";
@@ -32,12 +34,13 @@ const typeStyle = (type: string) => TYPE_STYLE[type] ?? { icon: "•", role: "te
 const MONTHS = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"];
 const longDay = (date: string) => `${Number(date.slice(8, 10))} ${MONTHS[Number(date.slice(5, 7)) - 1] ?? ""} ${date.slice(0, 4)}`;
 
-export type View = "ricordi" | "cronologia" | "richiami" | "chiedi";
+export type View = "ricordi" | "cronologia" | "richiami" | "chiedi" | "dubbi";
 const VIEWS: { id: View; label: string }[] = [
 	{ id: "ricordi", label: "Ricordi" },
 	{ id: "cronologia", label: "Cronologia" },
 	{ id: "richiami", label: "Richiami" },
 	{ id: "chiedi", label: "Chiedi" },
+	{ id: "dubbi", label: "Dubbi" },
 ];
 const TYPES = ["correzione", "preferenza", "decisione", "fatto", "episodio"];
 const TYPE_TITLES: Record<string, string> = { correzione: "CORREZIONI", preferenza: "PREFERENZE", decisione: "DECISIONI", fatto: "FATTI", episodio: "EPISODI" };
@@ -57,8 +60,8 @@ const plural = (count: number, one: string, many: string) => `${count} ${count =
 export class MemoryDashboard implements Component, Focusable {
 	focused = false;
 	private view: View;
-	private readonly cursors: Record<View, number> = { ricordi: 0, cronologia: 0, richiami: 0, chiedi: 0 };
-	private readonly scrolls: Record<View, number> = { ricordi: 0, cronologia: 0, richiami: 0, chiedi: 0 };
+	private readonly cursors: Record<View, number> = { ricordi: 0, cronologia: 0, richiami: 0, chiedi: 0, dubbi: 0 };
+	private readonly scrolls: Record<View, number> = { ricordi: 0, cronologia: 0, richiami: 0, chiedi: 0, dubbi: 0 };
 	private data: ReturnType<MemoryDashboardSource["load"]>;
 	private filter = "";
 	private searching = false;
@@ -73,6 +76,10 @@ export class MemoryDashboard implements Component, Focusable {
 	private answer = "";
 	private busy: "" | "cerco" | "rispondo" = "";
 	private abort?: AbortController;
+	/** Ids to show instead of every memory (the ones loaded for the last answer); "a" goes back to all. */
+	private only?: string[];
+	/** The correction chat for one memory: what the user says, what the model proposes. */
+	private fix?: { id: string; doubt?: Doubt; request?: string; comment: string; busy: boolean; proposal?: Proposal; error?: string; abort?: AbortController };
 	private frame = 0;
 	private timer?: ReturnType<typeof setInterval>;
 
@@ -84,7 +91,7 @@ export class MemoryDashboard implements Component, Focusable {
 	private readonly rows: () => number;
 	private readonly today: string;
 
-	constructor(source: MemoryDashboardSource, theme: DashboardTheme, done: (result: DashboardResult) => void, requestRender: () => void, rows: () => number, today: string, initial: View = "ricordi") {
+	constructor(source: MemoryDashboardSource, theme: DashboardTheme, done: (result: DashboardResult) => void, requestRender: () => void, rows: () => number, today: string, initial: View = "ricordi", options: { only?: string[] } = {}) {
 		this.source = source;
 		this.theme = theme;
 		this.done = done;
@@ -92,6 +99,7 @@ export class MemoryDashboard implements Component, Focusable {
 		this.rows = rows;
 		this.today = today;
 		this.view = initial;
+		this.only = options.only;
 		this.data = source.load();
 	}
 
@@ -107,11 +115,13 @@ export class MemoryDashboard implements Component, Focusable {
 	private records(): MemoryRecord[] {
 		const type = TYPES[this.typeFilter - 1];
 		const query = this.filter.toLowerCase();
+		// "#r13" (con o senza #) trova il ricordo con quell'id; se scrivi solo l'id vale anche "g:r4".
+		const byId = query.startsWith("#") ? query.slice(1) : undefined;
 		return this.data.records.filter((record) =>
-			(this.showSuperseded || record.status === "active") &&
+			(this.only ? this.only.includes(record.id) : this.showSuperseded || record.status === "active") &&
 			(!type || record.type === type) &&
 			(this.scope === "tutti" || (this.scope === "globale") === record.id.startsWith("g:")) &&
-			(!query || `${record.text} ${record.type} ${record.entities.join(" ")}`.toLowerCase().includes(query)));
+			(!query || (byId !== undefined ? record.id.toLowerCase() === byId : record.id.toLowerCase() === query || `${record.text} ${record.type} ${record.entities.join(" ")}`.toLowerCase().includes(query))));
 	}
 
 	/** Days with memories created or /dream runs, newest first. */
@@ -149,7 +159,13 @@ export class MemoryDashboard implements Component, Focusable {
 		if (view === "richiami") {
 			return this.data.events.map((event, index) => ({ kind: "item" as const, key: String(index), text: `${event.at.slice(11, 16)} ${String(event.hits.length).padStart(2)} ◇ ${event.query.replace(/\s+/g, " ")}` }));
 		}
+		if (view === "dubbi") return this.doubts().map((doubt) => ({ kind: "item" as const, key: doubt.id, text: doubt.question }));
 		return this.hits.map((hit, index) => ({ kind: "item" as const, key: String(index), text: hit.record.text }));
+	}
+
+	/** Pending /dream doubts about memories still there. */
+	private doubts(): Doubt[] {
+		return (this.data.doubts ?? []).filter((doubt) => this.recordById(doubt.id)?.status === "active");
 	}
 
 	private items(view: View): string[] {
@@ -171,6 +187,7 @@ export class MemoryDashboard implements Component, Focusable {
 		const printable = decodeKittyPrintable(data) ?? (data.length === 1 && data >= " " && data !== "\x7f" ? data : undefined);
 		this.notice = "";
 
+		if (this.fix) return this.fixInput(data, printable);
 		if (this.confirmDelete) {
 			const id = this.confirmDelete;
 			this.confirmDelete = undefined;
@@ -207,9 +224,16 @@ export class MemoryDashboard implements Component, Focusable {
 			this.cursors.ricordi = 0;
 			return this.requestRender();
 		}
-		const digit = printable && /^[1-4]$/.test(printable) ? Number(printable) : 0;
+		const digit = printable && /^[1-5]$/.test(printable) ? Number(printable) : 0;
 		if (digit) {
 			this.view = VIEWS[digit - 1].id;
+			return this.requestRender();
+		}
+		if (this.view === "dubbi") {
+			const doubt = this.doubts().find((candidate) => candidate.id === this.selectedKey());
+			if (doubt && printable === "s") void this.answerDoubt(doubt, doubtAction(doubt), "applicato");
+			else if (doubt && printable === "n") void this.answerDoubt(doubt, undefined, "va bene, il ricordo resta com'è");
+			else if (doubt && (matchesKey(data, "enter") || printable === "c")) this.fix = { id: doubt.id, doubt, comment: "", busy: false };
 			return this.requestRender();
 		}
 		if (this.view !== "ricordi") return;
@@ -242,11 +266,102 @@ export class MemoryDashboard implements Component, Focusable {
 					this.notice = "eliminare? premi d di nuovo per confermare, un altro tasto annulla";
 				}
 				break;
+			case "c":
+				if (record) {
+					const event = this.data.events.find((candidate) => candidate.hits.some((hit) => hit.id === record.id));
+					this.fix = { id: record.id, request: event?.query, comment: "", busy: false };
+				}
+				break;
+			case "a":
+				if (this.only) {
+					this.only = undefined;
+					this.cursors.ricordi = 0;
+				}
+				break;
 			case "e":
 				if (record) return this.done({ edit: { id: record.id, text: record.text }, view: "ricordi" });
 				break;
 		}
 		this.requestRender();
+	}
+
+	/** The user's answer to a doubt: apply the action (if any) and forget the doubt. */
+	private async answerDoubt(doubt: Doubt, action: MemoryAction | undefined, done: string): Promise<void> {
+		try {
+			if (action) await this.source.act(doubt.id, action);
+			await this.source.resolveDoubt(doubt.id);
+			this.data = this.source.load();
+			this.cursors.dubbi = Math.max(0, Math.min(this.cursors.dubbi, this.doubts().length - 1));
+			this.notice = done;
+		} catch (error) {
+			this.notice = `errore: ${(error as Error).message}`;
+		}
+		this.requestRender();
+	}
+
+	/** Keys while the correction chat is open: write what is wrong, the model proposes, Enter confirms. */
+	private fixInput(data: string, printable: string | undefined): void {
+		const fix = this.fix!;
+		if (matchesKey(data, "escape")) {
+			if (fix.busy) fix.abort?.abort();
+			else this.fix = undefined;
+		} else if (fix.busy) {
+			// Waiting for the model: only Esc does anything.
+		} else if (fix.proposal) {
+			if (matchesKey(data, "enter")) {
+				const action = fixAction(fix.proposal, fix.request);
+				this.fix = undefined;
+				if (fix.doubt) void this.answerDoubt(fix.doubt, action, action ? "fatto" : "va bene, il ricordo resta com'è");
+				else if (action) void this.act(fix.id, action, "fatto");
+				else this.notice = fix.proposal.action === "avoid" ? "non so quale richiesta l'ha fatto scattare: nessuna modifica" : "nessuna modifica";
+			} else if (printable === "n") {
+				fix.proposal = undefined;
+				fix.error = undefined;
+			}
+		} else if (matchesKey(data, "enter")) {
+			if (fix.comment.trim()) void this.propose();
+		} else if (matchesKey(data, "backspace")) {
+			fix.comment = fix.comment.slice(0, -1);
+		} else if (printable) {
+			fix.comment += printable;
+		}
+		this.requestRender();
+	}
+
+	private async propose(): Promise<void> {
+		const fix = this.fix;
+		const record = fix && this.recordById(fix.id);
+		if (!fix || !record) return;
+		fix.busy = true;
+		fix.error = undefined;
+		fix.abort = new AbortController();
+		this.startSpinner();
+		try {
+			fix.proposal = await this.source.propose(record, fix.request, fix.doubt ? `Dubbio emerso da /dream: «${fix.doubt.question}». Risposta dell'utente: ${fix.comment.trim()}` : fix.comment.trim(), fix.abort.signal);
+		} catch (error) {
+			fix.error = fix.abort.signal.aborted ? "interrotto" : `errore: ${(error as Error).message}`;
+		} finally {
+			fix.busy = false;
+			this.stopSpinner();
+			this.requestRender();
+		}
+	}
+
+	private fixPane(width: number): string[] {
+		const t = this.theme;
+		const fix = this.fix!;
+		const record = this.recordById(fix.id);
+		const lines = ["", this.rule("CORREGGI IL RICORDO", width, t.fg("muted", `#${fix.id}`))];
+		if (record) lines.push(...this.wrap(record.text, width, "text", "   "));
+		lines.push("", this.rule(fix.doubt ? "DUBBIO DI /DREAM" : "SCATTATO PER", width), ...this.wrap(fix.doubt?.question ?? fix.request ?? "richiesta non nota", width, "muted", "   ▌ "), "", this.rule(fix.doubt ? "LA TUA RISPOSTA" : "COSA NON VA?", width));
+		lines.push(` ${t.fg("accent", "›")} ${t.fg("text", fix.comment)}${fix.busy || fix.proposal ? "" : `${CURSOR_MARKER}${t.fg("accent", "▏")}`}`);
+		if (fix.busy) lines.push("", ` ${t.fg("accent", SPINNER[this.frame % SPINNER.length])} ${t.fg("muted", "il modello valuta (usa pochi token)…")}`);
+		if (fix.error) lines.push("", ` ${t.fg("error", fix.error)}`);
+		if (fix.proposal) {
+			const what: Record<Proposal["action"], string> = { keep: "lasciarlo com'è", avoid: "non richiamarlo più per richieste come questa", edit: `nuovo testo: ${fix.proposal.text ?? ""}`, supersede: "segnarlo come superato", delete: "eliminarlo" };
+			lines.push("", this.rule("PROPOSTA DEL MODELLO", width), ...this.wrap(fix.proposal.summary, width, "text", "   "), "", ...this.wrap(`Azione: ${what[fix.proposal.action]}`, width, "warning", "   "));
+		}
+		return lines;
 	}
 
 	private askInput(data: string, printable: string | undefined): void {
@@ -385,7 +500,7 @@ export class MemoryDashboard implements Component, Focusable {
 		lines.push(row(` ${shown.map(([, value, role]) => fit(t.bold(t.fg(role, value)), cardWidth - 2) + "  ").join("")}`));
 
 		// Tab bar with counts; the active tab is highlighted and underlined.
-		const counts = [this.records().length, this.days().length, this.data.events.length, this.hitsFor ? this.hits.length : undefined];
+		const counts = [this.records().length, this.days().length, this.data.events.length, this.hitsFor ? this.hits.length : undefined, this.doubts().length];
 		let tabs = " ";
 		let underline = " ";
 		VIEWS.forEach((entry, index) => {
@@ -394,7 +509,7 @@ export class MemoryDashboard implements Component, Focusable {
 			tabs += `${isActive ? t.bg("selectedBg", t.bold(t.fg("accent", label))) : t.fg("muted", label)} `;
 			underline += `${isActive ? t.fg("accent", "━".repeat(visibleWidth(label))) : t.fg("border", "─".repeat(visibleWidth(label)))}${t.fg("border", "─")}`;
 		});
-		lines.push(split(tabs, `${t.fg("dim", "tab / 1-4 cambia vista")} `));
+		lines.push(split(tabs, `${t.fg("dim", "tab / 1-5 cambia vista")} `));
 		lines.push(row(underline + t.fg("border", "─".repeat(Math.max(0, inner - visibleWidth(underline))))));
 
 		const body = height - lines.length - 3;
@@ -409,15 +524,23 @@ export class MemoryDashboard implements Component, Focusable {
 
 	private keys(): string {
 		const k = (key: string, label: string) => this.keycap(key, label);
+		if (this.fix) {
+			if (this.fix.busy) return [k("esc", "interrompi")].join("  ");
+			return this.fix.proposal
+				? [k("invio", "applica"), k("n", "scrivi altro"), k("esc", "annulla")].join("  ")
+				: [k("scrivi", "cosa non va"), k("invio", "chiedi al modello"), k("esc", "annulla")].join("  ");
+		}
 		switch (this.view) {
 			case "ricordi":
 				return this.searching
 					? [k("scrivi", "filtra"), k("invio", "conferma"), k("esc", "smetti")].join("  ")
-					: [k("↑↓", "scorri"), k("/", "cerca"), k("t", "tipo"), k("s", "superati"), k("g", "ambito"), k("p", "fissa"), k("e", "modifica"), k("x", "superato"), k("d", "elimina")].join("  ");
+					: [k("↑↓", "scorri"), k("/", "cerca"), k("t", "tipo"), k("s", "superati"), k("g", "ambito"), k("p", "fissa"), k("c", "correggi"), k("e", "modifica"), k("x", "superato"), k("d", "elimina")].join("  ");
 			case "cronologia":
 				return [k("↑↓", "giorno"), this.theme.fg("dim", "a destra: cosa è entrato in memoria e i /dream di quel giorno")].join("  ");
 			case "richiami":
 				return [k("↑↓", "richiesta"), this.theme.fg("dim", "a destra: i ricordi aggiunti al contesto, con il punteggio")].join("  ");
+			case "dubbi":
+				return [k("s", "sì, applica"), k("n", "no, lascia così"), k("invio", "ne parlo col modello"), k("↑↓", "dubbio")].join("  ");
 			case "chiedi":
 				return this.hitsFor && this.hitsFor === this.question.trim()
 					? [k("invio", "risposta del modello (pochi token)"), k("↑↓", "ricordi trovati"), k("esc", this.busy ? "interrompi" : "chiudi")].join("  ")
@@ -434,6 +557,7 @@ export class MemoryDashboard implements Component, Focusable {
 			const filters = [
 				this.searching || this.filter ? `${t.fg("accent", "⌕")} ${t.fg("text", this.filter)}${this.searching ? `${CURSOR_MARKER}${t.fg("accent", "▏")}` : ""}` : "",
 				this.typeFilter ? this.chip(TYPES[this.typeFilter - 1], typeStyle(TYPES[this.typeFilter - 1]).role) : "",
+				this.only ? this.chip("caricati nell'ultima risposta · a = tutti", "warning") : "",
 				this.scope !== "tutti" ? this.chip(this.scope, "accent") : "",
 				this.showSuperseded ? this.chip("+ superati", "muted") : "",
 			].filter(Boolean);
@@ -470,7 +594,7 @@ export class MemoryDashboard implements Component, Focusable {
 			const text = this.itemText(entry.key, entry.text);
 			return selected ? t.bg("selectedBg", fit(`${t.fg("accent", "▎")}${t.bold(text)}`, listWidth)) : fit(` ${text}`, listWidth);
 		});
-		if (rows.length === 0) visible.push(fit(t.fg("muted", this.view === "chiedi" ? "" : "  niente da mostrare"), listWidth));
+		if (rows.length === 0) visible.push(fit(t.fg("muted", this.view === "chiedi" ? "" : this.view === "dubbi" ? "  nessun dubbio in sospeso" : "  niente da mostrare"), listWidth));
 
 		// Scrollbar in the last column when the list does not fit.
 		const thumbSize = rows.length > room ? Math.max(1, Math.round((room / rows.length) * room)) : 0;
@@ -515,6 +639,7 @@ export class MemoryDashboard implements Component, Focusable {
 		const t = this.theme;
 		const key = this.selectedKey();
 		if (this.view === "ricordi") {
+			if (this.fix) return this.fixPane(width);
 			const record = this.recordById(key);
 			return record ? this.recordDetail(record, width) : ["", t.fg("muted", "  nessun ricordo con questi filtri")];
 		}
@@ -555,6 +680,18 @@ export class MemoryDashboard implements Component, Focusable {
 				const record = this.recordById(hit.id);
 				lines.push(...this.wrap(`${t.bold(t.fg("accent", `${Math.round(hit.score * 100)}%`))} ${this.scoreBar(hit.score, 5)} ${record ? record.text : `${hit.id} (non più in memoria)`}`, width, "text", "   "));
 			}
+			return lines.slice(0, height);
+		}
+		if (this.view === "dubbi") {
+			if (this.fix) return this.fixPane(width);
+			const doubt = this.doubts().find((candidate) => candidate.id === key);
+			if (!doubt) return ["", t.fg("muted", "  nessun dubbio in sospeso"), t.fg("muted", "  /dream ne lascia uno quando non è sicuro che un ricordo valga ancora")];
+			const record = this.recordById(doubt.id);
+			const lines = ["", this.rule("DUBBIO DI /DREAM", width, t.fg("muted", `#${doubt.id} · ${doubt.at.slice(0, 10)}`)), ...this.wrap(doubt.question, width, "text", "   "), "", this.rule("IL RICORDO", width)];
+			if (record) lines.push(...this.wrap(`${typeStyle(record.type).icon} ${record.text}`, width, "text", "   "));
+			lines.push("", this.rule("SE RISPONDI SÌ", width), ...this.wrap(doubt.text ? `diventa: ${doubt.text}` : "viene segnato come superato (resta nello storico)", width, "warning", "   "));
+			lines.push("", this.rule("SE RISPONDI NO", width), ...this.wrap("il ricordo resta com'è e la domanda sparisce", width, "muted", "   "));
+			lines.push("", t.fg("dim", "   invio: scrivi al modello cosa è successo davvero e ti propone cosa fare"));
 			return lines.slice(0, height);
 		}
 		// chiedi
