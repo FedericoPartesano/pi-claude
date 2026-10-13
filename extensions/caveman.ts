@@ -3,6 +3,9 @@
  * sostanza. Aggiunto al prompt di sistema una volta per sessione (testo fisso: la cache lo tiene). Spento con PI_CAVEMAN=0.
  * Non tocca codice, comandi, commit, file scritti né le domande all'utente.
  */
+import { readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 export const MARKER = "Stile delle risposte (caveman)";
@@ -37,19 +40,53 @@ export const COMPACTION_RULES = `Scrivi il riassunto in stile telegrafico: framm
 Conserva alla lettera percorsi, nomi di funzioni e file, comandi, numeri, errori, decisioni, vincoli e preferenze dell'utente, e ogni negazione o limite. \
 Taglia solo ciò che non porta un fatto utile per continuare il lavoro.`;
 
-/** Spento con PI_CAVEMAN=0; PI_CAVEMAN=lite usa le regole morbide; PI_CAVEMAN_COMPACT=0 lascia i riassunti di Pi com'erano. */
+export type Level = "off" | "lite" | "full";
+const LEVELS: Level[] = ["off", "lite", "full"];
+const saved = () => join(process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent"), "caveman-level");
+
+/** Livello all'avvio: PI_CAVEMAN (0, lite, 1/full) se c'è; altrimenti l'ultima scelta fatta con /caveman; altrimenti full. */
+export function startLevel(): Level {
+	const env = process.env.PI_CAVEMAN;
+	if (env !== undefined && env !== "") return env === "0" ? "off" : env === "lite" ? "lite" : "full";
+	try {
+		const value = readFileSync(saved(), "utf8").trim() as Level;
+		if (LEVELS.includes(value)) return value;
+	} catch {}
+	return "full";
+}
+
+/** Il livello si cambia con /caveman lite|full|off (vale subito e resta per le prossime sessioni). PI_CAVEMAN_COMPACT=0 lascia i riassunti di Pi com'erano. */
 export default function (pi: ExtensionAPI) {
-	const mode = process.env.PI_CAVEMAN;
-	if (mode === "0") return;
-	const rules = mode === "lite" ? RULES_LITE : RULES;
+	let level = startLevel();
+	// Il footer di pi-ui mostra questo testo come badge: "lite", "full" o "off".
+	const show = (ctx: { hasUI: boolean; ui: { setStatus(key: string, text: string | undefined): void } }) => {
+		if (ctx.hasUI) ctx.ui.setStatus("caveman", level);
+	};
+	pi.on("session_start", (_event, ctx) => show(ctx));
+	pi.registerCommand("caveman", {
+		description: "Stile delle risposte asciutto: /caveman lite · full · off (senza argomenti mostra il livello)",
+		handler: async (args, ctx) => {
+			const wanted = args.trim().toLowerCase();
+			if (!wanted) return ctx.ui.notify(`Caveman: ${level}. Cambia con /caveman lite, full oppure off.`, "info");
+			if (!LEVELS.includes(wanted as Level)) return ctx.ui.notify("Livelli: lite, full, off.", "warning");
+			level = wanted as Level;
+			try { writeFileSync(saved(), level); } catch {}
+			show(ctx);
+			ctx.ui.notify(`Caveman: ${level}. Vale dalla prossima risposta.`, "info");
+		},
+	});
 	pi.on("before_agent_start", (event) => {
-		if (event.systemPrompt.includes(MARKER)) return;
-		return { systemPrompt: `${event.systemPrompt}\n\n${rules}` };
+		// Il livello può cambiare a sessione aperta: via il blocco vecchio (sta in fondo al prompt), dentro quello giusto.
+		const at = event.systemPrompt.indexOf(`\n\n${MARKER}`);
+		const base = at >= 0 ? event.systemPrompt.slice(0, at) : event.systemPrompt;
+		const next = level === "off" ? base : `${base}\n\n${level === "lite" ? RULES_LITE : RULES}`;
+		return next === event.systemPrompt ? undefined : { systemPrompt: next };
 	});
 	if (process.env.PI_CAVEMAN_COMPACT === "0") return;
 	// I riassunti di compattazione li scrive un'altra chiamata, con un prompt suo: senza questo le regole di sopra non li toccano.
 	// Se qualcosa va storto si lascia fare a Pi (ritorno undefined).
 	pi.on("session_before_compact", async (event, ctx) => {
+		if (level === "off") return undefined;
 		try {
 			const model = ctx.model;
 			if (!model) return undefined;

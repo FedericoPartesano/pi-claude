@@ -77,6 +77,17 @@ function registerPermissionGate(pi: ExtensionAPI, askInBar: (question: string) =
 	pi.on("session_start", (_event, ctx) => {
 		if (yolo() && ctx.hasUI) ctx.ui.notify("Modalità senza permessi attiva: Pi non chiede conferme.", "warning");
 	});
+	// /no-permissions [on|off]: come `pi -d`, ma a sessione aperta. Senza argomento inverte lo stato. I blocchi di sicurezza restano.
+	pi.registerCommand("no-permissions", {
+		description: "Attiva o disattiva la modalità senza permessi: /no-permissions on · off (senza argomenti inverte)",
+		handler: async (args, ctx) => {
+			const wanted = args.trim().toLowerCase();
+			if (wanted && wanted !== "on" && wanted !== "off") return ctx.ui.notify("Uso: /no-permissions on oppure off.", "warning");
+			const on = wanted ? wanted === "on" : !yolo();
+			if (on) process.env.PI_YOLO = "1"; else delete process.env.PI_YOLO;
+			ctx.ui.notify(on ? "Modalità senza permessi attiva: Pi non chiede conferme. I blocchi di sicurezza restano." : "Modalità senza permessi spenta: Pi chiede conferma per i comandi pericolosi.", on ? "warning" : "info");
+		},
+	});
 	pi.on("tool_call", async (event, ctx) => {
 		if (event.toolName !== "bash" || process.env.PI_UI_PERMISSION === "0" || yolo()) return undefined;
 		const command = String((event.input as { command?: unknown }).command ?? "");
