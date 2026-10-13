@@ -6,6 +6,8 @@ export interface TurnStatus {
 	/** What is happening now, in words ("eseguo i test"). */
 	activity: string;
 	step: number;
+	/** When the current step (a tool call or a stretch of thinking) began: the bar shows its time next to the whole turn's. */
+	stepAt?: number;
 	startedAt: number;
 	endedAt: number;
 	tokensIn: number;
@@ -26,13 +28,13 @@ export interface TurnStatus {
 
 export type StatusEvent =
 	| { type: "agent_start"; at: number }
-	| { type: "tool_start"; activity: string }
+	| { type: "tool_start"; activity: string; at?: number }
 	| { type: "tool_end"; failed: boolean }
 	| { type: "usage"; input: number; output: number }
 	| { type: "waiting"; question: string; answers: string }
 	| { type: "resumed" }
 	| { type: "suggestions"; count: number }
-	| { type: "thinking"; text: string }
+	| { type: "thinking"; text: string; at?: number }
 	| { type: "settled"; at: number; outcome: "completed" | "aborted" | "error" };
 
 export const initialStatus = (): TurnStatus => ({ mode: "ready", activity: "", step: 0, startedAt: 0, endedAt: 0, tokensIn: 0, tokensOut: 0, lastFailed: false });
@@ -40,11 +42,11 @@ export const initialStatus = (): TurnStatus => ({ mode: "ready", activity: "", s
 export function nextStatus(status: TurnStatus, event: StatusEvent): TurnStatus {
 	switch (event.type) {
 		case "agent_start":
-			return { ...initialStatus(), mode: "working", activity: "penso…", startedAt: event.at, phase: "thinking" };
+			return { ...initialStatus(), mode: "working", activity: "penso…", startedAt: event.at, stepAt: event.at, phase: "thinking" };
 		case "tool_start":
-			return { ...status, activity: event.activity, step: status.step + 1, lastFailed: false, phase: "tool", thought: undefined };
+			return { ...status, activity: event.activity, step: status.step + 1, stepAt: event.at ?? status.stepAt, lastFailed: false, phase: "tool", thought: undefined };
 		case "thinking":
-			return { ...status, phase: "thinking", thought: event.text };
+			return { ...status, phase: "thinking", thought: event.text, stepAt: status.phase === "thinking" ? status.stepAt : (event.at ?? status.stepAt) };
 		case "tool_end":
 			return { ...status, lastFailed: event.failed };
 		case "usage":

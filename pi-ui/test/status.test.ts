@@ -59,3 +59,14 @@ test("thinking shows the latest thought while the model reasons; a tool call rep
 	const tool = nextStatus(thinking, { type: "tool_start", activity: "eseguo i test" });
 	assert.equal(tool.phase, "tool");
 });
+
+test("stepAt: il tempo del passo riparte a ogni strumento, non durante lo stesso pensiero", () => {
+	let s = nextStatus(initialStatus(), { type: "agent_start", at: 1000 });
+	assert.equal(s.stepAt, 1000);
+	s = nextStatus(s, { type: "tool_start", activity: "eseguo cd", at: 5000 });
+	assert.equal(s.stepAt, 5000);
+	s = nextStatus(s, { type: "thinking", text: "", at: 9000 });
+	assert.equal(s.stepAt, 9000);
+	s = nextStatus(s, { type: "thinking", text: "x", at: 12000 });
+	assert.equal(s.stepAt, 9000, "stesso pensiero: l'orologio non riparte");
+});

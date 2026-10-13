@@ -42,3 +42,9 @@ test("phrase covers Pi's and pi-full's tools, also while arguments are still str
 test("an edit whose JSON arguments did not parse still names its file", () => {
 	assert.equal(phrase("edit", { __unparsedToolInput: '{"path": "src/pagination.js", "edits": [{"oldText":"\\tconst' }).text, "Modifico pagination.js");
 });
+
+test("bashPhrase: un cd iniziale dice dove, non cosa: conta il comando dopo", () => {
+	assert.equal(bashPhrase("cd /home/x/project && npm test"), "Eseguo i test");
+	assert.equal(bashPhrase("cd /home/x/project && gh pr list"), "Eseguo gh");
+	assert.equal(bashPhrase("cd /tmp"), "Eseguo un comando");
+});

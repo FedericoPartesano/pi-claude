@@ -26,7 +26,7 @@ test("every state has its tag and fills the width exactly", () => {
 
 test("working shows activity, step, seconds and how to interrupt", () => {
 	const line = strip(renderStatusBar(working, 120, 9000, 0));
-	assert.match(line, /eseguo i test · passo 4 · 8s/);
+	assert.match(line, /eseguo i test · passo 4 da 8s · in tutto 8s/);
 	assert.match(line, /esc interrompi/);
 	assert.doesNotMatch(strip(renderStatusBar({ ...working, step: 0, activity: "penso…" }, 120, 1000, 0)), /passo/);
 });

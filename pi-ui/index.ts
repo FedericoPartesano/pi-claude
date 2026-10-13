@@ -460,7 +460,7 @@ export default function (pi: ExtensionAPI) {
 		}
 		if (event.toolName === "subagent" || event.toolName === "team") agentCalls.set(event.toolCallId, { tool: event.toolName, args: event.args ?? {}, lines: [], startedAt: Date.now() });
 		liveThinking = "";
-		update({ type: "tool_start", activity: lower(phrase(event.toolName, event.args).text) });
+		update({ type: "tool_start", at: Date.now(), activity: lower(phrase(event.toolName, event.args).text) });
 	});
 	pi.on("tool_execution_end", (event) => {
 		stopWatch(event.toolCallId);
@@ -503,7 +503,7 @@ export default function (pi: ExtensionAPI) {
 		if (!active || status.mode !== "working") return;
 		if (streamed.type === "thinking_delta") {
 			liveThinking = streamed.partial?.content?.[streamed.contentIndex ?? -1]?.thinking ?? "";
-			if (status.phase !== "thinking") update({ type: "thinking", text: "" });
+			if (status.phase !== "thinking") update({ type: "thinking", text: "", at: Date.now() });
 			else tui?.requestRender();
 		} else if (streamed.type === "thinking_end" || streamed.type === "text_start" || streamed.type === "toolcall_start") {
 			liveThinking = "";

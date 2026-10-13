@@ -42,7 +42,9 @@ export function bashPhrase(command: string): string {
 	const add = (verb: string) => {
 		if (!verbs.includes(verb)) verbs.push(verb);
 	};
-	for (const part of splitCommand(command)) {
+	// "cd project && npm test" is about npm test: a leading cd only says where, not what.
+	const parts = splitCommand(command).filter((part) => !/^cd(\s|$)/.test(part));
+	for (const part of parts) {
 		const file = fileIn(part);
 		const unquoted = part.replace(/'[^']*'|"[^"]*"/g, "");
 		if (/\b(npm|pnpm|yarn|bun)\s+(run\s+)?test\b|\bnode --test\b|\b(jest|vitest|pytest|mocha)\b|\bgo test\b|\bcargo test\b/.test(part)) add("test");
@@ -63,7 +65,7 @@ export function bashPhrase(command: string): string {
 	const names: Record<string, string> = { git: "controllo git", commit: "faccio il commit", cerco: "cerco nel progetto" };
 	const others = verbs.filter((verb) => !CHECKS.includes(verb)).map((verb) => names[verb] ?? verb);
 	const phrases = [...others, ...(checks.length ? [`eseguo ${checks.length === 1 && checks[0] === "test" ? "i test" : checks.join(" e ")}`] : [])];
-	const text = phrases.length ? phrases.slice(0, 2).join(" e ") : `eseguo ${splitCommand(command)[0]?.split(/\s+/)[0] ?? "un comando"}`;
+	const text = phrases.length ? phrases.slice(0, 2).join(" e ") : `eseguo ${parts[0]?.split(/\s+/)[0] ?? "un comando"}`;
 	return text[0].toUpperCase() + text.slice(1);
 }
 

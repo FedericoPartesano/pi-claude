@@ -20,7 +20,9 @@ export function renderStatusBar(status: TurnStatus, width: number, now: number, 
 	switch (status.mode) {
 		case "working": {
 			const tag = `${stateTag(C.cyan, ` ${SPINNER[frame % SPINNER.length]} AL LAVORO `)}  `;
-			const tail = fg(C.dim, `${status.step > 0 ? ` · passo ${status.step}` : ""} · ${seconds}s`);
+			// Two clocks, named: the current step's and the whole turn's (a lone "573s" next to "cd" read as a hung command).
+			const stepSeconds = status.stepAt ? Math.max(0, Math.round((now - status.stepAt) / 1000)) : undefined;
+			const tail = fg(C.dim, status.step > 0 && stepSeconds !== undefined ? ` · passo ${status.step} da ${stepSeconds}s · in tutto ${seconds}s` : ` · ${seconds}s`);
 			const keys = hint("esc", "interrompi");
 			// Thinking: a moving wave and the latest thought; a tool: a light running over the action.
 			const body = status.phase === "thinking"
