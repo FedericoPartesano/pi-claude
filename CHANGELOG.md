@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.4.0...pi-claude-v0.4.1) (2026-10-13)
+
+
+### Bug Fixes
+
+* **pi-ui:** keep the autocomplete list visible under the prompt frame ([fad92a4](https://github.com/FedericoPartesano/pi-claude/commit/fad92a48bb3d3528ccac1703648c059c70e99989))
+
 ## [0.4.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.3.0...pi-claude-v0.4.0) (2026-10-13)
 
 
