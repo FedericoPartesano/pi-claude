@@ -1,0 +1,22 @@
+# Own MongoDB (not shared with other services), data in a named volume. The server listens only on 127.0.0.1:8099 of the host:
+# to open it to the internet, put a proxy or `tailscale funnel` in front of that port.
+# BUG_TOKEN comes from an environment file next to this one (never in git): see README.md.
+services:
+  bug-mongo:
+    image: mongo:7.0
+    restart: unless-stopped
+    volumes: ["bug-mongo-data:/data/db"]
+    command: ["mongod", "--wiredTigerCacheSizeGB", "0.25"]
+  bug-server:
+    build: .
+    restart: unless-stopped
+    depends_on: [bug-mongo]
+    environment:
+      MONGO_URI: mongodb://bug-mongo:27017
+      BUG_TOKEN: ${BUG_TOKEN:?set BUG_TOKEN}
+      BUG_MAX_MB: ${BUG_MAX_MB:-50}
+      BUG_QUOTA_GB: ${BUG_QUOTA_GB:-2}
+      BUG_PER_HOUR: ${BUG_PER_HOUR:-10}
+    ports: ["127.0.0.1:8099:8099"]
+volumes:
+  bug-mongo-data:

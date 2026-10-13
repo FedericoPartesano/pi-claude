@@ -1,0 +1,8 @@
+{
+  "name": "pi-claude-bug-server",
+  "private": true,
+  "type": "module",
+  "description": "Receives /bugreport packages and keeps them in MongoDB (GridFS). Runs on its own, not part of the Pi package.",
+  "scripts": { "start": "node server.mjs", "test": "node --test test/*.test.mjs" },
+  "dependencies": { "mongodb": "^6.10.0" }
+}

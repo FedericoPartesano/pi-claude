@@ -1,0 +1,82 @@
+import assert from "node:assert/strict";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { test } from "node:test";
+import { lastTodo, redactedCopy, slug, writeBundle, type BugForm } from "./bundle.ts";
+import { redact } from "./redact.ts";
+
+test("redact: nasconde le forme di segreto più comuni e lascia stare il resto", () => {
+	const cases: [string, RegExp][] = [
+		["la password è Gattino!2024 ok", /Gattino/],
+		["password: Fulmine123?", /Fulmine123/],
+		["token sk-test-FAKE9a8b7c6d5e4f3a2b1c0d", /FAKE9a8b/],
+		["mongodb+srv://test:Segreta99@cluster0.mongodb.net/?x=1", /Segreta99/],
+		["Authorization: Bearer abcdefghijklmnopqrstuv0123456789", /abcdefghijklmnop/],
+		["ghp_abcdefghijklmnopqrstuvwxyz0123456789", /ghp_abcdefghij/],
+		["AKIAABCDEFGHIJKLMNOP", /AKIAABCDEF/],
+		["eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghijklmnopq", /eyJhbGci/],
+		["-----BEGIN RSA PRIVATE KEY-----\nMIIabc\n-----END RSA PRIVATE KEY-----", /MIIabc/],
+	];
+	for (const [input, leaked] of cases) {
+		const out = redact(input);
+		assert.doesNotMatch(out, leaked, input);
+		assert.match(out, /\[oscurato\]/, input);
+	}
+	assert.equal(redact("mongodb+srv://test:Segreta99@cluster0.mongodb.net").startsWith("mongodb+srv://test:[oscurato]@cluster0"), true);
+	const plain = "Usa pnpm, test con node --test, file src/csv.js, porta 5433.";
+	assert.equal(redact(plain), plain);
+});
+
+const form: BugForm = { title: "Todo spariti dopo compattazione!", happened: "lista vuota", expected: "10 task", severity: "blocca", redact: true, send: true };
+
+function sources(root: string) {
+	const cwd = join(root, "project");
+	const home = join(root, "home");
+	mkdirSync(join(cwd, ".pi/memory"), { recursive: true });
+	mkdirSync(join(cwd, "intents"), { recursive: true });
+	mkdirSync(join(home, ".pi/agent/memory"), { recursive: true });
+	writeFileSync(join(cwd, ".pi/memory/memories.jsonl"), '{"id":"r1","text":"La password è Fulmine123"}\n');
+	writeFileSync(join(cwd, "intents/a.md"), "# intent\nstatus: in-progress\n");
+	writeFileSync(join(home, ".pi/agent/memory/memories.jsonl"), '{"id":"r1","text":"globale"}\n');
+	const sessionFile = join(root, "s.jsonl");
+	writeFileSync(sessionFile, '{"type":"session"}\n{"msg":"token sk-test-FAKE9a8b7c6d5e4f3a2b1c0d"}\n');
+	const branch = [{ type: "message", message: { role: "toolResult", toolName: "todo", details: { tasks: [{ subject: "a", status: "pending" }], nextId: 2 } } }];
+	const extensionRoot = join(root, "ext");
+	mkdirSync(extensionRoot);
+	writeFileSync(join(extensionRoot, "package.json"), '{"name":"pi-claude","version":"1.2.3"}');
+	return { cwd, home, form, piVersion: "9.9.9", extensionRoot, model: "m", sessionId: "sid", sessionFile, branch, systemPrompt: "SYS", env: { PI_X: "1", PI_BUG_TOKEN: "segreto", PATH: "/usr/bin" }, now: new Date("2026-10-13T10:20:30Z") };
+}
+
+test("writeBundle: scrive tutto (sessione, ramo, memoria, intent, todo, report) senza toccare gli originali", () => {
+	const root = mkdtempSync(join(tmpdir(), "bug-"));
+	const dir = writeBundle(join(root, "out"), sources(root));
+	assert.match(dir, /2026-10-13T10-20-30-todo-spariti-dopo-compattazione$/);
+	for (const file of ["report.json", "branch.json", "todo.json", "system-prompt.txt", "session.jsonl", "memory/project/memory/memories.jsonl", "memory/global/memory/memories.jsonl", "intents/a.md"]) assert.ok(existsSync(join(dir, file)), file);
+	const report = JSON.parse(readFileSync(join(dir, "report.json"), "utf8"));
+	assert.equal(report.form.happened, "lista vuota");
+	assert.equal(report.pi, "9.9.9");
+	assert.equal(report.extension.name, "pi-claude");
+	assert.equal(report.extension.version, "1.2.3");
+	assert.equal(report.extension.commit, undefined, "una cartella senza git non inventa un commit");
+	assert.deepEqual(report.settings, { PI_X: "1", PI_BUG_TOKEN: "[nascosto]" });
+	assert.match(readFileSync(join(dir, "session.jsonl"), "utf8"), /FAKE9a8b/, "la copia sul disco resta intera");
+	assert.deepEqual(JSON.parse(readFileSync(join(dir, "todo.json"), "utf8")).tasks.length, 1);
+});
+
+test("redactedCopy: stessa struttura, segreti nascosti ovunque nel testo", () => {
+	const root = mkdtempSync(join(tmpdir(), "bug-"));
+	const dir = writeBundle(join(root, "out"), sources(root));
+	const copy = redactedCopy(dir);
+	assert.equal(copy, `${dir}-oscurato`);
+	assert.doesNotMatch(readFileSync(join(copy, "session.jsonl"), "utf8"), /FAKE9a8b/);
+	assert.doesNotMatch(readFileSync(join(copy, "memory/project/memory/memories.jsonl"), "utf8"), /Fulmine123/);
+	assert.match(readFileSync(join(copy, "intents/a.md"), "utf8"), /in-progress/);
+	assert.match(readFileSync(join(dir, "session.jsonl"), "utf8"), /FAKE9a8b/);
+});
+
+test("slug e lastTodo", () => {
+	assert.equal(slug("  Più così! "), "piu-cosi");
+	assert.equal(slug("???"), "bug");
+	assert.equal(lastTodo([]), undefined);
+});

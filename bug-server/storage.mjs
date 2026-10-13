@@ -1,0 +1,30 @@
+/** MongoDB storage: each package is a GridFS file ("bugs" bucket) with the form data as metadata. */
+import { GridFSBucket, MongoClient } from "mongodb";
+
+export async function mongoStorage(uri, dbName = "pi_bugs") {
+	const client = new MongoClient(uri);
+	await client.connect();
+	const db = client.db(dbName);
+	const bucket = new GridFSBucket(db, { bucketName: "bugs" });
+	const files = db.collection("bugs.files");
+	return {
+		async save(stream, meta) {
+			const upload = bucket.openUploadStream(meta.name || "bug.tar.gz", { metadata: meta });
+			for await (const chunk of stream) if (!upload.write(chunk)) await new Promise((resolve) => upload.once("drain", resolve));
+			await new Promise((resolve, reject) => upload.end((error) => (error ? reject(error) : resolve())));
+			return upload.id;
+		},
+		remove: (id) => bucket.delete(id),
+		async usage() {
+			const [row] = await files.aggregate([{ $group: { _id: null, total: { $sum: "$length" } } }]).toArray();
+			return row?.total ?? 0;
+		},
+		async removeOldest(keepId) {
+			const [oldest] = await files.find({ _id: { $ne: keepId } }).sort({ uploadDate: 1 }).limit(1).toArray();
+			if (!oldest) return false;
+			await bucket.delete(oldest._id);
+			return true;
+		},
+		close: () => client.close(),
+	};
+}

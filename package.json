@@ -25,6 +25,7 @@
       "./extensions/goal.ts",
       "./extensions/memory.ts",
       "./extensions/voice.ts",
+      "./extensions/bug.ts",
       "./extensions/updates.ts"
     ],
     "themes": [
