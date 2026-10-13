@@ -13,6 +13,8 @@ export interface FooterInfo {
 	contextPercent?: number;
 	model: string;
 	thinking: string;
+	/** Modalità senza permessi (`pi -d`): etichetta sempre visibile. */
+	yolo?: boolean;
 }
 
 const session = () =>
@@ -34,7 +36,8 @@ export function renderFooter(info: FooterInfo, width: number): string {
 	// Memory status from the memory extension: only its first part ("◇ 3 ricordi richiamati"); the panel has the rest.
 	const memory = info.statuses.get("memory")?.split(" · ")[0];
 	const place = memory && width >= 100 ? `${where}  ${fg(C.dim, memory)}` : where;
-	const left = !sessionText ? place : width >= 100 ? `${sessionText}   ${place}` : sessionText;
+	const base = !sessionText ? place : width >= 100 ? `${sessionText}   ${place}` : sessionText;
+	const left = info.yolo ? `${hud ? tag(C.err, " SENZA PERMESSI ") : bold(fg(C.err, "SENZA PERMESSI"))}  ${base}` : base;
 	const usage = info.overage ? fg(C.err, bold("⚠ EXTRA USAGE")) : fg(C.dim, `5H ${percent(info.fiveHour, 100)}`);
 	const right = `${usage}${fg(C.dim, ` · CTX ${percent(info.contextPercent)} · ${info.model}·${info.thinking}`)}`;
 	return fit(left, right, width);

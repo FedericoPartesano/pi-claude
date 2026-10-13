@@ -380,6 +380,7 @@ export default function (pi: ExtensionAPI) {
 					}
 					return renderFooter({
 						statuses: current,
+						yolo: process.env.PI_YOLO === "1",
 						project: basename(ctx.cwd),
 						branch: footerData.getGitBranch() ?? undefined,
 						changes: files.length,
