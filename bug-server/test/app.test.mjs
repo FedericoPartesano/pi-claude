@@ -15,10 +15,21 @@ function memoryStorage() {
 			files.push(file);
 			return file.id;
 		},
-		async list() { return files.map((f) => ({ id: String(f.id), size: f.size, title: f.meta.title })).reverse(); },
+		async list() { return files.map((f) => ({ id: String(f.id), size: f.size, title: f.meta.title, status: f.meta.status ?? "new" })).reverse(); },
 		async open(id) {
 			const f = files.find((x) => String(x.id) === id);
 			return f ? { name: "bug.tar.gz", stream: Readable.from([Buffer.alloc(f.size, 7)]) } : undefined;
+		},
+		async removeById(id) {
+			const index = files.findIndex((f) => String(f.id) === id);
+			if (index < 0) return false;
+			files.splice(index, 1);
+			return true;
+		},
+		async setStatus(id, status) {
+			const f = files.find((x) => String(x.id) === id);
+			if (f) f.meta.status = status;
+			return Boolean(f);
 		},
 		async remove(id) { files.splice(files.findIndex((f) => f.id === id), 1); },
 		async usage() { return files.reduce((sum, f) => sum + f.size, 0); },
@@ -113,3 +124,22 @@ test("admin: dopo 5 password sbagliate blocca anche quella giusta; il token scad
 		assert.equal((await fetch(`${url}/admin/bugs`, { headers: { authorization: `Bearer ${token}` } })).status, 401);
 	});
 });
+
+test("admin: segna come risolto e elimina; richiede il login", () => run({ adminPassword: "segreta" }, async (url, storage) => {
+	await post(url, Buffer.alloc(10, 1));
+	await post(url, Buffer.alloc(10, 2));
+	const patch = (id, headers, status) => fetch(`${url}/admin/bugs/${id}`, { method: "PATCH", headers, body: JSON.stringify({ status }) });
+	assert.equal((await patch(1, {}, "resolved")).status, 401);
+	assert.equal((await fetch(`${url}/admin/bugs/1`, { method: "DELETE", headers: { authorization: "Bearer t" } })).status, 401);
+	assert.equal(storage.files.length, 2);
+	const { token } = await (await login(url, "segreta")).json();
+	const headers = { authorization: `Bearer ${token}` };
+	assert.equal((await patch(1, headers, "boh")).status, 400);
+	assert.equal((await patch(1, headers, "resolved")).status, 200);
+	assert.equal((await patch(99, headers, "resolved")).status, 404);
+	const list = await (await fetch(`${url}/admin/bugs`, { headers })).json();
+	assert.deepEqual(list.bugs.map((b) => [b.id, b.status]).sort(), [["1", "resolved"], ["2", "new"]]);
+	assert.equal((await fetch(`${url}/admin/bugs/1`, { method: "DELETE", headers })).status, 200);
+	assert.equal((await fetch(`${url}/admin/bugs/1`, { method: "DELETE", headers })).status, 404);
+	assert.equal(storage.files.length, 1);
+}));

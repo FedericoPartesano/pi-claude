@@ -16,9 +16,10 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { VERSION, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { redactedCopy, writeBundle, type BugForm } from "./bug/bundle.ts";
-import { bugLabel, downloadBug, listBugs, login, saveSession, savedPassword, savedSession, type Session } from "./bug/admin.ts";
+import { listBugs, login, saveSession, savedPassword, savedSession, type Session } from "./bug/admin.ts";
 import { crashExists, crashForm, crashId, markSeen, readCrashes, readSeen, splitCrashes, type CrashEntry } from "./bug/crashes.ts";
 import { DETECT_SYSTEM, looksLikePiBug, parseDetect } from "./bug/detect.ts";
+import { openInBrowser, startViewer, type Viewer } from "./bug/viewer.ts";
 import { pack, upload, uploadConfig } from "./bug/upload.ts";
 
 export default function (pi: ExtensionAPI) {
@@ -83,6 +84,7 @@ export default function (pi: ExtensionAPI) {
 
 	// --- the admin reads what arrived (password of the bug server; PI_BUG_ADMIN=0 removes the command) ------------------
 	if (process.env.PI_BUG_ADMIN !== "0") {
+		let active: Viewer | undefined;
 		pi.registerCommand("bugs", {
 			description: "Admin: leggi i bug ricevuti dal server (chiede la password del server dei bug)",
 			handler: async (_args, ctx) => {
@@ -101,19 +103,25 @@ export default function (pi: ExtensionAPI) {
 					result = await listBugs(config.url, session);
 				}
 				if (result === "login" || "error" in result) return void ctx.ui.notify(result === "login" ? "Accesso scaduto, riprova." : result.error, "warning");
-				if (!result.bugs.length) return void ctx.ui.notify("Nessun bug ricevuto.", "info");
-				const labels = result.bugs.map(bugLabel);
-				const choice = await ctx.ui.select(`Bug ricevuti (${result.bugs.length})`, labels);
-				const bug = choice ? result.bugs[labels.indexOf(choice)] : undefined;
-				if (!bug || !session) return;
-				try {
-					const file = await downloadBug(config.url, session, bug, join(home, ".pi", "bugs", "received"));
-					ctx.ui.notify(`Scaricato: ${file}\nApri con: tar -xzf ${file} -C <cartella vuota>`, "info");
-				} catch (error) {
-					ctx.ui.notify(`Scarico non riuscito: ${(error as Error).message}`, "warning");
-				}
+				if (!session) return;
+				// The page: a local server, closed after 30 min idle or with its "Chiudi" button.
+				active?.close();
+				active = await startViewer({
+					url: config.url,
+					session,
+					cacheDir: join(home, ".pi", "bugs", "received"),
+					relogin: async () => {
+						const password = process.env.PI_BUG_ADMIN_PASSWORD || savedPassword(home);
+						const again = password ? await login(config.url, password) : undefined;
+						if (again?.ok) saveSession(home, again.session);
+						return again?.ok ? again.session : undefined;
+					},
+				});
+				const opened = openInBrowser(active.url);
+				ctx.ui.notify(opened ? `Pagina dei bug aperta nel browser (${result.bugs.length} bug). Si chiude da sola dopo 30 minuti senza uso.` : `Apri nel browser: ${active.url}`, "info");
 			},
 		});
+		pi.on("session_shutdown", () => active?.close());
 	}
 
 	// --- crashes not yet reported -------------------------------------------------------------------------------------

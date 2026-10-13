@@ -16,6 +16,7 @@ export interface ReceivedBug {
 	name?: string;
 	title?: string;
 	severity?: string;
+	status?: "new" | "resolved";
 	receivedAt?: string;
 }
 
@@ -84,3 +85,15 @@ export async function downloadBug(url: string, session: Session, bug: ReceivedBu
 
 export const bugLabel = (bug: ReceivedBug) =>
 	`${(bug.receivedAt ?? "").slice(0, 16).replace("T", " ")} · ${bug.severity || "?"} · ${bug.title || bug.name || bug.id} · ${Math.round(bug.size / 1024)} KB`;
+
+const withAuth = (session: Session, extra: RequestInit = {}): RequestInit => ({ ...extra, headers: { authorization: `Bearer ${session.token}`, ...(extra.headers ?? {}) }, signal: AbortSignal.timeout(20_000) });
+
+/** Marks a bug "new" or "resolved" on the server. */
+export async function setBugStatus(url: string, session: Session, id: string, status: "new" | "resolved", fetchImpl: typeof fetch = fetch): Promise<number> {
+	return (await fetchImpl(`${base(url)}/admin/bugs/${encodeURIComponent(id)}`, withAuth(session, { method: "PATCH", body: JSON.stringify({ status }) }))).status;
+}
+
+/** Deletes a bug from the server database. */
+export async function deleteBug(url: string, session: Session, id: string, fetchImpl: typeof fetch = fetch): Promise<number> {
+	return (await fetchImpl(`${base(url)}/admin/bugs/${encodeURIComponent(id)}`, withAuth(session, { method: "DELETE" }))).status;
+}

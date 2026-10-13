@@ -3,8 +3,8 @@
  *   POST /        body = .tar.gz, header Authorization: Bearer <token>   → 201 {id}
  *   GET  /health  → 200 ok
  * Only the admin reads: with adminPassword set, POST /admin/login {password} → {token, expiresAt} (12 h, kept in memory,
- * 5 wrong passwords per IP per 15 min then 429), GET /admin/bugs (list) and GET /admin/bugs/:id (the .tar.gz), both
- * with Authorization: Bearer <admin token>. Without adminPassword there is no way to read through HTTP.
+ * 5 wrong passwords per IP per 15 min then 429), GET /admin/bugs (list, with status new|resolved), GET /admin/bugs/:id (the .tar.gz),
+ * PATCH /admin/bugs/:id {status}, DELETE /admin/bugs/:id, all with Authorization: Bearer <admin token>. Without adminPassword there is no way to read through HTTP.
  * Limits: size per package, packages per hour per IP, total disk quota (oldest packages are deleted first).
  */
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
@@ -72,14 +72,29 @@ export function createApp({ storage, token, adminPassword = "", maxBytes = 50 * 
 				sessions.set(session, expiresAt);
 				return send(response, 200, { token: session, expiresAt });
 			}
-			if (request.method !== "GET" || !isAdmin(request)) return send(response, 401, { error: "accesso negato" });
-			if (request.url === "/admin/bugs") return send(response, 200, { bugs: await storage.list(50) });
+			if (!isAdmin(request)) return send(response, 401, { error: "accesso negato" });
+			if (request.method === "GET" && request.url === "/admin/bugs") return send(response, 200, { bugs: await storage.list(200) });
 			const id = /^\/admin\/bugs\/([\w-]{1,40})$/.exec(request.url)?.[1];
-			const found = id ? await storage.open(id) : undefined;
-			if (!found) return send(response, 404, { error: "non trovato" });
-			response.writeHead(200, { "content-type": "application/gzip", "content-disposition": `attachment; filename="${found.name}"` });
-			found.stream.pipe(response);
-			return;
+			if (!id) return send(response, 404, { error: "non trovato" });
+			if (request.method === "GET") {
+				const found = await storage.open(id);
+				if (!found) return send(response, 404, { error: "non trovato" });
+				response.writeHead(200, { "content-type": "application/gzip", "content-disposition": `attachment; filename="${found.name}"` });
+				found.stream.pipe(response);
+				return;
+			}
+			if (request.method === "DELETE") return (await storage.removeById(id)) ? send(response, 200, { ok: true }) : send(response, 404, { error: "non trovato" });
+			if (request.method === "PATCH") {
+				let status;
+				try {
+					status = JSON.parse((await readBody(request)) ?? "").status;
+				} catch {
+					return send(response, 400, { error: "richiesta non valida" });
+				}
+				if (status !== "new" && status !== "resolved") return send(response, 400, { error: "stato non valido: new o resolved" });
+				return (await storage.setStatus(id, status)) ? send(response, 200, { ok: true }) : send(response, 404, { error: "non trovato" });
+			}
+			return send(response, 404, { error: "non trovato" });
 		}
 		if (request.method !== "POST" || request.url !== "/") return send(response, 404, { error: "non trovato" });
 		if (token && request.headers.authorization !== `Bearer ${token}`) return send(response, 401, { error: "token non valido" });
