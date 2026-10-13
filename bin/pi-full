@@ -24,6 +24,11 @@ if [ "${1:-}" = "--pick" ]; then
   rm -f "$chosen"
 fi
 
+# -d: modalità senza permessi (PI_YOLO=1), come per `pi -d`.
+rest=()
+for arg in "$@"; do [ "$arg" = "-d" ] && export PI_YOLO=1 || rest+=("$arg"); done
+set -- "${rest[@]}"
+
 resume=()
 if [ "${1:-}" = "--resume" ] || [ "${1:-}" = "-r" ]; then
   shift

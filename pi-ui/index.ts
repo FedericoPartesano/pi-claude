@@ -72,8 +72,13 @@ const POWERSHELL = "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.ex
  */
 function registerPermissionGate(pi: ExtensionAPI, askInBar: (question: string) => Promise<"yes" | "no" | "always"> | undefined) {
 	const allowed = new Set<string>();
+	// PI_YOLO=1 (`pi -d`, `pi-full -d`): nessuna domanda di permesso, si esegue tutto.
+	const yolo = () => process.env.PI_YOLO === "1";
+	pi.on("session_start", (_event, ctx) => {
+		if (yolo() && ctx.hasUI) ctx.ui.notify("Modalità senza permessi attiva: Pi non chiede conferme.", "warning");
+	});
 	pi.on("tool_call", async (event, ctx) => {
-		if (event.toolName !== "bash" || process.env.PI_UI_PERMISSION === "0") return undefined;
+		if (event.toolName !== "bash" || process.env.PI_UI_PERMISSION === "0" || yolo()) return undefined;
 		const command = String((event.input as { command?: unknown }).command ?? "");
 		const reason = dangerReason(command);
 		if (!reason || allowed.has(command)) return undefined;
