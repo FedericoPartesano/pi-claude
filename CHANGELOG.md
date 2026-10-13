@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.4.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.3.0...pi-claude-v0.4.0) (2026-10-13)
+
+
+### Features
+
+* /bugs apre una pagina nel browser per leggere, risolvere ed eliminare i bug ([3d2aeaf](https://github.com/FedericoPartesano/pi-claude/commit/3d2aeaf3bdef3a2cdf73fe8be5c526e86fa368ef))
+* /bugs, solo l'admin legge i bug ricevuti (login con password sul server dei bug) ([db98c49](https://github.com/FedericoPartesano/pi-claude/commit/db98c499d829046c4886f1c0fa54fc29caa6f125))
+* /title dà un nome alla chat per tab e sessione, con titolo automatico ([ff05c0c](https://github.com/FedericoPartesano/pi-claude/commit/ff05c0c5c4395d1550a7000c6f17b807594f1426))
+* guardia dei todo, avvisa il modello quando la lista è rimasta indietro ([f5a0e37](https://github.com/FedericoPartesano/pi-claude/commit/f5a0e377f884af51b40ae478b0b57d989d3c7a5c))
+* il goal sopravvive a ripresa e riavvio, /goal todos mostra i todo ([7e3d369](https://github.com/FedericoPartesano/pi-claude/commit/7e3d369e1f41c0cc1699fa461d58cde42e7f5d1f))
+* il titolo della tab mostra se Pi lavora o aspetta ([caa91f0](https://github.com/FedericoPartesano/pi-claude/commit/caa91f03d9650bf1c2512e39d9d649708e232860))
+* l'intent in corso ricorda e si tiene aggiornato ([2997084](https://github.com/FedericoPartesano/pi-claude/commit/29970840a96fd0875d65a273e2c6fd5e523e4b07))
+* **pi-memory:** correzione dei ricordi con Alt+R e dubbi di /dream ([3935b47](https://github.com/FedericoPartesano/pi-claude/commit/3935b47ab5a22e7895cb73802a22179929b5e7f3))
+
+
+### Bug Fixes
+
+* **ci:** claude-session senza parameter property, il test EPIPE gira con node --test ([5b4319a](https://github.com/FedericoPartesano/pi-claude/commit/5b4319ae73f5418b717a2c3210bf928c6bb364f6))
+* **ci:** pi-memory trova i tipi di pi-coding-agent da extensions/memory.ts ([ecaa74e](https://github.com/FedericoPartesano/pi-claude/commit/ecaa74ee96a00e773b83c29e55fff2c6c6c60e33))
+* il pacchetto del bug copia solo i crash dell'ultima settimana ([927157b](https://github.com/FedericoPartesano/pi-claude/commit/927157b829c3c81f7f1e91c0a11424e0e69a3849))
+* la compattazione di Caveman ha un limite di 120 s e poi lascia fare a Pi ([da2d00b](https://github.com/FedericoPartesano/pi-claude/commit/da2d00b152472c700c0b9b2f8d978e84c72ccd72))
+
 ## [0.3.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.2.0...pi-claude-v0.3.0) (2026-10-13)
 
 
