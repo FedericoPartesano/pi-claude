@@ -1,0 +1,40 @@
+{"case":"n01","mode":"base","i":0,"pass":true,"seconds":5.7,"requests":2,"cost":8411.75,"answer":"Il riconoscimento avviene in **`src/Tokenizer.ts`**, nel metodo **`fences(src)`** (riga ~156). Il me"}
+{"case":"n01","mode":"base","i":1,"pass":true,"seconds":6.7,"requests":2,"cost":5445.8,"answer":"Marked riconosce i fenced code block nel metodo `fences(src: string)` della classe `Tokenizer`, in `"}
+{"case":"n01","mode":"map","i":0,"pass":true,"seconds":7,"requests":2,"cost":6129.75,"answer":"Il riconoscimento avviene nel file `src/Tokenizer.ts`, nel metodo `fences(src)` (circa riga 156). Il"}
+{"case":"n01","mode":"map","i":1,"pass":true,"seconds":5.8,"requests":2,"cost":6228.5,"answer":"Il riconoscimento avviene in **`src/Tokenizer.ts`**, nel metodo **`fences(src)`** (riga ~156). Usa l"}
+{"case":"n02","mode":"base","i":1,"pass":true,"seconds":7.3,"requests":2,"cost":6173.05,"answer":"**24**"}
+{"case":"n02","mode":"base","i":0,"pass":true,"seconds":10.3,"requests":2,"cost":6404.3,"answer":"**24**"}
+{"case":"n02","mode":"map","i":0,"pass":true,"seconds":7.8,"requests":2,"cost":7082,"answer":"**24**"}
+{"case":"n02","mode":"map","i":1,"pass":true,"seconds":10.2,"requests":3,"cost":8894.1,"answer":"**24**"}
+{"case":"n03","mode":"base","i":0,"pass":true,"seconds":9.9,"requests":2,"cost":6515.1,"answer":"In `src/Hooks.ts` (riga 15), `passThroughHooks` contiene 4 hook:\n\n1. `preprocess`\n2. `postprocess`\n3"}
+{"case":"n03","mode":"base","i":1,"pass":true,"seconds":9.6,"requests":2,"cost":5857.6,"answer":"L'insieme `passThroughHooks` in `src/Hooks.ts` (righe 15-20) contiene quattro hook:\n\n1. `preprocess`"}
+{"case":"n03","mode":"map","i":1,"pass":true,"seconds":7,"requests":2,"cost":6811.55,"answer":"`_Hooks.passThroughHooks` in `src/Hooks.ts` (riga 15) contiene quattro hook:\n\n1. `preprocess`\n2. `po"}
+{"case":"n03","mode":"map","i":0,"pass":true,"seconds":9.9,"requests":2,"cost":6940.3,"answer":"L'insieme `passThroughHooks` in `src/Hooks.ts` (righe 15-20) contiene quattro hook:\n\n1. `preprocess`"}
+{"case":"n04","mode":"base","i":0,"pass":true,"seconds":8.6,"requests":3,"cost":7114.35,"answer":"La regex dei punti elenco è la costante `bullet`, definita in `src/rules.ts` alla riga 117:\n\n```ts\nc"}
+{"case":"n04","mode":"base","i":1,"pass":true,"seconds":8.4,"requests":3,"cost":6723.7,"answer":"La regex dei punti elenco è la costante `bullet`, definita in `src/rules.ts` alla riga 117:\n\n```ts\nc"}
+{"case":"n04","mode":"map","i":0,"pass":true,"seconds":8.6,"requests":2,"cost":6805.5,"answer":"È definita in `src/rules.ts` (riga 117) con il nome `bullet`:\n\n```ts\nconst bullet = / {0,3}(?:[*+-]|"}
+{"case":"n04","mode":"map","i":1,"pass":true,"seconds":6.6,"requests":2,"cost":6790.5,"answer":"È definita in `src/rules.ts`, riga 117, come costante `bullet`:\n\n```ts\nconst bullet = / {0,3}(?:[*+-"}
+{"case":"n05","mode":"base","i":0,"pass":true,"seconds":6.9,"requests":2,"cost":5054.45,"answer":"La funzione è `escapeHtmlEntities` (`src/helpers.ts`, riga 15). Ha la firma `escapeHtmlEntities(html"}
+{"case":"n05","mode":"base","i":1,"pass":true,"seconds":8,"requests":2,"cost":4979.45,"answer":"La funzione è `escapeHtmlEntities(html: string, encode?: boolean)`, definita in `src/helpers.ts` all"}
+{"case":"n05","mode":"map","i":0,"pass":true,"seconds":6.7,"requests":2,"cost":6179.65,"answer":"La funzione è `escapeHtmlEntities` (`src/helpers.ts:15`). Ha la firma `escapeHtmlEntities(html: stri"}
+{"case":"n05","mode":"map","i":1,"pass":true,"seconds":6.4,"requests":2,"cost":6684.65,"answer":"La funzione è `escapeHtmlEntities(html: string, encode?: boolean)`, in `src/helpers.ts:15`.\n\nSe `enc"}
+{"case":"n06","mode":"base","i":0,"pass":true,"seconds":6.3,"requests":2,"cost":4162.2,"answer":"6"}
+{"case":"n06","mode":"base","i":1,"pass":true,"seconds":6.3,"requests":2,"cost":4162.2,"answer":"6"}
+{"case":"n06","mode":"map","i":0,"pass":true,"seconds":7.3,"requests":2,"cost":5157.4,"answer":"6"}
+{"case":"n06","mode":"map","i":1,"pass":true,"seconds":7.2,"requests":2,"cost":5157.4,"answer":"6"}
+{"case":"n07","mode":"base","i":0,"pass":true,"seconds":9.8,"requests":4,"cost":7761.65,"answer":"Il metodo è `def(src: string)`, che inizia alla riga **583** di `src/Tokenizer.ts`. Restituisce un `"}
+{"case":"n07","mode":"map","i":0,"pass":true,"seconds":6.1,"requests":2,"cost":5634.45,"answer":"Il metodo è `def(src: string)` nella classe `_Tokenizer`. Inizia alla riga 583 di `src/Tokenizer.ts`"}
+{"case":"n07","mode":"base","i":1,"pass":true,"seconds":9.2,"requests":4,"cost":7552.45,"answer":"Il metodo è `def(src: string)`, e inizia alla riga **583** di `src/Tokenizer.ts`."}
+{"case":"n07","mode":"map","i":1,"pass":true,"seconds":6.1,"requests":2,"cost":6274.45,"answer":"Il metodo è `def(src: string)`, e inizia a riga 583 di `src/Tokenizer.ts`. Restituisce un `Tokens.De"}
+{"case":"n08","mode":"base","i":0,"pass":true,"seconds":6.4,"requests":3,"cost":5615.35,"answer":"Il metodo è `del`, in `src/Renderer.ts` (riga 157). Riceve un token `Tokens.Del` e produce `<del>…</"}
+{"case":"n08","mode":"base","i":1,"pass":true,"seconds":7.4,"requests":3,"cost":5554,"answer":"Il metodo si chiama `del`. È in `src/Renderer.ts`, riga 157, e produce `<del>…</del>`."}
+{"case":"n08","mode":"map","i":0,"pass":true,"seconds":6.4,"requests":2,"cost":5419.15,"answer":"Il metodo si chiama `del`. È in `src/Renderer.ts`, riga 157, e produce `<del>…</del>`."}
+{"case":"n08","mode":"map","i":1,"pass":true,"seconds":7.2,"requests":2,"cost":5589.15,"answer":"Il metodo si chiama `del`. Si trova in `src/Renderer.ts:157`. Riceve un token `Tokens.Del` e restitu"}
+{"case":"n09","mode":"base","i":0,"pass":true,"seconds":7.1,"requests":2,"cost":4394.15,"answer":"In `src/defaults.ts`, l'opzione `gfm` ha come valore predefinito `true`. Si trova alla riga 11."}
+{"case":"n09","mode":"base","i":1,"pass":true,"seconds":7.3,"requests":2,"cost":4349.15,"answer":"In `src/defaults.ts`, il valore predefinito di `gfm` è `true`, alla riga 11."}
+{"case":"n09","mode":"map","i":0,"pass":true,"seconds":8.1,"requests":2,"cost":5504.35,"answer":"In `src/defaults.ts` il valore predefinito di `gfm` è `true`, alla riga 11 (`gfm: true,`)."}
+{"case":"n09","mode":"map","i":1,"pass":true,"seconds":9.6,"requests":2,"cost":5554.35,"answer":"In `src/defaults.ts`, l'opzione `gfm` ha come valore predefinito `true`. Si trova alla riga 11 (`gfm"}
+{"case":"n10","mode":"base","i":0,"pass":true,"seconds":10.6,"requests":3,"cost":5667.15,"answer":"In `package.json`, `marked` non è una dipendenza: è il nome del pacchetto stesso (`\"name\": \"marked\"`"}
+{"case":"n10","mode":"base","i":1,"pass":true,"seconds":10.4,"requests":3,"cost":5622.15,"answer":"In `package.json`, `marked` non è una dipendenza. Il progetto è marked stesso: il campo `name` è `\"m"}
+{"case":"n10","mode":"map","i":0,"pass":true,"seconds":7.4,"requests":2,"cost":5193.9,"answer":"Il `package.json` dichiara `marked` alla versione **18.1.0** (riga 5)."}
+{"case":"n10","mode":"map","i":1,"pass":true,"seconds":4.9,"requests":2,"cost":5178.9,"answer":"La versione dichiarata in `package.json` (riga 5) è **18.1.0**."}

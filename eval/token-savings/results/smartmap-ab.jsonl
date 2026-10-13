@@ -1,0 +1,20 @@
+{"case":"m1","mode":"base","pass":true,"seconds":6,"requests":2,"cost":13112.6,"answer":"`apps/sml-kpi-be/src/kpi-registry/dto/update-kpi-registry.dto.ts` (riga 4)"}
+{"case":"m1","mode":"map","pass":true,"seconds":6.7,"requests":2,"cost":15111.5,"answer":"`apps/sml-kpi-be/src/kpi-registry/dto/update-kpi-registry.dto.ts` (riga 4)"}
+{"case":"m2","mode":"base","pass":true,"seconds":6,"requests":2,"cost":3705.25,"answer":"`apps/sml-apm-v2/src/fdmquadristiu700/dto/get-fdmquadristiu700.dto.ts`"}
+{"case":"m2","mode":"map","pass":true,"seconds":6.4,"requests":2,"cost":4154.3,"answer":"`apps/sml-apm-v2/src/fdmquadristiu700/dto/get-fdmquadristiu700.dto.ts` (riga 13)"}
+{"case":"m3","mode":"base","pass":true,"seconds":6,"requests":2,"cost":3742.25,"answer":"`apps/task-sphere/src/requirement-document/requirement-document.controller.ts`"}
+{"case":"m3","mode":"map","pass":true,"seconds":6.8,"requests":2,"cost":4041.3,"answer":"`apps/task-sphere/src/requirement-document/requirement-document.controller.ts` (riga 20)."}
+{"case":"m4","mode":"base","pass":true,"seconds":5.9,"requests":2,"cost":3628.4,"answer":"`libs/sml-baseline/src/flow-panels/flow-panels.service.ts` (riga 8)"}
+{"case":"m4","mode":"map","pass":true,"seconds":6.2,"requests":2,"cost":4183.700000000001,"answer":"`libs/sml-baseline/src/flow-panels/flow-panels.service.ts` (riga 8: `export class FlowPanelsService extends SmlBaseService<FlowPanel>`)."}
+{"case":"m5","mode":"base","pass":true,"seconds":7.1,"requests":2,"cost":3587.35,"answer":"`apps/sml-identity-provider/src/security-api-key/security-api-key.service.ts`"}
+{"case":"m5","mode":"map","pass":true,"seconds":5.9,"requests":2,"cost":4050.15,"answer":"`apps/sml-identity-provider/src/security-api-key/security-api-key.service.ts` (riga 10)"}
+{"case":"m6","mode":"base","pass":true,"seconds":6.1,"requests":2,"cost":3739.65,"answer":"`FieldOptionDto` è definita in `apps/rca-project/src/rca-equipment-types/dto/create-rca-equipment-type.dto.ts` (riga 25)."}
+{"case":"m6","mode":"map","pass":true,"seconds":6.5,"requests":2,"cost":4113.700000000001,"answer":"`apps/rca-project/src/rca-equipment-types/dto/create-rca-equipment-type.dto.ts` (riga 25)"}
+{"case":"m7","mode":"base","pass":true,"seconds":4.9,"requests":2,"cost":3660.15,"answer":"`apps/event-bus/src/rabbitmq-monitoring/rabbitmq-monitoring.module.ts`"}
+{"case":"m7","mode":"map","pass":true,"seconds":6.6,"requests":2,"cost":4101.700000000001,"answer":"`apps/event-bus/src/rabbitmq-monitoring/rabbitmq-monitoring.module.ts` (riga 12)"}
+{"case":"m8","mode":"base","pass":true,"seconds":6.7,"requests":2,"cost":3696.2000000000003,"answer":"`apps/procedia/src/document-header-template/blocknote-template.service.ts` (riga 25)"}
+{"case":"m8","mode":"map","pass":true,"seconds":6,"requests":2,"cost":4084,"answer":"`apps/procedia/src/document-header-template/blocknote-template.service.ts` (riga 25)"}
+{"case":"csml","mode":"base","pass":true,"seconds":6,"requests":2,"cost":3682.3,"answer":"21"}
+{"case":"csml","mode":"map","pass":true,"seconds":6,"requests":2,"cost":3970.1,"answer":"21"}
+{"case":"crca","mode":"base","pass":true,"seconds":5.7,"requests":2,"cost":3533.15,"answer":"11 (esclusa `node_modules`)."}
+{"case":"crca","mode":"map","pass":true,"seconds":5.9,"requests":2,"cost":3914.7000000000003,"answer":"11"}

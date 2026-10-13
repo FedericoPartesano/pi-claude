@@ -1,0 +1,5 @@
+{"key":"none|pi-full|1|m1","arm":"none","harness":"pi-full","attempt":1,"task":"m1","rules":{"R1":"na","R2":"ok","R3":"ok","R4":"violated","R5":"violated","R6":"ok"},"inputTokens":180427,"outputTokens":4806,"seconds":152.7,"errors":[]}
+{"key":"none|pi-full|1|m2","arm":"none","harness":"pi-full","attempt":1,"task":"m2","rules":{"R1":"na","R2":"na","R3":"ok","R4":"violated","R5":"violated","R6":"ok"},"inputTokens":184212,"outputTokens":5609,"seconds":115.1,"errors":[]}
+{"key":"none|pi-full|1|m5","arm":"none","harness":"pi-full","attempt":1,"task":"m5","rules":{"R1":"na","R2":"na","R3":"ok","R4":"na","R5":"violated","R6":"na"},"inputTokens":110623,"outputTokens":4006,"seconds":67.9,"errors":[]}
+{"key":"none|pi-full|1|m3","arm":"none","harness":"pi-full","attempt":1,"task":"m3","rules":{"R1":"na","R2":"ok","R3":"ok","R4":"violated","R5":"violated","R6":"ok"},"inputTokens":256149,"outputTokens":4938,"seconds":114.9,"errors":[]}
+{"key":"none|pi-full|1|m4","arm":"none","harness":"pi-full","attempt":1,"task":"m4","rules":{"R1":"na","R2":"na","R3":"ok","R4":"violated","R5":"violated","R6":"violated"},"inputTokens":106003,"outputTokens":2524,"seconds":62.5,"errors":[]}

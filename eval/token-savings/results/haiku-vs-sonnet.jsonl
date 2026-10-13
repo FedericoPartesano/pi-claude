@@ -1,0 +1,20 @@
+{"case":"n01","model":"haiku","i":0,"pass":true,"seconds":9.7,"requests":3,"cost":13187.15,"answer":"Il riconoscimento avviene nel metodo **`fences`** della classe `Tokenizer`, in **`src/Tokenizer.ts`** (riga 156).\n\nIl me"}
+{"case":"n01","model":"sonnet","i":0,"pass":true,"seconds":10.6,"requests":3,"cost":8344.45,"answer":"Il riconoscimento avviene nel metodo **`fences`** della classe `Tokenizer`, in `src/Tokenizer.ts` (riga ~156).\n\nIl metod"}
+{"case":"n02","model":"haiku","i":0,"pass":true,"seconds":14.2,"requests":4,"cost":26280.2,"answer":"24"}
+{"case":"n02","model":"sonnet","i":0,"pass":true,"seconds":9,"requests":2,"cost":6390.15,"answer":"**24**"}
+{"case":"n03","model":"haiku","i":0,"pass":true,"seconds":8.3,"requests":3,"cost":7311,"answer":"Nell'insieme `passThroughHooks` della classe `_Hooks` (definito in `src/Hooks.ts`, riga 15) ci sono 4 hook:\n\n1. `preproc"}
+{"case":"n03","model":"sonnet","i":0,"pass":true,"seconds":8.7,"requests":3,"cost":6480.9,"answer":"In `src/Hooks.ts`, l'insieme `_Hooks.passThroughHooks` contiene questi hook:\n\n1. `preprocess`\n2. `postprocess`\n3. `proce"}
+{"case":"n04","model":"haiku","i":0,"pass":true,"seconds":8.7,"requests":2,"cost":9079.5,"answer":"Il file è **`src/rules.ts`**, alla riga 117:\n\n```ts\nconst bullet = / {0,3}(?:[*+-]|\\d{1,9}[.)])/;\n```\n\nLa costante si ch"}
+{"case":"n04","model":"sonnet","i":0,"pass":true,"seconds":8.3,"requests":2,"cost":6858.65,"answer":"È definita in **`src/rules.ts`**, riga 117, come costante `bullet`:\n\n```ts\nconst bullet = / {0,3}(?:[*+-]|\\d{1,9}[.)])/;"}
+{"case":"n05","model":"haiku","i":0,"pass":true,"seconds":5.9,"requests":2,"cost":5616.15,"answer":"La funzione è **`escapeHtmlEntities`** (src/helpers.ts, riga 15). È esportata e accetta `html: string` e un parametro op"}
+{"case":"n05","model":"sonnet","i":0,"pass":true,"seconds":6.9,"requests":2,"cost":5049.05,"answer":"La funzione è `escapeHtmlEntities`, in `src/helpers.ts:15`. Ha la firma `escapeHtmlEntities(html: string, encode?: boole"}
+{"case":"n06","model":"haiku","i":0,"pass":true,"seconds":8.5,"requests":2,"cost":4806.4,"answer":"Ci sono **6** file `*.test.js` in `test/unit` (ricerca ricorsiva, incluse le sottocartelle)."}
+{"case":"n06","model":"sonnet","i":0,"pass":true,"seconds":7.5,"requests":2,"cost":4166.8,"answer":"6"}
+{"case":"n07","model":"sonnet","i":0,"pass":true,"seconds":6.9,"requests":2,"cost":5250.1,"answer":"Il metodo è `def(src: string)`, che inizia alla riga 583 di `src/Tokenizer.ts`. Restituisce un `Tokens.Def | undefined`."}
+{"case":"n07","model":"haiku","i":0,"pass":true,"seconds":12,"requests":5,"cost":13050.75,"answer":"Il metodo è **`def(src: string)`** della classe `_Tokenizer`, definito in `src/Tokenizer.ts` alla **riga 583**.\n\nViene c"}
+{"case":"n08","model":"haiku","i":0,"pass":true,"seconds":7.5,"requests":2,"cost":6000.6,"answer":"Il metodo si chiama **`del`**. È definito in `src/Renderer.ts` (riga 157), dentro la classe `_Renderer` (che inizia alla"}
+{"case":"n08","model":"sonnet","i":0,"pass":true,"seconds":8.5,"requests":3,"cost":7066.9,"answer":"Il metodo si chiama **`del`**. Si trova in `src/Renderer.ts:157` e produce `<del>…</del>`."}
+{"case":"n09","model":"haiku","i":0,"pass":true,"seconds":8.8,"requests":2,"cost":4777.1,"answer":"Nel file `src/defaults.ts` l'opzione `gfm` ha come valore predefinito `true`, alla **riga 11**:\n\n```ts\ngfm: true,\n```"}
+{"case":"n09","model":"sonnet","i":0,"pass":true,"seconds":8.1,"requests":2,"cost":4378.75,"answer":"In `src/defaults.ts`, l'opzione `gfm` ha come valore predefinito `true`, alla riga 11."}
+{"case":"n10","model":"haiku","i":0,"pass":true,"seconds":8.1,"requests":3,"cost":6465.45,"answer":"Il `package.json` nella root (`/tmp/pi-hs/n10-haiku-0/package.json`) è quello del progetto marked stesso: il campo `\"nam"}
+{"case":"n10","model":"sonnet","i":0,"pass":true,"seconds":8.9,"requests":3,"cost":5694.45,"answer":"La versione di `marked` dichiarata in `package.json` è **18.1.0** (riga 5, campo `\"version\"`).\n\nIl progetto è lo stesso "}
