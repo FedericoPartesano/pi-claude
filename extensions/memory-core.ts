@@ -27,6 +27,8 @@ export interface MemoryEntry {
 	links?: string[];
 	/** One short line for the cues (deep store). */
 	gist?: string;
+	/** One or two words naming the subject (deep store). */
+	topic?: string;
 	/** personale = valid in every project (moved to the global store). */
 	level?: "progetto" | "personale";
 	/** Ids this entry replaces (an update, a merge): it inherits their links and usage, links to them follow it. */
@@ -37,6 +39,7 @@ export interface MemoryEntry {
 export interface Extras {
 	links?: string[];
 	gist?: string;
+	topic?: string;
 	level?: "progetto" | "personale";
 }
 
@@ -51,6 +54,8 @@ export interface Proposal {
 	quadro?: string;
 	/** Changes the model is unsure about: not applied, the user is asked (m<n> = the memory; text = what it would become). */
 	doubts?: { id: string; question: string; text?: string }[];
+	/** Topics for existing memories that have none (m<n> → topic): the one-off labelling of old memories, a batch per /dream. */
+	topics?: Record<string, string>;
 }
 
 const HEADERS = {
@@ -126,7 +131,7 @@ export function applyProposal(memory: MemoryEntry[], archive: MemoryEntry[], pro
 	const extras = (item: Extras): Extras => {
 		// n<k> stays symbolic ("new:k") until entriesToRecords gives the additions their ids.
 		const links = (item.links ?? []).map((id) => (id.startsWith("n") ? `new:${id.slice(1)}` : memory[index(id)]?.id)).filter((id): id is string => Boolean(id));
-		return { ...(links.length ? { links } : {}), ...(item.gist ? { gist: item.gist } : {}), ...(item.level ? { level: item.level } : {}) };
+		return { ...(links.length ? { links } : {}), ...(item.gist ? { gist: item.gist } : {}), ...(item.topic ? { topic: item.topic } : {}), ...(item.level ? { level: item.level } : {}) };
 	};
 
 	for (const { id, text, type, entities, ...more } of proposal.update) {
@@ -208,6 +213,11 @@ export function applyProposal(memory: MemoryEntry[], archive: MemoryEntry[], pro
 		if (type === "episodio") newArchive.push({ ...entry, archived: today, reason: "episodio" });
 		else added.push(entry);
 		counts.added++;
+	}
+	// Labelling only: a memory that already has a topic keeps it.
+	for (const [id, topic] of Object.entries(proposal.topics ?? {})) {
+		const entry = slots[index(id)];
+		if (entry && !entry.topic) entry.topic = topic;
 	}
 	return { memory: [...(slots.filter(Boolean) as MemoryEntry[]), ...added], archive: newArchive, counts };
 }
@@ -311,6 +321,33 @@ export function normalizeType(type: unknown): unknown {
 	return (MEMORY_TYPES as readonly string[]).includes(lower) ? lower : (TYPE_SYNONYMS[lower] ?? type);
 }
 
+/** Old memories labelled per /dream: a batch, so the first deep /dream stays short. */
+export const MAX_TOPICS_PER_DREAM = 40;
+
+/** Pairs of memories saying almost the same (same significant words): /dream is told to merge them. */
+export function nearDuplicates(memory: MemoryEntry[], threshold = 0.6, limit = 8): [number, number][] {
+	const words = memory.map((entry) => contentWords(entry.text));
+	const pairs: { pair: [number, number]; value: number }[] = [];
+	for (let a = 0; a < memory.length; a++) {
+		if (words[a].size < 3) continue;
+		for (let b = a + 1; b < memory.length; b++) {
+			if (words[b].size < 3) continue;
+			let shared = 0;
+			for (const word of words[a]) if (words[b].has(word)) shared++;
+			const value = shared / (words[a].size + words[b].size - shared);
+			if (value >= threshold) pairs.push({ pair: [a, b], value });
+		}
+	}
+	return pairs.sort((x, y) => y.value - x.value).slice(0, limit).map((item) => item.pair);
+}
+
+/** A topic is one or two lowercase words (≤ 30 chars); anything else is dropped. */
+export function cleanTopic(value: unknown): string | undefined {
+	if (typeof value !== "string") return undefined;
+	const topic = cleanText(value).toLowerCase().replace(/[^\p{L}\p{N} -]/gu, "").replace(/\s+/g, " ").trim();
+	return topic.length >= 2 && topic.length <= 30 && topic.split(" ").length <= 2 ? topic : undefined;
+}
+
 export function parseProposal(text: string, memoryCount: number): { ok: true; proposal: Proposal; skipped: string[] } | { ok: false; error: string } {
 	const cleaned = text.replace(/```(?:json)?/g, "");
 	const start = cleaned.indexOf("{");
@@ -359,7 +396,8 @@ export function parseProposal(text: string, memoryCount: number): { ok: true; pr
 		const links = Array.isArray(item.links) ? [...new Set(item.links.filter(linkable))].slice(0, 5) : [];
 		const gist = typeof item.gist === "string" && item.gist.trim() ? cleanText(item.gist).slice(0, 90) : undefined;
 		const level = item.level === "personale" || item.level === "progetto" ? item.level : undefined;
-		return { ...(links.length ? { links } : {}), ...(gist ? { gist } : {}), ...(level ? { level } : {}) };
+		const topic = cleanTopic(item.topic);
+		return { ...(links.length ? { links } : {}), ...(gist ? { gist } : {}), ...(topic ? { topic } : {}), ...(level ? { level } : {}) };
 	};
 	// Measured: with an empty memory the model "merges" things said in the sessions using invented ids, and every item
 	// was discarded. A merge/update whose ids do not exist but whose text is valid is new knowledge: keep it as an add.
@@ -405,6 +443,14 @@ export function parseProposal(text: string, memoryCount: number): { ok: true; pr
 			.slice(0, 3);
 		if (doubts.length > 0) proposal.doubts = doubts;
 	}
+	if (typeof raw.topics === "object" && raw.topics !== null && !Array.isArray(raw.topics)) {
+		const topics: Record<string, string> = {};
+		for (const [id, value] of Object.entries(raw.topics as Record<string, unknown>).slice(0, MAX_TOPICS_PER_DREAM)) {
+			const topic = cleanTopic(value);
+			if (topic && /^m\d+$/.test(id) && Number(id.slice(1)) >= 1 && Number(id.slice(1)) <= memoryCount) topics[id] = topic;
+		}
+		if (Object.keys(topics).length > 0) proposal.topics = topics;
+	}
 	if (typeof raw.quadro === "string" && raw.quadro.trim()) proposal.quadro = maskSecrets(raw.quadro.trim()).slice(0, QUADRO_CHARS);
 	// Invalid items are skipped one by one (reported), never the whole consolidation.
 	return { ok: true, proposal, skipped: problems };
@@ -414,9 +460,10 @@ export function parseProposal(text: string, memoryCount: number): { ok: true; pr
 export const QUADRO_CHARS = 1200;
 
 export function buildDreamPrompt(memory: MemoryEntry[], sessions: string, today: string, options: { global?: boolean; capChars?: number; deep?: boolean; quadro?: string } = {}): string {
+	const duplicates = options.deep ? nearDuplicates(memory) : [];
 	const fill = options.capChars ? Math.round((memory.map(contextLine).join("\n").length / options.capChars) * 100) : 0;
 	const current = memory.length > 0
-		? memory.map((entry, position) => `${idOf(position)} ${contextLine(entry).slice(2)}${entry.pinned ? " 📌" : ""} (conferme ${entry.confirmations}, ultima ${entry.last || "?"})`).join("\n")
+		? memory.map((entry, position) => `${idOf(position)} ${contextLine(entry).slice(2)}${entry.pinned ? " 📌" : ""} (conferme ${entry.confirmations}, ultima ${entry.last || "?"}${options.deep && entry.topic ? `, topic ${entry.topic}` : ""})`).join("\n")
 		: "(vuota)";
 	return [
 		`Consolida la memoria di Pi, come il sonno: tieni ciò che conta, scarta il resto. Oggi: ${today}.`,
@@ -441,6 +488,8 @@ export function buildDreamPrompt(memory: MemoryEntry[], sessions: string, today:
 		...(options.deep
 			? [
 					"- \"links\": i ricordi a cui questo è collegato (ne spiega il perché, ne dipende, lo contraddice): così da uno si arriva all'altro. m<n> per quelli esistenti, n<k> per il k-esimo elemento di \"add\" di questa stessa risposta (es. n1). Collega ciò che riguarda la stessa cosa.",
+					"- \"topic\": una o due parole minuscole sul soggetto del ricordo (es. \"bug server\", \"pannello ui\", \"ricordi\"); riusa i topic già presenti invece di inventarne di nuovi. \"topics\": {\"m1\":\"...\"} per etichettare i ricordi esistenti senza topic (al massimo " + MAX_TOPICS_PER_DREAM + " per volta, i più chiari).",
+					...(duplicates.length > 0 ? [`- Possibili duplicati (dicono quasi la stessa cosa): ${duplicates.map(([a, b]) => `${idOf(a)} ~ ${idOf(b)}`).join(", ")}. Se lo sono davvero, merge in un solo ricordo.`] : []),
 					"- \"gist\": se il testo è lungo, una versione di massimo 10 parole per i promemoria brevi.",
 					options.global ? "" : "- \"level\": \"personale\" per preferenze dell'utente valide in OGNI progetto (lingua, stile, strumenti personali), altrimenti ometti.",
 					options.global ? "" : `- "quadro": riscrivi il quadro del progetto (massimo ${QUADRO_CHARS} caratteri, in italiano): com'è fatto, regole e decisioni chiave, cosa è in corso. Partendo da quello attuale e dalle sessioni nuove; omettilo se non cambia nulla.`,
@@ -454,7 +503,7 @@ export function buildDreamPrompt(memory: MemoryEntry[], sessions: string, today:
 		...(fill >= 70 ? [`- La memoria è al ${fill}% del suo spazio: unisci i ricordi simili e sintetizza; aggiungi solo ciò che vale più di quello che c'è (il codice archivia l'eccedenza meno importante).`] : []),
 		"",
 		options.deep
-			? 'Rispondi SOLO con JSON: {"add":[{"type":"correzione|preferenza|decisione|fatto|episodio","text":"...","entities":["..."],"links":["m2"],"gist":"..."}],"reinforce":["m1"],"merge":[{"ids":["m2","m3"],"type":"...","text":"...","entities":["..."]}],"update":[{"id":"m4","text":"...","entities":["..."],"links":["m1"]}],"forget":[{"id":"m5","reason":"..."}],"quadro":"..."}'
+			? 'Rispondi SOLO con JSON: {"add":[{"type":"correzione|preferenza|decisione|fatto|episodio","text":"...","entities":["..."],"links":["m2"],"gist":"...","topic":"..."}],"reinforce":["m1"],"merge":[{"ids":["m2","m3"],"type":"...","text":"...","entities":["..."],"topic":"..."}],"update":[{"id":"m4","text":"...","entities":["..."],"links":["m1"]}],"forget":[{"id":"m5","reason":"..."}],"topics":{"m6":"..."},"quadro":"..."}'
 			: 'Rispondi SOLO con JSON: {"add":[{"type":"correzione|preferenza|decisione|fatto|episodio","text":"..."}],"reinforce":["m1"],"merge":[{"ids":["m2","m3"],"type":"...","text":"..."}],"update":[{"id":"m4","text":"..."}],"forget":[{"id":"m5","reason":"..."}]}',
 	].join("\n");
 }

@@ -28,6 +28,9 @@ const normalize = (text: string) => text.toLowerCase().normalize("NFD").replace(
 const stem = (word: string) => (word.length > 4 ? word.replace(/[aeio]$/, "") : word);
 const stems = (text: string) => normalize(text).split(" ").filter((word) => word.length > 2 && !STOPWORDS.has(word)).map(stem);
 
+/** Every word counts for a topic (also "db", "ui"), unlike stems(): a short word is exactly what tells topics apart. */
+const topicWords = (text: string) => normalize(text).split(" ").filter(Boolean).map(stem);
+
 export interface Scored {
 	record: MemoryRecord;
 	score: number;
@@ -49,6 +52,9 @@ const SINGLE_COMMON_TERM = 0.6;
 
 /** Depth: how recall walks the memory graph (Personalized PageRank by push, see ppr.ts). Tuned on bench/deep-bench.ts. */
 /** Recency weight and time constant (days). Tuned on bench/longterm-sim.ts. */
+/** Topic of a memory vs. the topics the request names: a match is favoured, another topic weighs down (no topic: neutral). */
+export const TOPIC = { match: 1.15, other: 0.85 };
+
 export const RECENCY = { weight: 0.1, days: 7 };
 
 export const DEPTH = {
@@ -263,6 +269,20 @@ export class RecallIndex {
 			this.entityStemCache.set(entity, value);
 		}
 		return value;
+	}
+
+	private topicStems?: Map<string, string[]>;
+	/** Topics (of the memories) named by the request: all the stems of the topic are among the request's. */
+	topicsIn(query: string): Set<string> {
+		if (!this.topicStems) {
+			this.topicStems = new Map();
+			for (const record of this.records) if (record.topic && !this.topicStems.has(record.topic)) this.topicStems.set(record.topic, topicWords(record.topic));
+		}
+		const found = new Set<string>();
+		if (this.topicStems.size === 0) return found;
+		const words = new Set(topicWords(query));
+		for (const [topic, parts] of this.topicStems) if (parts.length > 0 && parts.every((part) => words.has(part))) found.add(topic);
+		return found;
 	}
 
 	private recencyCache = new WeakMap<MemoryRecord, { day: string; value: number }>();
@@ -485,6 +505,8 @@ export function recall(index: RecallIndex, query: string, options: RecallOptions
 	// request, the one touched in the last weeks comes first (the current state of a topic, not its history).
 	const factor = (record: MemoryRecord) => 0.85 + 0.15 * index.strengthOf(record, options.today) + RECENCY.weight * index.recencyOf(record, options.today);
 	const direct = new Map<number, number>();
+	const topics = index.topicsIn(query);
+	const topicFactor = (record: MemoryRecord) => (topics.size === 0 || !record.topic ? 1 : topics.has(record.topic) ? TOPIC.match : TOPIC.other);
 	// Full scoring only for the best few hundred by lexical evidence plus the semantic ones: a common word can hit
 	// thousands of memories, and scoring them all was most of the time at 100k.
 	const lexicalTop = topLexical(bm, ent, LEXICAL_CANDIDATES);
@@ -495,7 +517,7 @@ export function recall(index: RecallIndex, query: string, options: RecallOptions
 		const [b, e] = [bm.scores[position], ent.get(position) ?? 0];
 		const lexical = 0.8 * Math.max(b, e) + 0.2 * Math.min(b, e);
 		const score = Math.max(lexical, SEM_WEIGHT * (sem.get(position) ?? 0) + (1 - SEM_WEIGHT) * lexical);
-		direct.set(position, score * factor(record));
+		direct.set(position, score * factor(record) * topicFactor(record));
 	}
 	const ranked = [...direct].map(([position, score]) => ({ position, score })).sort((a, b) => b.score - a.score);
 	const passing = ranked.filter((item) => item.score >= threshold);

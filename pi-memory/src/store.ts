@@ -25,6 +25,8 @@ export interface MemoryRecord {
 	scope?: MemoryScope;
 	/** One short line (<= 90 chars) shown as a cue; the full text is one `ricorda` away. */
 	gist?: string;
+	/** One or two words naming the subject (e.g. "bug server"): a request about it favours the memory, one about another topic weighs it down. */
+	topic?: string;
 	/** Ids of related memories (explains, depends on, contradicts): the memory graph. */
 	links?: string[];
 	/** Dormant: out of the cues, still found by `ricorda`; forgotten later if never used. */

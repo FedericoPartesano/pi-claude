@@ -9,6 +9,7 @@ export function recordsToEntries(records: MemoryRecord[]): { memory: MemoryEntry
 	for (const record of records) {
 		const entry: MemoryEntry = { id: record.id, type: record.type, text: record.text, pinned: record.pinned, confirmations: record.confirmations, last: record.last };
 		if (record.entities.length > 0) entry.entities = record.entities;
+		if (record.topic) entry.topic = record.topic;
 		if (record.status === "active") memory.push(entry);
 		else archive.push({ ...entry, archived: record.last, reason: record.reason ?? "superato" });
 	}
@@ -42,6 +43,7 @@ export function entriesToRecords(memory: MemoryEntry[], archive: MemoryEntry[], 
 					...(replaced.some((record) => record.uses) ? { uses: replaced.reduce((sum, record) => sum + (record.uses ?? 0), 0) } : {}),
 					...(replaced.some((record) => record.lastUsed) ? { lastUsed: replaced.map((record) => record.lastUsed ?? "").sort().pop() } : {}),
 					...(replaced[0].scope ? { scope: replaced[0].scope } : {}),
+					...(replaced.find((record) => record.topic) ? { topic: replaced.find((record) => record.topic)!.topic } : {}),
 					created: replaced.map((record) => record.created).sort()[0],
 				}
 			: {};
@@ -59,6 +61,7 @@ export function entriesToRecords(memory: MemoryEntry[], archive: MemoryEntry[], 
 			// Graph, lifecycle and usage survive consolidation (they were dropped: every /dream erased the links). The
 			// gist only while the text is the same.
 			...(entry.links?.length || old?.links?.length || (inherited as { links?: string[] }).links ? { links: [...new Set([...(old?.links ?? []), ...((inherited as { links?: string[] }).links ?? []), ...(entry.links ?? [])])] } : {}),
+			...(entry.topic ?? old?.topic ?? (inherited as { topic?: string }).topic ? { topic: entry.topic ?? old?.topic ?? (inherited as { topic?: string }).topic } : {}),
 			...(entry.gist ? { gist: entry.gist } : old?.gist && old.text === entry.text ? { gist: old.gist } : {}),
 			...(old?.state ? { state: old.state, dormantSince: old.dormantSince } : {}),
 			...(entry.level ?? old?.level ? { level: entry.level ?? old?.level } : {}),
