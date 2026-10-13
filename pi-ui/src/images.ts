@@ -12,6 +12,8 @@ import { PNG } from "pngjs";
 
 const EXTENSIONS = "png|jpe?g|gif|webp|svg|bmp";
 const URL_PATTERN = new RegExp(`https?://[^\\s)"'<>\`]+?\\.(?:${EXTENSIONS})(?:\\?[^\\s)"'<>\`]*)?(?=$|[\\s)"'<>\`]|[.,;:!?](?:\\s|$))`, "gi");
+// Windows paths (C:\\Users\\me\\AppData\\Local\\Temp\\pi-clipboard-x.png), written the way Pi pastes them on native Windows.
+const WIN_PATTERN = new RegExp(`(?:^|[\\s(\\[\`'"])([A-Za-z]:[\\\\/](?:[^\\s\\\\/:*?"<>|\`'()]+[\\\\/])*[^\\s\\\\/:*?"<>|\`'()]+\\.(?:${EXTENSIONS}))(?=$|[\\s)\\]\`'"]|[.,;:!?](?:\\s|$))`, "gim");
 const PATH_PATTERN = new RegExp(`(?:^|[\\s(\\[\`'"])((?:~|\\.{1,2})?/?(?:[\\w@.-]+/)*[\\w@-][\\w@.-]*\\.(?:${EXTENSIONS}))(?=$|[\\s)\\]\`'"]|[.,;:!?](?:\\s|$))`, "gim");
 
 export const CACHE_DIR = join(homedir(), ".cache/pi-ui");
@@ -26,6 +28,7 @@ export function findImageRefs(text: string): string[] {
 	for (const match of clean.matchAll(URL_PATTERN)) refs.push({ at: match.index ?? 0, ref: match[0].replace(/[.,;:!?]+$/, "") });
 	const withoutUrls = clean.replace(URL_PATTERN, (url) => " ".repeat(url.length));
 	for (const match of withoutUrls.matchAll(PATH_PATTERN)) refs.push({ at: (match.index ?? 0) + match[0].indexOf(match[1]), ref: match[1] });
+	for (const match of clean.matchAll(WIN_PATTERN)) refs.push({ at: (match.index ?? 0) + match[0].indexOf(match[1]), ref: match[1] });
 	return [...new Set(refs.sort((a, b) => a.at - b.at).map((entry) => entry.ref))];
 }
 

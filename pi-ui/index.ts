@@ -22,6 +22,7 @@ import { subagentRows, teamRows, type AgentRow } from "./src/agents.ts";
 import { CHART_PROMPT, extractCharts, renderChart, type ChartSpec } from "./src/charts.ts";
 import { renderImageEntry, renderImageLoading, thumbnailColumns } from "./src/image-entry.ts";
 import { findImageRefs, thumbnailFor, type Thumbnail } from "./src/images.ts";
+import { localRefs, PREVIEW_MAX, previewColumns, renderPasteStrip } from "./src/paste-preview.ts";
 import { C, bg, bold, fg, fit, hud, label, usePalette } from "./src/palette.ts";
 import { PINNED_MIN_COLUMNS, sidebarRoot, type SidebarRoot } from "./src/sidebar.ts";
 import { behindConPty, imageProtocolFor, isTerminalReplyLeak, regularMode, regularWidth } from "./src/terminal.ts";
@@ -304,7 +305,29 @@ export default function (pi: ExtensionAPI) {
 	const line = (render: (width: number) => string): Component => ({ render: (width) => [render(width)], invalidate() {} });
 	const line_ = (render: (width: number) => string[]): Component => ({ render, invalidate() {} });
 
+	// The prompt being written: the paste preview reads its text (PI_UI_PASTE_PREVIEW=0 turns the preview off).
+	let promptEditor: { getText(): string } | undefined;
+	const pastePreview = (width: number): string[] => {
+		if (process.env.PI_UI_PASTE_PREVIEW === "0" || process.env.PI_UI_IMAGES === "0") return [];
+		const text = promptEditor?.getText() ?? "";
+		if (!text.includes(".")) return [];
+		const refs = localRefs(findImageRefs(text)).filter((ref) => existsSync(ref.startsWith("~/") ? `${homedir()}/${ref.slice(2)}` : resolve(cwd, ref)));
+		const shown = refs.slice(0, PREVIEW_MAX);
+		const thumbs = shown.map((ref) => {
+			const first = thumbnail(ref, 24);
+			if (!first || "error" in first) return first;
+			const cols = previewColumns(first.width, first.height, shown.length, width);
+			return cols === 24 ? first : (thumbnail(ref, cols) ?? first);
+		});
+		return renderPasteStrip(thumbs, refs.length, width);
+	};
+
 	class PromptEditor extends CustomEditor {
+		constructor(...args: ConstructorParameters<typeof CustomEditor>) {
+			super(...args);
+			promptEditor = this;
+		}
+
 		render(width: number): string[] {
 			return frameEditor(super.render(width), width, status.mode === "working");
 		}
@@ -361,6 +384,7 @@ export default function (pi: ExtensionAPI) {
 			),
 		);
 		ctx.ui.setWidget("pi-ui-thinking", () => line_((width) => (status.mode === "working" ? renderThinkingBox(liveThinking, width) : [])), { placement: "aboveEditor" });
+		ctx.ui.setWidget("pi-ui-paste", () => line_(pastePreview), { placement: "aboveEditor" });
 		usePalette(ctx.ui.theme.name);
 		ctx.ui.setWidget("pi-ui-status", (widgetTui) => {
 			tui = widgetTui;
