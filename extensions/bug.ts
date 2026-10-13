@@ -20,6 +20,7 @@ import { listBugs, login, saveSession, savedPassword, savedSession, type Session
 import { crashExists, crashForm, crashId, markSeen, readCrashes, readSeen, splitCrashes, type CrashEntry } from "./bug/crashes.ts";
 import { DETECT_SYSTEM, looksLikePiBug, parseDetect } from "./bug/detect.ts";
 import { openInBrowser, startViewer, type Viewer } from "./bug/viewer.ts";
+import { sendWithProgress } from "./bug/progress.ts";
 import { pack, upload, uploadConfig } from "./bug/upload.ts";
 
 export default function (pi: ExtensionAPI) {
@@ -45,10 +46,12 @@ export default function (pi: ExtensionAPI) {
 		});
 		const config = form.send ? uploadConfig(process.env, home) : undefined;
 		if (!config) return ctx.ui.notify(`Bug salvato in ${dir}`, "info");
-		ctx.ui.notify(`Bug salvato in ${dir}. Lo invio…`, "info");
 		const file = pack(form.redact ? redactedCopy(dir) : dir);
-		const result = await upload(config, file, { title: form.title, severity: form.kind === "crash" ? "crash" : form.severity });
-		ctx.ui.notify(result.ok ? `Bug ${result.message}. Copia locale in ${dir}` : `Bug salvato in ${dir}, ma ${result.message}.`, result.ok ? "info" : "warning");
+		await sendWithProgress(ctx.ui, () => upload(config, file, { title: form.title, severity: form.kind === "crash" ? "crash" : form.severity }), {
+			sending: "Invio del bug al server…",
+			done: (message) => `Bug ${message}. Copia locale in ${dir}`,
+			failed: (message) => `Bug NON inviato: ${message}. Resta salvato in ${dir}`,
+		});
 	};
 
 	/** Text of the message that looked like a Pi bug: /bugreport and Alt+B start from it. */

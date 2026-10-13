@@ -31,3 +31,9 @@ test("renderFooter: versioni di Pi e di pi-claude fisse a destra, più corte se 
 	assert.doesNotMatch(renderFooter({ ...info, versions: undefined }, 140), /pi-claude/);
 	for (const width of [80, 100, 140]) assert.equal(visibleWidth(renderFooter(info, width)), width);
 });
+
+test("renderFooter: mostra l'invio del bug in corso", () => {
+	const base = { project: "p", changes: 0, model: "m", thinking: "t" };
+	assert.match(renderFooter({ ...base, statuses: new Map([["bug-upload", "⏳ Invio del bug al server…"]]) }, 120), /Invio del bug al server/);
+	assert.doesNotMatch(renderFooter({ ...base, statuses: new Map() }, 120), /Invio del bug/);
+});

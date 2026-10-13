@@ -43,7 +43,9 @@ export function renderFooter(info: FooterInfo, width: number): string {
 	const memory = info.statuses.get("memory")?.split(" · ")[0];
 	const place = memory && width >= 100 ? `${where}  ${fg(C.dim, memory)}` : where;
 	const base0 = !sessionText ? place : width >= 100 ? `${sessionText}   ${place}` : sessionText;
-	const base = badge ? `${badge}  ${base0}` : base0;
+	const sending = info.statuses.get("bug-upload");
+	const base1 = badge ? `${badge}  ${base0}` : base0;
+	const base = sending ? `${bold(fg(C.cyan, sending))}  ${base1}` : base1;
 	const left = info.yolo ? `${hud ? tag(C.err, " SENZA PERMESSI ") : bold(fg(C.err, "SENZA PERMESSI"))}  ${base}` : base;
 	const usage = info.overage ? fg(C.err, bold("⚠ EXTRA USAGE")) : fg(C.dim, `5H ${percent(info.fiveHour, 100)}`);
 	const v = info.versions;
