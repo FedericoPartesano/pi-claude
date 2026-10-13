@@ -108,7 +108,15 @@ export function writeBundle(parent: string, s: BugSources): string {
 	for (const name of ["memory", "memory.md", "memory-archive.md", "dream-last.json"]) copyIfThere(join(s.cwd, ".pi", name), join(dir, "memory", "project", name));
 	for (const name of ["memory", "memory.md"]) copyIfThere(join(agent, name), join(dir, "memory", "global", name));
 	copyIfThere(join(s.cwd, "intents"), join(dir, "intents"));
-	copyIfThere(join(agent, "crashes.json"), join(dir, "crashes.json"));
+	// Only the last week of crashes: older ones say nothing about this problem and carry paths of other projects.
+	try {
+		const week = s.now.getTime() - 7 * 86_400_000;
+		const all = JSON.parse(readFileSync(join(agent, "crashes.json"), "utf8")) as { timestamp?: string }[];
+		const recent = all.filter((entry) => Date.parse(entry.timestamp ?? "") >= week);
+		if (recent.length) json("crashes.json", recent);
+	} catch {
+		// no crash log
+	}
 	return dir;
 }
 

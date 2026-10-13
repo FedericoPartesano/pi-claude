@@ -80,3 +80,15 @@ test("slug e lastTodo", () => {
 	assert.equal(slug("???"), "bug");
 	assert.equal(lastTodo([]), undefined);
 });
+
+test("writeBundle: di crashes.json copia solo l'ultima settimana", () => {
+	const root = mkdtempSync(join(tmpdir(), "bug-"));
+	const s = sources(root);
+	mkdirSync(join(s.home, ".pi/agent"), { recursive: true });
+	const day = 86_400_000;
+	const at = (days: number) => new Date(s.now.getTime() - days * day).toISOString();
+	writeFileSync(join(s.home, ".pi/agent/crashes.json"), JSON.stringify([{ timestamp: at(30), message: "vecchio" }, { timestamp: at(2), message: "recente" }]));
+	const dir = writeBundle(join(root, "out"), s);
+	const kept = JSON.parse(readFileSync(join(dir, "crashes.json"), "utf8"));
+	assert.deepEqual(kept.map((entry: { message: string }) => entry.message), ["recente"]);
+});
