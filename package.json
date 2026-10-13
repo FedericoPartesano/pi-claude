@@ -27,7 +27,8 @@
       "./extensions/voice.ts",
       "./extensions/bug.ts",
       "./extensions/updates.ts",
-      "./extensions/tab-status.ts"
+      "./extensions/tab-status.ts",
+      "./extensions/title.ts"
     ],
     "themes": [
       "./pi-ui/themes/*.json"

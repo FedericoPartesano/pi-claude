@@ -19,8 +19,10 @@ export default function (pi: ExtensionAPI) {
 	let timer: ReturnType<typeof setInterval> | undefined;
 	let frame = 0;
 	let current: ExtensionContext | undefined;
+	let icon = IDLE;
 
-	const set = (icon: string) => {
+	const set = (next: string) => {
+		icon = next;
 		try {
 			if (current?.hasUI) current.ui.setTitle(tabTitle(icon, current.cwd, current.sessionManager?.getSessionName?.()));
 		} catch {
@@ -49,6 +51,8 @@ export default function (pi: ExtensionAPI) {
 		stop();
 		set(IDLE);
 	});
+	// /title or /name changed the session name: the tab follows
+	pi.on("session_info_changed", () => set(icon));
 	pi.on("session_shutdown", () => {
 		stop();
 		current = undefined;

@@ -199,6 +199,8 @@ di invio, pubblico, non apre la lettura; 5 password sbagliate bloccano i login p
 
 Il titolo della tab del terminale mostra se Pi lavora (spinner che gira) o aspetta te (🟢). Costa zero token. Si spegne con `PI_TAB_STATUS=0`.
 
+`/title <testo>` dà un nome alla chat: appare nella tab e in `pi --resume`, ed è salvato nella sessione. `/title` mostra il nome, `/title auto` lo fa scrivere a haiku dalla chat. Dopo la prima risposta di una chat senza nome, Pi ne scrive uno da solo (una chiamata haiku, poche centinaia di token) e te lo dice. Spegni il titolo automatico con `PI_TITLE_AUTO=0`, il comando con `PI_TITLE=0`.
+
 ## Rilasci
 
 Il pacchetto `pi-claude` ha una versione (SemVer), gestita da [release-please](https://github.com/googleapis/release-please):
