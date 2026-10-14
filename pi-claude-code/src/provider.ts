@@ -34,7 +34,7 @@ import {
 	type ToolResultMessage,
 	type TranscriptContext,
 } from "@earendil-works/pi-ai";
-import { ClaudeSession, type ClaudeRecord, MCP_TOOL_PREFIX } from "./claude-session.ts";
+import { ClaudeSession, type ClaudeRecord, MCP_TOOL_PREFIX, advisorFor } from "./claude-session.ts";
 import { toContentBlocks, writeClaudeSession } from "./claude-transcript.ts";
 import { McpHttpServer, type McpToolCallResult, type McpToolDefinition } from "./mcp-http-server.ts";
 import type { RateLimitInfo } from "./footer.ts";
@@ -91,7 +91,7 @@ export async function prewarmSession(modelId: string, thinkingLevel: string | un
 /** Tool order does not matter to the model; sort so prewarmed and real requests compare equal. */
 function sessionSignature(modelId: string, effort: string | undefined, systemPrompt: string, tools: Tool[]): string {
 	const sortedTools = tools.map(toMcpTool).sort((left, right) => left.name.localeCompare(right.name));
-	return hash(JSON.stringify([modelId, effort, systemPrompt, sortedTools]));
+	return hash(JSON.stringify([modelId, effort, systemPrompt, sortedTools, advisorFor(modelId)]));
 }
 
 let latestRateLimit: RateLimitInfo | undefined;

@@ -8,7 +8,7 @@
  * becomes the answer to Pi's next provider request. The two loops advance in lockstep.
  */
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
@@ -20,6 +20,12 @@ import {
 	type McpToolCallResult,
 	type McpToolDefinition,
 } from "./mcp-http-server.ts";
+/** The native advisor model for a Claude Code model: Opus for Haiku, only when PI_CLAUDE_ADVISOR is set and not "off" (/advisor on|off). */
+export function advisorFor(model: string): string | undefined {
+	const choice = process.env.PI_CLAUDE_ADVISOR;
+	return /haiku/i.test(model) && choice && choice !== "off" ? "opus" : undefined;
+}
+
 import { ToolCallMatcher } from "./tool-call-matcher.ts";
 
 export { stableStringify } from "./tool-call-matcher.ts";
@@ -126,6 +132,8 @@ export class ClaudeSession {
 			// Pi owns the session history; Claude Code keeps nothing on disk.
 			"--no-session-persistence",
 			...(options.effort ? ["--effort", options.effort] : []),
+			// Native Claude Code advisor: a stronger model that Haiku consults server-side. PI_CLAUDE_ADVISOR=off disables it.
+			...(advisorFor(options.model) ? ["--advisor", advisorFor(options.model)!] : []),
 			...(options.resumeSessionId ? ["--resume", options.resumeSessionId] : []),
 		];
 
@@ -175,6 +183,15 @@ export class ClaudeSession {
 			if (record.type === "rate_limit_event") {
 				options.onRateLimit?.(record.rate_limit_info);
 				return;
+			}
+			if (record.type === "result" && process.env.PI_ADVISOR_LOG) {
+				// Evals: real per-model usage and cost of the run, including the native advisor (Opus).
+				try {
+					const { modelUsage, total_cost_usd: totalCostUsd } = record as { modelUsage?: unknown; total_cost_usd?: number };
+					appendFileSync(process.env.PI_ADVISOR_LOG, `${JSON.stringify({ kind: "native", totalCostUsd, modelUsage })}\n`);
+				} catch {
+					// best effort
+				}
 			}
 			this.records.push(record);
 			this.wakeReader();

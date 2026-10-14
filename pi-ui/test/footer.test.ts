@@ -47,3 +47,10 @@ test("renderFooter: il modello in uso è il primo blocco, in chiaro", () => {
 	assert.match(strip(renderFooter({ ...base, model: "opus" }, 120)), /ragionamento medium/);
 	assert.notEqual(modelBadge("opus"), modelBadge("sonnet"), "colori diversi");
 });
+
+test("renderFooter: badge ADVISOR dopo il modello quando lo stato advisor è presente", () => {
+	const strip = (text: string) => text.replace(/\x1b\[[0-9;]*m/g, "");
+	const info = { statuses: new Map([["advisor", "ON"]]), project: "p", changes: 0, model: "haiku", thinking: "t" };
+	assert.match(strip(renderFooter(info, 120)), /^ MODELLO HAIKU {3}ADVISOR {2}/);
+	assert.doesNotMatch(strip(renderFooter({ ...info, statuses: new Map() }, 120)), /ADVISOR/);
+});

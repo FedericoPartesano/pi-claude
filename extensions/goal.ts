@@ -351,12 +351,25 @@ export default function (pi: ExtensionAPI) {
 	let toolRegistered = false;
 
 	const setTool = (on: boolean) => {
-		const others = pi.getActiveTools().filter((name) => name !== "goal_done");
-		pi.setActiveTools(on ? [...others, "goal_done"] : others);
+		try {
+			const others = pi.getActiveTools().filter((name) => name !== "goal_done");
+			pi.setActiveTools(on ? [...others, "goal_done"] : others);
+		} catch (error) {
+			// stale pi after a session replacement or reload: nothing to update
+			if (!/stale/i.test(String((error as Error)?.message))) throw error;
+		}
 	};
 	/** Footer status and the state pi-ui shows in its panel (pi.events "goal:state"; undefined = no goal). */
 	let savedState = "";
-	const footer = (ctx: ExtensionContext) => {
+	/** After a session replacement or reload a captured ctx/pi is stale and throws: the late call is dropped, never fatal. */
+	const safely = (action: () => void) => {
+		try {
+			action();
+		} catch (error) {
+			if (!/stale/i.test(String((error as Error)?.message))) throw error;
+		}
+	};
+	const footer = (ctx: ExtensionContext) => safely(() => {
 		// The goal lives in the session too: a resume, a reload or a restart finds it again (PI_GOAL_PERSIST=0 turns it off).
 		if (process.env.PI_GOAL_PERSIST !== "0") {
 			const serialized = JSON.stringify(goal ?? null);
@@ -369,19 +382,19 @@ export default function (pi: ExtensionAPI) {
 		pi.events.emit("goal:state", snapshot);
 		if (!ctx.hasUI) return;
 		ctx.ui.setStatus("goal", snapshot ? `goal ${statusText(snapshot)}` : undefined);
-	};
+	});
 	/** A line in the chat for a moment of the goal: an entry, shown but never sent to the model. */
-	const event = (ctx: ExtensionContext, goalEvent: GoalEvent) => {
+	const event = (ctx: ExtensionContext, goalEvent: GoalEvent) => safely(() => {
 		const line = eventLine(goalEvent);
 		pi.appendEntry("goal-event", { line, kind: goalEvent.kind });
 		if (goal) goal.lastEvent = line.replace(/^\S+\s+/, "");
 		footer(ctx);
 		if (!ctx.hasUI) console.error(line);
-	};
-	const tell = (ctx: ExtensionContext, text: string, level: "info" | "warning" = "info") => {
+	});
+	const tell = (ctx: ExtensionContext, text: string, level: "info" | "warning" = "info") => safely(() => {
 		if (ctx.hasUI) ctx.ui.notify(text, level);
 		else console.error(text);
-	};
+	});
 	const pause = (ctx: ExtensionContext, reason: string) => {
 		if (!goal) return;
 		goal.paused = reason;
