@@ -12,7 +12,7 @@ import { type Progress, duration, progressLines } from "./progress.ts";
 const OUT = "graphify-out";
 const GIT_DIR = ".g" + "it";
 export const SUMMARY_MARKER = "## Project graph (graphify)";
-const ENV = { ...process.env, GRAPHIFY_NO_AUTO_REFRESH: "1", NO_COLOR: "1" };
+const ENV = { ...process.env, GRAPHIFY_NO_AUTO_REFRESH: "1", NO_COLOR: "1", PYTHONUNBUFFERED: "1" };
 
 let available: boolean | undefined;
 /** True when a working `graphify` is on the PATH (checked once). */
