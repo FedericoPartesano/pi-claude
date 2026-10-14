@@ -7,6 +7,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { openInBrowser } from "../bug/viewer.ts";
 import { JobModal, parseAsk } from "./modal.ts";
 import { duration } from "./progress.ts";
 
@@ -420,6 +421,21 @@ export function registerGraphify(pi: ExtensionAPI, rootOf: (cwd: string) => stri
 		return stats ? `Graphify: ${stats.files} file, ${stats.nodes} nodi, ${stats.edges} archi, ${stats.communities} gruppi. Costruito il ${new Date(stats.builtAt).toLocaleString()}. Cartella ${OUT}/ (usa "Aggiorna grafo" per rinfrescare).` : 'Grafo non costruito: scegli "Aggiorna grafo".';
 	};
 
+	/** Rebuilds graph.html from the whole graph on disk (no filter, no model: about a second) and opens it in the default browser. */
+	const html = (ctx: ExtensionContext): Promise<string> =>
+		job(ctx, "Grafo interattivo (HTML)", async (modal) => {
+			const root = rootOf(ctx.cwd);
+			if (!readStats(root)) return 'Grafo non costruito: premi a per costruirlo.';
+			const file = join(root, OUT, "graph.html");
+			modal.set({ phase: "creo graph.html", done: 0, total: 1 });
+			const result = await runGraphify(["export", "html", "--graph", join(root, OUT, "graph.json")], root, (line) => modal.log(clean(line)), modal.abort.signal);
+			if (modal.abort.signal.aborted) return "Annullato.";
+			if (result.code !== 0 || !existsSync(file)) return `Graphify non è riuscito (codice ${result.code}):\n${clean(result.out).split("\n").slice(-6).join("\n")}`;
+			modal.set({ phase: "apro il browser", done: 1, total: 1 });
+			const size = (statSync(file).size / 1e6).toFixed(1);
+			return openInBrowser(file) ? `Creato e aperto nel browser: ${file} (${size} MB).` : `Creato ma non sono riuscito ad aprire il browser. Aprilo a mano: ${file} (${size} MB).`;
+		});
+
 	/** Text of the Stato tab: sizes, age, what changed since the build, and the keys that update it. */
 	const statoText = (root: string): string => {
 		const state = graphState(root);
@@ -444,6 +460,7 @@ export function registerGraphify(pi: ExtensionAPI, rootOf: (cwd: string) => stri
 			"- a  aggiorna: prima il codice, poi ti chiede se leggere i documenti",
 			"- c  solo codice (circa 12 s, 0 token)",
 			"- d  solo documenti (Claude Code, usa il piano)",
+			"- h  crea e apre nel browser il grafo interattivo completo (HTML, circa 1 s, 0 token)",
 		].join("\n");
 	};
 
@@ -466,6 +483,7 @@ export function registerGraphify(pi: ExtensionAPI, rootOf: (cwd: string) => stri
 						{ key: "a", label: "aggiorna", run: () => void launch(() => update(ctx)) },
 						{ key: "c", label: "solo codice", run: () => void launch(() => build(ctx)) },
 						{ key: "d", label: "documenti", run: () => void launch(() => semantic(ctx)) },
+						{ key: "h", label: "apri HTML", run: () => void launch(() => html(ctx)) },
 					],
 				},
 				{ id: "nodi", label: "Nodi", body: () => (hubs(root, 20) ? `# Nodi più connessi (senza moduli esterni e file JSON)\n${hubs(root, 20)}` : "Grafo non costruito.") },
@@ -496,7 +514,7 @@ export function registerGraphify(pi: ExtensionAPI, rootOf: (cwd: string) => stri
 		}
 	};
 
-	const USAGE = "Uso: /graph (finestra con schede) | update (codice, poi documenti) | build (solo codice) | semantic (solo documenti) | status | ask (finestra Interroga) | query <testo> | explain <nodo> | path <da> <a>";
+	const USAGE = "Uso: /graph (finestra con schede) | update (codice, poi documenti) | build (solo codice) | semantic (solo documenti) | html (crea e apre il grafo interattivo) | status | ask (finestra Interroga) | query <testo> | explain <nodo> | path <da> <a>";
 	pi.registerCommand("graph", {
 		description: "Grafo del progetto (Graphify): finestra con schede Stato, Interroga, Nodi, Report. Anche /graph update | build | semantic | status | query | explain | path",
 		handler: async (args, ctx) => {
@@ -508,6 +526,7 @@ export function registerGraphify(pi: ExtensionAPI, rootOf: (cwd: string) => stri
 				if (!command) return ctx.hasUI ? hub(ctx) : void ctx.ui.notify(USAGE, "info");
 				if (command === "update") return show("Aggiorna grafo", await update(ctx));
 				if (command === "build") return show("Build Graphify", await build(ctx));
+				if (command === "html") return show("Grafo interattivo", await html(ctx));
 				if (command === "status") return show("Stato del grafo", status(root));
 				if (command === "semantic") return show("Semantica Graphify + Claude Code", await semantic(ctx));
 				if ((command === "query" || command === "ask") && !rest.length) return ctx.hasUI ? hub(ctx, "interroga") : undefined;
