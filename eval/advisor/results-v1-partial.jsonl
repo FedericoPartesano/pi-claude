@@ -1,0 +1,8 @@
+{"task":"H1","arm":"opus","rep":1,"pass":true,"why":"","seconds":80,"consults":[],"usage":{"opus":{"input":10,"output":8220,"cacheRead":50394,"cacheWrite":12955}},"cost":311716,"dir":"/tmp/bench-H1-opus-7axgcp"}
+{"task":"H1","arm":"advisor","rep":1,"pass":true,"why":"","seconds":143,"consults":[],"usage":{"haiku":{"input":20,"output":13852,"cacheRead":162010,"cacheWrite":22266}},"cost":113314,"dir":"/tmp/bench-H1-advisor-eizvcR"}
+{"task":"H1","arm":"solo","rep":1,"pass":true,"why":"","seconds":57,"consults":[],"usage":{"haiku":{"input":14,"output":9899,"cacheRead":80739,"cacheWrite":15525}},"cost":76989,"dir":"/tmp/bench-H1-solo-MA9v5s"}
+{"task":"H2","arm":"opus","rep":1,"pass":true,"why":"","seconds":34,"consults":[],"usage":{"opus":{"input":6,"output":3110,"cacheRead":15199,"cacheWrite":7460}},"cost":132005,"dir":"/tmp/bench-H2-opus-CaLR3p"}
+{"task":"H2","arm":"advisor","rep":1,"pass":true,"why":"","seconds":39,"consults":[],"usage":{"haiku":{"input":8,"output":5854,"cacheRead":32301,"cacheWrite":11359}},"cost":46707,"dir":"/tmp/bench-H2-advisor-h7B1Lw"}
+{"task":"H2","arm":"solo","rep":1,"pass":true,"why":"","seconds":40,"consults":[],"usage":{"haiku":{"input":8,"output":6885,"cacheRead":28121,"cacheWrite":11377}},"cost":51466,"dir":"/tmp/bench-H2-solo-IgKjvF"}
+{"task":"H3","arm":"opus","rep":1,"pass":true,"why":"","seconds":1334,"consults":[],"usage":{"opus":{"input":44,"output":35264,"cacheRead":667541,"cacheWrite":47403}},"cost":1511859,"dir":"/tmp/bench-H3-opus-Wsanei"}
+{"task":"H3","arm":"advisor","rep":1,"pass":true,"why":"","seconds":837,"consults":[],"usage":{"haiku":{"input":88,"output":56850,"cacheRead":2025436,"cacheWrite":131535}},"cost":651300,"dir":"/tmp/bench-H3-advisor-6c8uNG"}

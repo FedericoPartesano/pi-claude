@@ -1,0 +1,17 @@
+import { evaluate } from "./calc.js";
+const fail = (m) => { throw new Error(m); };
+const stats = { total: 0, failed: [] };
+const attempt = (label, fn) => { stats.total++; try { fn(); } catch (e) { stats.failed.push(`${label}: ${String(e.message).slice(0, 160)}`); } };
+process.on("exit", () => { if (stats.failed.length) { process.exitCode = 1; console.error(`Error: ${stats.failed.length}/${stats.total} failed; first: ${stats.failed[0]}`); } if (process.env.HIDDEN_GRADED) console.log(`SCORE ${JSON.stringify({ total: stats.total, failed: stats.failed.length, samples: stats.failed.slice(0, 5) })}`); });
+const eq = (expr, vars, want) => attempt(`eq ${expr}`, () => { const got = vars === undefined ? evaluate(expr) : evaluate(expr, vars); if (Object.is(got, want) || (typeof want === "number" && Math.abs(got - want) < 1e-12)) return; fail(`${expr} = ${got}, want ${want}`); });
+const throws = (expr, Cls, vars, check) => attempt(`throws ${expr}`, () => { try { vars === undefined ? evaluate(expr) : evaluate(expr, vars); } catch (e) { if (!(e instanceof Cls)) fail(`${expr}: threw ${e?.constructor?.name}, want ${Cls.name}`); if (check) check(e); return; } fail(`${expr}: no throw`); });
+eq("1+2*3", undefined, 7); eq("(1+2)*3", undefined, 9); eq("2^3^2", undefined, 512); eq("-2^2", undefined, -4); eq("2^-1", undefined, 0.5);
+eq("2*-3", undefined, -6); eq("--3", undefined, 3); eq("10/4", undefined, 2.5); eq("7%3", undefined, 1); eq("-7%3", undefined, -1);
+eq("1.5+1.5", undefined, 3); eq(".5*2", undefined, 1); eq("  1 +\t2 ", undefined, 3); eq("8/2/2", undefined, 2); eq("2-3-4", undefined, -5);
+eq("min(3,1,2)", undefined, 1); eq("max(1,2)+sqrt(16)", undefined, 6); eq("max(min(5,2),1)", undefined, 2); eq("sqrt(2^2*4)", undefined, 4);
+eq("x*2", { x: 5 }, 10); eq("x+y*2", { x: 1, y: 3 }, 7); eq("-x^2", { x: 3 }, -9); eq("(x)", { x: 4 }, 4); eq("abs(-3)", undefined, 3);
+throws("1/0", RangeError); throws("5%0", RangeError); throws("sqrt(-1)", RangeError); throws("y+1", ReferenceError); throws("y+1", ReferenceError, { x: 1 });
+for (const bad of ["(1+2", "1+", "2 3", "1+*2", "", "   ", ")", "1)", "min()", "min(1,)", "foo(1)", "1..2", "@"]) throws(bad, SyntaxError, undefined, (e) => { if (typeof e.position !== "number") fail(`${JSON.stringify(bad)}: no numeric position`); });
+throws("(1+2", SyntaxError, undefined, (e) => { if (e.position !== 4) fail(`"(1+2" position ${e.position}, want 4 (end of input)`); });
+throws("1+@", SyntaxError, undefined, (e) => { if (e.position !== 2) fail(`"1+@" position ${e.position}, want 2`); });
+throws("1 2", SyntaxError, undefined, (e) => { if (e.position !== 2) fail(`"1 2" position ${e.position}, want 2`); });
