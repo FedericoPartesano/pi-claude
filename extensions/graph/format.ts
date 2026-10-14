@@ -5,7 +5,7 @@ import type { Graph, GraphNode } from "./engine.ts";
 export const SUMMARY_MARKER = "Grafo del progetto (";
 const SUMMARY_MAX = 1500;
 
-const where = (node: GraphNode) => (node.kind === "symbol" ? `${node.file}:${node.line ?? 1} ${node.label}` : node.file);
+const where = (node: GraphNode) => (node.kind === "concept" ? `concetto "${node.label}"${node.note ? ` — ${node.note}` : ""}` : node.kind === "symbol" ? `${node.file}:${node.line ?? 1} ${node.label}` : node.file);
 
 /** Short and stable overview for the system prompt: size, biggest communities with their central files, central files. */
 export function summaryText(graph: Graph, analysis: Analysis): string {
@@ -54,3 +54,36 @@ export function formatPath(path: { node: GraphNode; via?: string }[] | undefined
 	return path.map((step) => `${step.via ? `-${step.via}-> ` : ""}${where(step.node)}`).join("\n");
 }
 
+
+export function formatStatus(graph: Graph, analysis: Analysis, stale: number): string {
+	const kinds = new Map<string, number>();
+	for (const node of graph.nodes) kinds.set(node.kind, (kinds.get(node.kind) ?? 0) + 1);
+	const inferred = graph.edges.filter((edge) => edge.confidence === "inferred").length;
+	const read = Object.keys(graph.semantic ?? {}).length;
+	const docs = Object.values(graph.files).filter((record) => record.kind === "doc").length;
+	return [
+		`Grafo costruito il ${new Date(graph.builtAt).toLocaleString()}: ${Object.keys(graph.files).length} file, ${graph.nodes.length} nodi (${[...kinds].map(([kind, count]) => `${count} ${kind}`).join(", ")}), ${graph.edges.length} archi (${inferred} inferiti), ${analysis.communities.length} gruppi.`,
+		`Passo semantico: ${read}/${docs} documenti letti.`,
+		stale ? `Indietro di ${stale} file: scegli "Aggiorna".` : "Aggiornato: nessun file cambiato.",
+	].join("\n");
+}
+
+export function formatCommunities(analysis: Analysis, limit = 15): string {
+	return analysis.communities.slice(0, limit).map((community) => `${community.name} (${community.files.length} file): ${community.top.slice(0, 4).join(", ")}`).join("\n");
+}
+
+export function formatCentral(analysis: Analysis): string {
+	return analysis.central.map((entry, index) => `${index + 1}. ${entry.path} (${entry.degree} collegamenti)`).join("\n");
+}
+
+export function formatSurprising(analysis: Analysis): string {
+	return analysis.surprising.length ? analysis.surprising.map((item) => `${item.from} -${item.kind}-> ${item.to}${item.confidence === "inferred" ? " (?)" : ""}\n   ${item.reason}`).join("\n") : "Nessuna connessione tra gruppi.";
+}
+
+export function formatConcepts(graph: Graph, limit = 30): string {
+	const concepts = graph.nodes.filter((node) => node.kind === "concept");
+	if (!concepts.length) return "Nessun concetto: esegui \"Build + semantica\".";
+	const uses = new Map<string, number>();
+	for (const edge of graph.edges) if (edge.kind === "explains") uses.set(edge.to, (uses.get(edge.to) ?? 0) + 1);
+	return concepts.sort((a, b) => (uses.get(b.id) ?? 0) - (uses.get(a.id) ?? 0) || a.label.localeCompare(b.label)).slice(0, limit).map((node) => `${node.label}${node.note ? ` — ${node.note}` : ""} (${node.file}${(uses.get(node.id) ?? 1) > 1 ? ` +${(uses.get(node.id) ?? 1) - 1}` : ""})`).join("\n");
+}

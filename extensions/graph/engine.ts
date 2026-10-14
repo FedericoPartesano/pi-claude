@@ -33,8 +33,8 @@ const SKIP_DIR = /(^|\/)(node_modules|dist|build|out|coverage|\.git|\.pi|vendor|
 const LOCK = /(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|.*\.min\.js)$/;
 const TEST = /(\.test\.|\.spec\.|_test\.|(^|\/)tests?\/|(^|\/)__tests__\/)/;
 
-export type NodeKind = "file" | "symbol" | "doc" | "test";
-export type EdgeKind = "imports" | "defines" | "references" | "tests" | "documents";
+export type NodeKind = "file" | "symbol" | "doc" | "test" | "concept";
+export type EdgeKind = "imports" | "defines" | "references" | "tests" | "documents" | "explains";
 
 export interface GraphNode {
 	id: string;
@@ -43,6 +43,8 @@ export interface GraphNode {
 	file: string;
 	line?: number;
 	endLine?: number;
+	/** One-line description (concepts from the semantic pass). */
+	note?: string;
 }
 
 export interface GraphEdge {
@@ -65,10 +67,19 @@ export interface FileRecord {
 	paths: string[];
 }
 
+/** What the model read in one document: the concepts it explains and the project files it is about. Valid while `hash` matches. */
+export interface SemanticRecord {
+	hash: string;
+	concepts: { name: string; note: string }[];
+	relates: { path: string; why: string }[];
+}
+
 export interface Graph {
 	version: number;
 	builtAt: number;
 	files: Record<string, FileRecord>;
+	/** Optional LLM pass, per document; kept across updates for documents that did not change. */
+	semantic?: Record<string, SemanticRecord>;
 	nodes: GraphNode[];
 	edges: GraphEdge[];
 }
@@ -152,7 +163,7 @@ export function hashOf(source: string): string {
 }
 
 /** Nodes and edges from the per-file records. Deterministic: the same records always give the same graph. */
-export function deriveGraph(files: Record<string, FileRecord>, config: ProjectConfig = EMPTY_CONFIG): Pick<Graph, "nodes" | "edges"> {
+export function deriveGraph(files: Record<string, FileRecord>, config: ProjectConfig = EMPTY_CONFIG, semantic: Record<string, SemanticRecord> = {}): Pick<Graph, "nodes" | "edges"> {
 	const paths = Object.keys(files).sort();
 	const known = new Set(paths);
 	const nodes: GraphNode[] = [];
@@ -192,6 +203,16 @@ export function deriveGraph(files: Record<string, FileRecord>, config: ProjectCo
 			const target = known.has(written) ? written : byBase.get(posix.basename(written))?.length === 1 ? byBase.get(posix.basename(written))![0] : undefined;
 			if (target && target !== path) add({ from: path, to: target, kind: "documents", confidence: known.has(written) ? "extracted" : "inferred" });
 		}
+	}
+
+	for (const [path, record] of Object.entries(semantic).sort((a, b) => a[0].localeCompare(b[0]))) {
+		if (files[path]?.hash !== record.hash) continue;
+		for (const concept of record.concepts) {
+			const id = `concept:${concept.name.toLowerCase().replace(/\s+/g, "-")}`;
+			if (!nodes.some((node) => node.id === id)) nodes.push({ id, kind: "concept", label: concept.name, file: path, note: concept.note });
+			add({ from: path, to: id, kind: "explains", confidence: "inferred" });
+		}
+		for (const related of record.relates) if (known.has(related.path) && related.path !== path) add({ from: path, to: related.path, kind: "documents", confidence: "inferred" });
 	}
 
 	const seen = new Set<string>();
@@ -236,8 +257,9 @@ export function buildGraph(inputs: SourceInput[], previous?: Graph, config: Proj
 		processed++;
 	}
 	const removed = Object.keys(old).filter((path) => !files[path]).length;
-	const { nodes, edges } = deriveGraph(files, config);
-	const graph: Graph = { version: GRAPH_VERSION, builtAt: Date.now(), files, nodes, edges };
+	const semantic = Object.fromEntries(Object.entries(previous?.semantic ?? {}).filter(([path, record]) => files[path]?.hash === record.hash));
+	const { nodes, edges } = deriveGraph(files, config, semantic);
+	const graph: Graph = { version: GRAPH_VERSION, builtAt: Date.now(), files, semantic, nodes, edges };
 	return { graph, stats: { processed, reused, removed, files: Object.keys(files).length, nodes: nodes.length, edges: edges.length } };
 }
 

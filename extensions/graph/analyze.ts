@@ -5,7 +5,7 @@
  */
 import type { EdgeKind, Graph, GraphEdge, GraphNode } from "./engine.ts";
 
-const WEIGHT: Record<EdgeKind, number> = { imports: 3, tests: 2, references: 1, documents: 1, defines: 0 };
+const WEIGHT: Record<EdgeKind, number> = { imports: 3, tests: 2, references: 1, documents: 1, explains: 1, defines: 0 };
 
 export interface Community {
 	id: number;
