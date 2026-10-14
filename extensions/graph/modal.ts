@@ -1,25 +1,33 @@
 /**
- * Modal of /graph: a title, a tab bar and a fixed-size body, so it does not jump while it fills.
- *   Lavoro     progress bar, tokens, time, live log of a build/update/semantic job (only when a job runs or ran)
- *   Interroga  a question box over the graph: free text asks, "spiega <nodo>" explains, "percorso <A> <B>" links two nodes
+ * Modal of /graph, drawn with the pi theme like the other windows (border, accent, muted, success, error).
+ *   Lavoro     progress bar, token, time, cache and live log of a build/update/semantic job
+ *   Interroga  a question box over the graph; the answer is laid out (nodes, links, hints), not dumped raw
  * Tab switches tab. While a job runs Esc cancels it; afterwards Esc (or Enter on Lavoro) closes the modal.
- * Pure rendering plus a small state machine, so it is testable without a terminal.
+ * Plain rendering plus a small state machine, so it is testable without a terminal.
  */
-import { type Progress, progressLines } from "./progress.ts";
+import { type Progress, bar, compact, duration } from "./progress.ts";
 
 export type Tab = "lavoro" | "interroga";
 
-const clock = (at: number) => new Date(at).toTimeString().slice(0, 8);
-const visibleWidth = (text: string) => text.replace(/\x1b\[[0-9;]*m/g, "").length;
+/** Same shape as pi's theme; without one the modal renders as plain text (tests, no colors). */
+export interface ModalTheme {
+	fg(role: "accent" | "muted" | "dim" | "text" | "success" | "warning" | "error" | "border", text: string): string;
+	bold(text: string): string;
+}
+
+export const PLAIN: ModalTheme = { fg: (_role, text) => text, bold: (text) => text };
+
+const ANSI = /\x1b\[[0-9;]*m/g;
+const visibleWidth = (text: string) => text.replace(ANSI, "").length;
 const pad = (text: string, width: number) => text + " ".repeat(Math.max(0, width - visibleWidth(text)));
+/** Cuts to `width` visible characters (cuts before styling is applied, so it is meant for plain text). */
+const cut = (text: string, width: number) => (text.length > width ? `${text.slice(0, Math.max(0, width - 1))}…` : text);
+const clock = (at: number) => new Date(at).toTimeString().slice(0, 8);
+
 const KEYS: Record<string, string[]> = { tab: ["\t"], escape: ["\x1b"], enter: ["\r", "\n"], backspace: ["\x7f", "\b"], up: ["\x1b[A", "\x1bOA"], down: ["\x1b[B", "\x1bOB"], pageUp: ["\x1b[5~"], pageDown: ["\x1b[6~"] };
 const matchesKey = (data: string, key: string) => KEYS[key]?.includes(data) ?? false;
 /** Printable text typed (also a paste); undefined for control sequences. */
-const decodeKittyPrintable = (data: string): string | undefined => (data.length > 0 && !/[\x00-\x1f\x7f]/.test(data) ? data : undefined);
-const cut = (text: string, width: number) => (text.length > width ? `${text.slice(0, Math.max(0, width - 1))}…` : text);
-const bold = (text: string) => `\x1b[1m${text}\x1b[22m`;
-const dim = (text: string) => `\x1b[2m${text}\x1b[22m`;
-const invert = (text: string) => `\x1b[7m${text}\x1b[27m`;
+const printable = (data: string): string | undefined => (data.length > 0 && !/[\x00-\x1f\x7f]/.test(data) ? data : undefined);
 
 /** Hard-wraps plain text to `width`, keeping blank lines and breaking at spaces when it can. */
 export function wrap(text: string, width: number): string[] {
@@ -54,6 +62,9 @@ export interface ModalOptions {
 	job?: boolean;
 	/** Answers a typed line; sync or async. Without it the Interroga tab is not shown. */
 	ask?: (text: string) => string | Promise<string>;
+	/** Short text next to the title (for example the graph size), read at every redraw. */
+	info?: () => string;
+	theme?: ModalTheme;
 	now?: () => number;
 	rows?: () => number;
 }
@@ -62,7 +73,7 @@ export class JobModal {
 	readonly abort = new AbortController();
 	readonly title: string;
 	progress: Progress;
-	/** Free line under the token line (for example the documents already in graphify's cache). */
+	/** Free line under the time line (for example the documents already in graphify's cache). */
 	extra = "";
 	result: string | undefined;
 	tab: Tab;
@@ -74,6 +85,8 @@ export class JobModal {
 	private lines: { at: number; text: string }[] = [];
 	private readonly hasJob: boolean;
 	private readonly askFn: ModalOptions["ask"];
+	private readonly infoFn: ModalOptions["info"];
+	private t: ModalTheme;
 	private readonly now: () => number;
 	private readonly rows: () => number;
 	private redraw: () => void = () => {};
@@ -84,10 +97,17 @@ export class JobModal {
 		this.title = title;
 		this.hasJob = options.job ?? true;
 		this.askFn = options.ask;
+		this.infoFn = options.info;
+		this.t = options.theme ?? PLAIN;
 		this.now = options.now ?? Date.now;
 		this.rows = options.rows ?? (() => process.stdout.rows || 30);
 		this.tab = this.hasJob ? "lavoro" : "interroga";
 		this.progress = { title, phase: "avvio", done: 0, total: 1, input: 0, output: 0, cost: 0, startedAt: this.now(), now: this.now() };
+	}
+
+	/** Gives the modal the theme of the running pi (known only once the terminal opens it). */
+	theme(theme: ModalTheme): void {
+		this.t = theme;
 	}
 
 	/** Wires the modal to the terminal: how to redraw and how to close. */
@@ -167,7 +187,7 @@ export class JobModal {
 		if (matchesKey(data, "down")) return ((this.scroll += 1), this.redraw());
 		if (matchesKey(data, "pageUp")) return ((this.scroll = Math.max(0, this.scroll - 8)), this.redraw());
 		if (matchesKey(data, "pageDown")) return ((this.scroll += 8), this.redraw());
-		const typed = decodeKittyPrintable(data);
+		const typed = printable(data);
 		if (typed) {
 			this.input += typed;
 			this.redraw();
@@ -181,38 +201,117 @@ export class JobModal {
 
 	invalidate(): void {}
 
+	/** "key label · key label": keys in accent, labels muted. */
+	private hints(pairs: [string, string][]): string {
+		return pairs.map(([key, label]) => `${this.t.fg("accent", key)} ${this.t.fg("muted", label)}`).join(this.t.fg("dim", "  ·  "));
+	}
+
 	render(width: number): string[] {
-		const inner = Math.max(30, Math.min(width, 110) - 4);
-		const room = Math.max(10, Math.min(24, this.rows() - 9));
+		const t = this.t;
+		const inner = Math.max(40, width - 4);
+		const room = Math.max(12, Math.min(22, this.rows() - 8));
 		const body = this.tab === "lavoro" ? this.workBody(inner, room) : this.askBody(inner, room);
 		while (body.length < room) body.push("");
-		const rule = dim("─".repeat(inner));
-		const hint = this.running ? (this.abort.signal.aborted ? "Annullamento in corso…" : "Esc annulla il lavoro") : this.tab === "lavoro" ? "Invio o Esc chiude" : this.input ? "Invio chiede · Esc cancella la riga" : "Esc chiude";
-		const other = this.tabs.length > 1 ? " · Tab cambia scheda" : "";
-		const bar = this.tabs.map((tab) => (tab.id === this.tab ? invert(` ${tab.label} `) : dim(` ${tab.label} `))).join(" ");
-		const rows = [bar, rule, ...body.slice(0, room), rule, dim(cut(`${hint}${other}`, inner))];
-		const head = ` ${this.title} `;
-		return [`╭─${bold(head)}${"─".repeat(Math.max(0, inner + 1 - visibleWidth(head)))}╮`, ...rows.map((row) => `│ ${pad(row, inner)} │`), `╰${"─".repeat(inner + 2)}╯`];
+		const border = (text: string) => t.fg("border", text);
+		const row = (text: string) => `${border("│")} ${pad(text, inner)} ${border("│")}`;
+
+		const info = this.infoFn?.() ?? "";
+		const title = `${t.fg("accent", t.bold(` ${this.title} `))}`;
+		const top = `${border("╭─")}${title}${border("─".repeat(Math.max(1, inner + 1 - visibleWidth(` ${this.title} `) - (info ? info.length + 3 : 0))))}${info ? `${t.fg("muted", ` ${info} `)}${border("─")}` : ""}${border("╮")}`;
+
+		const tabs = this.tabs
+			.map((tab) => (tab.id === this.tab ? t.fg("accent", t.bold(`▌ ${tab.label} ▐`)) : t.fg("muted", `  ${tab.label}  `)))
+			.join(" ");
+
+		const stop = this.running ? this.hints([["Esc", this.abort.signal.aborted ? "annullamento in corso…" : "annulla il lavoro"]]) : undefined;
+		const keys: [string, string][] = this.tab === "lavoro" ? [["Invio o Esc", "chiude"]] : this.input ? [["Invio", "chiede"], ["Esc", "cancella la riga"]] : [["Invio", "chiede"], ["↑↓", "scorrono"], ["Esc", "chiude"]];
+		const hint = stop ?? this.hints(this.running ? [] : keys);
+		const more = this.tabs.length > 1 ? `${t.fg("dim", "  ·  ")}${this.hints([["Tab", "cambia scheda"]])}` : "";
+		return [top, row(tabs), `${border("├")}${border("─".repeat(inner + 2))}${border("┤")}`, ...body.slice(0, room).map(row), `${border("├")}${border("─".repeat(inner + 2))}${border("┤")}`, row(`${hint}${more}`), border(`╰${"─".repeat(inner + 2)}╯`)];
+	}
+
+	/** "label   value" with a fixed label column so the figures line up. */
+	private field(label: string, value: string): string {
+		return `${this.t.fg("muted", label.padEnd(9))}${value}`;
 	}
 
 	private workBody(inner: number, room: number): string[] {
-		const head = [...progressLines({ ...this.progress, now: this.now(), title: this.title }, false), ...(this.extra ? [this.extra] : [])].map((line) => cut(line, inner));
-		const result = this.result ? ["", ...wrap(this.result, inner)] : [];
-		const logRoom = Math.max(2, room - head.length - result.length - 1);
-		const log = this.lines.slice(-logRoom).map((line) => cut(`${dim(clock(line.at))} ${line.text}`, inner + 9));
-		return [...head, dim("─".repeat(inner)), ...log, ...(result.length ? [] : []), ...Array(Math.max(0, logRoom - log.length)).fill(""), ...result];
+		const t = this.t;
+		const p = this.progress;
+		const now = this.now();
+		const fraction = p.total > 0 ? Math.max(0, Math.min(1, p.done / p.total)) : 0;
+		const elapsed = now - p.startedAt;
+		const left = p.done > 0 && p.done < p.total ? ` · restano ~${duration((elapsed / p.done) * (p.total - p.done))}` : "";
+		const width = Math.max(10, Math.min(48, inner - 22));
+		const filled = Math.round(fraction * width);
+		const done = this.result !== undefined;
+		const color = done ? "success" : this.abort.signal.aborted ? "warning" : "accent";
+		const meter = `${t.fg(color, "█".repeat(filled))}${t.fg("dim", "░".repeat(width - filled))}`;
+		const tokens = p.input || p.output ? `${compact(p.input)} in · ${compact(p.output)} out · $${p.cost.toFixed(4)}` : "nessuno in questa fase (solo codice)";
+		const head = [
+			`${t.fg("text", t.bold(cut(p.phase, inner - 4)))}${p.current ? t.fg("dim", `  ${cut(p.current, Math.max(10, inner - p.phase.length - 6))}`) : ""}`,
+			`${meter}  ${t.bold(`${Math.round(fraction * 100)}%`)}  ${t.fg("muted", `${p.done}/${p.total}`)}`,
+			"",
+			this.field("Token", tokens),
+			this.field("Tempo", `${duration(elapsed)}${left}${p.failed ? t.fg("warning", ` · ${p.failed} non letti`) : ""}`),
+			...(this.extra ? [this.field("Cache", this.extra.replace(/^Cache:\s*/i, ""))] : []),
+		].map((line) => (visibleWidth(line) > inner ? cut(line.replace(ANSI, ""), inner) : line));
+
+		const result = this.result
+			? [
+					t.fg("border", "─".repeat(inner)),
+					...wrap(this.result, inner - 2).map((line, index) => `${t.fg(/non|errore|annullat|fallit/i.test(this.result ?? "") ? "warning" : "success", index === 0 ? "✔ " : "  ")}${t.fg("text", line)}`),
+				]
+			: [];
+		const logRoom = Math.max(2, room - head.length - result.length - 2);
+		const log = this.lines.slice(-logRoom).map((line) => {
+			const tone = /error|errore|fail|fallit|traceback/i.test(line.text) ? "error" : /warn|attenz|annull/i.test(line.text) ? "warning" : "muted";
+			return `${t.fg("dim", clock(line.at))}  ${t.fg(tone, cut(line.text, inner - 10))}`;
+		});
+		return [...head, t.fg("dim", `Registro ${"─".repeat(Math.max(0, inner - 9))}`), ...log, ...Array(Math.max(0, logRoom - log.length)).fill(""), ...result];
+	}
+
+	/** Lays out graphify's text answer: nodes bold with their file dim, links with colored arrows, hints muted. */
+	private decorate(line: string): string {
+		const t = this.t;
+		const node = /^NODE (.+?) \[src=(\S+?)(?: loc=\S+)?(?: community=(.+?))?\]$/.exec(line);
+		if (node) return `${t.fg("accent", "◆ ")}${t.bold(node[1])}  ${t.fg("dim", node[2])}${node[3] ? t.fg("muted", `  ⬡ ${node[3]}`) : ""}`;
+		const edge = /^EDGE (.+?) --(\S+) \[(\w+)[^\]]*\]--> (.+?)(?: at=(\S+))?$/.exec(line);
+		if (edge) return `${t.fg("muted", "  ")}${t.fg("text", edge[1])} ${t.fg(edge[3] === "EXTRACTED" ? "success" : "warning", `─${edge[2]}→`)} ${t.fg("text", edge[4])}${edge[5] ? t.fg("dim", `  ${edge[5]}`) : ""}`;
+		const link = /^(\s+)(<--|-->) (.+?) \[(\w+)\] \[(\w+)\](.*)$/.exec(line);
+		if (link) return `${link[1]}${t.fg(link[5] === "EXTRACTED" ? "success" : "warning", link[2] === "<--" ? "←" : "→")} ${t.fg("text", link[3])} ${t.fg("muted", link[4])}${t.fg("dim", link[6])}`;
+		if (/^\[i\]|^Graph:|^Shortest path/.test(line)) return t.fg("muted", line);
+		const field = /^(\s{2}[A-Za-z]+:)(\s+.*)$/.exec(line);
+		if (field) return `${t.fg("muted", field[1])}${t.fg("text", field[2])}`;
+		if (/^Node:|^Connections|^Errore/.test(line)) return t.fg(/^Errore/.test(line) ? "error" : "accent", t.bold(line));
+		return t.fg("text", line);
 	}
 
 	private askBody(inner: number, room: number): string[] {
-		const cursor = this.busy ? "" : "▏";
-		const prompt = `› ${this.input || dim("scrivi una domanda…")}${this.input ? cursor : ""}`;
-		const help = dim('Esempi: "come funziona il recall" · "spiega memory.ts" · "percorso recall.ts store.ts"');
-		const wrapped = this.busy ? ["Cerco nel grafo…"] : wrap(this.answer || "", inner);
-		const space = Math.max(1, room - 4);
-		const top = Math.min(this.scroll, Math.max(0, wrapped.length - space));
+		const t = this.t;
+		const field = inner - 4;
+		const typed = this.input.length > field - 3 ? `…${this.input.slice(-(field - 4))}` : this.input;
+		const line = `${t.fg("accent", "›")} ${typed ? t.fg("text", typed) : t.fg("dim", "scrivi una domanda…")}${typed ? t.fg("accent", "▏") : ""}`;
+		const box = [t.fg("accent", `╭${"─".repeat(field)}╮`), `${t.fg("accent", "│")} ${pad(line, field - 2)} ${t.fg("accent", "│")}`, t.fg("accent", `╰${"─".repeat(field)}╯`)].map((text) => `  ${text}`);
+
+		const space = Math.max(3, room - box.length - 2);
+		let content: string[];
+		if (this.busy) content = [t.fg("accent", "  Cerco nel grafo…")];
+		else if (!this.answer) {
+			content = [
+				t.fg("muted", "  Cosa puoi chiedere"),
+				"",
+				`  ${t.fg("accent", "come funziona il recall")}  ${t.fg("dim", "ricerca libera nel grafo")}`,
+				`  ${t.fg("accent", "spiega memory.ts")}  ${t.fg("dim", "un file o un simbolo e i suoi collegamenti")}`,
+				`  ${t.fg("accent", "percorso recall.ts store.ts")}  ${t.fg("dim", "come due nodi sono collegati")}`,
+			];
+		} else content = wrap(this.answer, inner - 2).map((line) => `  ${this.decorate(line)}`);
+
+		const top = Math.min(this.scroll, Math.max(0, content.length - space));
 		this.scroll = top;
-		const shown = wrapped.slice(top, top + space);
-		const counter = wrapped.length > space ? dim(`righe ${top + 1}-${top + shown.length} di ${wrapped.length} · ↑↓ PgSu PgGiù scorrono`) : "";
-		return [cut(prompt, inner + 8), help, this.asked ? bold(cut(`Risposta a: ${this.asked}`, inner)) : "", ...shown, ...Array(Math.max(0, space - shown.length)).fill(""), counter].slice(0, room);
+		const shown = content.slice(top, top + space);
+		const asked = this.asked && this.answer ? `  ${t.fg("muted", "Risposta a:")} ${t.bold(cut(this.asked, inner - 16))}` : "";
+		const counter = content.length > space && this.answer ? t.fg("dim", `  righe ${top + 1}-${top + shown.length} di ${content.length}`) : "";
+		return [...box, asked, ...shown, ...Array(Math.max(0, space - shown.length)).fill(""), counter].slice(0, room);
 	}
 }

@@ -291,17 +291,24 @@ export function registerGraphify(pi: ExtensionAPI, rootOf: (cwd: string) => stri
 		return query(root, parsed.text).text;
 	};
 
+	/** Graph size and freshness for the modal title. */
+	const infoLine = (root: string): string => {
+		const stats = readStats(root);
+		if (!stats) return "grafo non costruito";
+		return `${stats.nodes} nodi · ${stats.edges} archi · ${isFresh(root) ? "aggiornato" : "da aggiornare"}`;
+	};
+
 	/** Opens the modal on the Interroga tab alone, without a job. */
 	const interroga = async (ctx: ExtensionContext): Promise<void> => {
 		if (!ctx.hasUI) return;
-		const modal = new JobModal("Grafo del progetto", { job: false, ask: ask(rootOf(ctx.cwd)) });
-		await ctx.ui.custom<void>((tui, _theme, _keys, done) => (modal.attach(() => tui.requestRender(), () => done()), modal), { overlay: true, overlayOptions: { anchor: "center", width: "90%", maxHeight: "90%" } });
+		const modal = new JobModal("Grafo del progetto", { job: false, ask: ask(rootOf(ctx.cwd)), info: () => infoLine(rootOf(ctx.cwd)) });
+		await ctx.ui.custom<void>((tui, theme, _keys, done) => (modal.theme(theme), modal.attach(() => tui.requestRender(), () => done()), modal), { overlay: true, overlayOptions: { anchor: "center", width: "90%", maxHeight: "90%" } });
 	};
 
 	/** Runs `work` while a fixed modal shows progress and the log; the modal stays until the user closes it. */
 	const job = async (ctx: ExtensionContext, title: string, work: (modal: JobModal) => Promise<string>): Promise<string> => {
-		const modal = new JobModal(title, { ask: ask(rootOf(ctx.cwd)) });
-		const shown = ctx.hasUI ? ctx.ui.custom<void>((tui, _theme, _keys, done) => (modal.attach(() => tui.requestRender(), () => done()), modal), { overlay: true, overlayOptions: { anchor: "center", width: "90%", maxHeight: "90%" } }) : Promise.resolve();
+		const modal = new JobModal(title, { ask: ask(rootOf(ctx.cwd)), info: () => infoLine(rootOf(ctx.cwd)) });
+		const shown = ctx.hasUI ? ctx.ui.custom<void>((tui, theme, _keys, done) => (modal.theme(theme), modal.attach(() => tui.requestRender(), () => done()), modal), { overlay: true, overlayOptions: { anchor: "center", width: "90%", maxHeight: "90%" } }) : Promise.resolve();
 		const tick = setInterval(() => {
 			modal.set({ now: Date.now() });
 			if (ctx.hasUI) ctx.ui.setStatus("graph", `GRAPH ${modal.progress.total ? Math.round((modal.progress.done / modal.progress.total) * 100) : 0}%`);

@@ -18,7 +18,7 @@ test("il modal mostra titolo, barra, log con ora e tasto Esc; ridisegna a ogni c
 	const text = modal.render(80).join("\n").replace(/\x1b\[[0-9;]*m/g, "");
 	assert.match(text, /Test/);
 	assert.match(text, /50%\s+5\/10/);
-	assert.match(text, /\d\d:\d\d:\d\d AST extraction: 5\/10 files/);
+	assert.match(text, /\d\d:\d\d:\d\d {2}AST extraction: 5\/10 files/);
 	assert.match(text, /Esc annulla/);
 	assert.ok(drawn() >= 2);
 	const widths = modal.render(80).map((line) => line.replace(/\x1b\[[0-9;]*m/g, "").length);
@@ -31,7 +31,7 @@ test("Esc durante il lavoro annulla senza chiudere; a lavoro finito Invio chiude
 	modal.handleInput("\x1b");
 	assert.equal(modal.abort.signal.aborted, true);
 	assert.equal(closed(), 0);
-	assert.match(modal.render(80).join("\n"), /Annullamento in corso/);
+	assert.match(modal.render(80).join("\n"), /annullamento in corso/);
 	modal.finish("Fatto in 3s");
 	assert.match(modal.render(80).join("\n"), /Fatto in 3s[\s\S]*Invio o Esc chiude/);
 	modal.handleInput("a");
