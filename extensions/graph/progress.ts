@@ -32,7 +32,7 @@ export function progressLines(progress: Progress, escToCancel = false): string[]
 	const fraction = progress.total > 0 ? progress.done / progress.total : 0;
 	const elapsed = progress.now - progress.startedAt;
 	const left = progress.done > 0 && progress.done < progress.total ? ` · restano ~${duration((elapsed / progress.done) * (progress.total - progress.done))}` : "";
-	const tokens = progress.input || progress.output ? `${compact(progress.input)} in · ${compact(progress.output)} out · $${progress.cost.toFixed(4)}` : "0 (fase senza modello)";
+	const tokens = progress.input || progress.output ? `${compact(progress.input)} in · ${compact(progress.output)} out · $${progress.cost.toFixed(4)}` : "nessuno in questa fase (solo codice)";
 	return [
 		`${progress.title} — ${progress.phase}`,
 		`${bar(fraction)} ${Math.round(fraction * 100)}%  ${progress.done}/${progress.total}`,

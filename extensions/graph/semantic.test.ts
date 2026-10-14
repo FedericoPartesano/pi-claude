@@ -47,7 +47,7 @@ test("estimateTokens cresce con i documenti; progress: barra, token, ETA", () =>
 	assert.equal(duration(125000), "2m05s");
 	const base = { title: "T", phase: "p", done: 5, total: 20, input: 0, output: 0, cost: 0, startedAt: 0, now: 10_000 };
 	assert.match(progressLines(base)[1], /25%\s+5\/20/);
-	assert.match(progressLines(base)[2], /0 \(fase senza modello\)/);
+	assert.match(progressLines(base)[2], /nessuno in questa fase/);
 	assert.match(progressLines(base)[3], /restano ~30s/);
 	assert.match(progressLines({ ...base, input: 12345, output: 900, cost: 0.0123, failed: 2, current: "docs/x.md" }, true).join("\n"), /12\.3k in · 900 out · \$0\.0123[\s\S]*2 non letti[\s\S]*Ora: docs\/x\.md[\s\S]*Esc/);
 });

@@ -7,7 +7,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { JobModal } from "./modal.ts";
+import { JobModal, parseAsk } from "./modal.ts";
 import { duration } from "./progress.ts";
 
 const OUT = "graphify-out";
@@ -120,7 +120,7 @@ export function filteredGraph(root: string): string | undefined {
 }
 
 const answer = (args: string[], root: string): { text: string; ok: boolean } => {
-	if (!readStats(root)) return { text: "Grafo non costruito: esegui /graph e scegli Build.", ok: false };
+	if (!readStats(root)) return { text: "Grafo non costruito: esegui /graph e scegli 'Aggiorna grafo'.", ok: false };
 	const filtered = filteredGraph(root);
 	const result = run(filtered ? [...args, "--graph", filtered] : args, root);
 	const body = clean(`${result.stdout ?? ""}${result.stderr ?? ""}`);
@@ -226,7 +226,7 @@ export function summary(root: string): string | undefined {
 }
 
 const text = (value: string, isError = false) => ({ content: [{ type: "text" as const, text: value }], details: undefined, ...(isError ? { isError } : {}) });
-const MENU = ["Stato del grafo", "Build / Aggiorna (Graphify, AST locale, 0 token)", "Nodi più connessi", "Cerca…", "Spiega un file o simbolo…", "Percorso tra due nodi…", "Report (GRAPH_REPORT.md)", "Semantica (Claude Code, usa il piano)", "Esci"];
+const MENU = ["Stato del grafo", "Aggiorna grafo (codice, poi documenti se vuoi)", "Interroga il grafo…", "Nodi più connessi", "Report (GRAPH_REPORT.md)", "Esci"];
 
 export function registerGraphify(pi: ExtensionAPI, rootOf: (cwd: string) => string): void {
 	const cache = new Map<string, { builtAt: number; text: string | undefined }>();
@@ -282,9 +282,25 @@ export function registerGraphify(pi: ExtensionAPI, rootOf: (cwd: string) => stri
 		}
 	};
 
+	/** Answers a line typed in the modal's Interroga tab. */
+	const ask = (root: string) => (text: string): string => {
+		const parsed = parseAsk(text);
+		if (!parsed) return "";
+		if (parsed.kind === "explain") return explain(root, parsed.name).text;
+		if (parsed.kind === "path") return path(root, parsed.from, parsed.to).text;
+		return query(root, parsed.text).text;
+	};
+
+	/** Opens the modal on the Interroga tab alone, without a job. */
+	const interroga = async (ctx: ExtensionContext): Promise<void> => {
+		if (!ctx.hasUI) return;
+		const modal = new JobModal("Grafo del progetto", { job: false, ask: ask(rootOf(ctx.cwd)) });
+		await ctx.ui.custom<void>((tui, _theme, _keys, done) => (modal.attach(() => tui.requestRender(), () => done()), modal), { overlay: true, overlayOptions: { anchor: "center", width: "90%", maxHeight: "90%" } });
+	};
+
 	/** Runs `work` while a fixed modal shows progress and the log; the modal stays until the user closes it. */
 	const job = async (ctx: ExtensionContext, title: string, work: (modal: JobModal) => Promise<string>): Promise<string> => {
-		const modal = new JobModal(title);
+		const modal = new JobModal(title, { ask: ask(rootOf(ctx.cwd)) });
 		const shown = ctx.hasUI ? ctx.ui.custom<void>((tui, _theme, _keys, done) => (modal.attach(() => tui.requestRender(), () => done()), modal), { overlay: true, overlayOptions: { anchor: "center", width: "90%", maxHeight: "90%" } }) : Promise.resolve();
 		const tick = setInterval(() => {
 			modal.set({ now: Date.now() });
@@ -332,9 +348,27 @@ export function registerGraphify(pi: ExtensionAPI, rootOf: (cwd: string) => stri
 			return `Fatto in ${duration(Date.now() - modal.progress.startedAt)}: ${stats.nodes} nodi, ${stats.edges} archi, ${stats.communities} gruppi, ${stats.files} file. Token usati: 0.\nOutput in ${OUT}/ (graph.json, GRAPH_REPORT.md, graph.html).`;
 		});
 
+	/** What reading the documents costs: the first run reads them all, later runs only the new or changed ones (graphify caches). */
+	const costNote = (root: string): string => {
+		const cached = countFiles(join(root, OUT, "cache", "semantic"));
+		const how = cached
+			? `Ci sono già ${cached} letture in cache: Graphify rilegge solo i documenti nuovi o cambiati, quindi di solito costa poco.`
+			: "È la prima volta: legge tutti i documenti. Misurato su questo repo: circa 6 min e 650.000 token in ingresso.";
+		return `Claude Code (Haiku) legge i documenti e ne ricava concetti e relazioni. ${how} Usa il tuo piano (costo in dollari 0) ma consuma quota. No = resta il grafo del solo codice.`;
+	};
+
+	/** One command: fast code build, then, if the user agrees, the documents. */
+	const update = async (ctx: ExtensionContext): Promise<string> => {
+		const built = await build(ctx);
+		if (!/^Fatto/.test(built)) return built;
+		if (!ctx.hasUI) return `${built}\nDocumenti non letti (serve /graph semantic).`;
+		if (!(await ctx.ui.confirm("Leggere anche i documenti?", costNote(rootOf(ctx.cwd))))) return `${built}\nDocumenti non letti.`;
+		return semantic(ctx, true);
+	};
+
 	/** `graphify extract --backend claude-cli`: AST plus documents read by Claude Code (Haiku by default, on the plan). */
-	const semantic = async (ctx: ExtensionContext): Promise<string> => {
-		if (ctx.hasUI && !(await ctx.ui.confirm("Semantica con Claude Code", "Graphify fa leggere a Claude Code (Haiku) i documenti non ancora in cache: concetti e relazioni. Usa il tuo piano (costo in dollari 0) ma consuma quota e può durare minuti: misurato su 2 documenti piccoli: circa 80.000 token in ingresso, 18 s. Esc annulla. Procedere?"))) return "Semantica non avviata: hai risposto No (o Esc) alla conferma.";
+	const semantic = async (ctx: ExtensionContext, confirmed = false): Promise<string> => {
+		if (!confirmed && ctx.hasUI && !(await ctx.ui.confirm("Documenti con Claude Code", costNote(rootOf(ctx.cwd))))) return "Documenti non letti: hai risposto No (o Esc) alla conferma.";
 		return job(ctx, "Graphify + Claude Code: semantica", async (modal) => {
 			const root = rootOf(ctx.cwd);
 			ensureExcluded(root);
@@ -377,35 +411,22 @@ export function registerGraphify(pi: ExtensionAPI, rootOf: (cwd: string) => stri
 
 	const status = (root: string) => {
 		const stats = readStats(root);
-		return stats ? `Graphify: ${stats.files} file, ${stats.nodes} nodi, ${stats.edges} archi, ${stats.communities} gruppi. Costruito il ${new Date(stats.builtAt).toLocaleString()}. Cartella ${OUT}/ (usa "Build / Aggiorna" per rinfrescare).` : "Grafo non costruito: scegli Build / Aggiorna.";
+		return stats ? `Graphify: ${stats.files} file, ${stats.nodes} nodi, ${stats.edges} archi, ${stats.communities} gruppi. Costruito il ${new Date(stats.builtAt).toLocaleString()}. Cartella ${OUT}/ (usa "Aggiorna grafo" per rinfrescare).` : 'Grafo non costruito: scegli "Aggiorna grafo".';
 	};
 
 	const choose = async (choice: string, ctx: ExtensionContext): Promise<void> => {
 		const root = rootOf(ctx.cwd);
 		if (choice.startsWith("Stato")) return show("Stato del grafo", status(root));
-		if (choice.startsWith("Build")) return show("Build Graphify", await build(ctx));
-		if (choice.startsWith("Semantica")) return show("Semantica Graphify + Claude Code", await semantic(ctx));
+		if (choice.startsWith("Aggiorna")) return show("Aggiorna grafo", await update(ctx));
 		if (choice.startsWith("Nodi")) return show("Nodi più connessi (senza moduli esterni e file JSON)", hubs(root, 15) || "Grafo non costruito.");
 		if (choice.startsWith("Report")) {
 			const file = join(root, OUT, "GRAPH_REPORT.md");
 			return show("Report", existsSync(file) ? readFileSync(file, "utf8").slice(0, 3500) : "Nessun report: esegui la build.");
 		}
-		if (choice.startsWith("Cerca")) {
-			const value = (await ctx.ui.input("Cerca nel grafo", "domanda o parole chiave"))?.trim();
-			return value ? show(`Cerca: ${value}`, query(root, value).text) : undefined;
-		}
-		if (choice.startsWith("Spiega")) {
-			const value = (await ctx.ui.input("Spiega", "nome del file o del simbolo"))?.trim();
-			return value ? show(`Spiega: ${value}`, explain(root, value).text) : undefined;
-		}
-		if (choice.startsWith("Percorso")) {
-			const from = (await ctx.ui.input("Percorso: da", "file o simbolo"))?.trim();
-			const to = from ? (await ctx.ui.input("Percorso: a", "file o simbolo"))?.trim() : undefined;
-			return from && to ? show(`Percorso: ${from} → ${to}`, path(root, from, to).text) : undefined;
-		}
+		if (choice.startsWith("Interroga")) return interroga(ctx);
 	};
 
-	const USAGE = "Uso: /graph (menu) | build | semantic | status | query <testo> | explain <nodo> | path <da> <a>";
+	const USAGE = "Uso: /graph (menu) | update (codice, poi documenti) | build (solo codice) | semantic (solo documenti) | status | ask (finestra Interroga) | query <testo> | explain <nodo> | path <da> <a>";
 	pi.registerCommand("graph", {
 		description: "Grafo del progetto (Graphify): menu con build, stato, nodi centrali, ricerca. Anche /graph build | status | query | explain | path",
 		handler: async (args, ctx) => {
@@ -423,9 +444,11 @@ export function registerGraphify(pi: ExtensionAPI, rootOf: (cwd: string) => stri
 						await choose(choice, ctx);
 					}
 				}
-				if (command === "build" || command === "update") return show("Build Graphify", await build(ctx));
+				if (command === "update") return show("Aggiorna grafo", await update(ctx));
+				if (command === "build") return show("Build Graphify", await build(ctx));
 				if (command === "status") return show("Stato del grafo", status(root));
 				if (command === "semantic") return show("Semantica Graphify + Claude Code", await semantic(ctx));
+				if ((command === "query" || command === "ask") && !rest.length) return interroga(ctx);
 				if (command === "query" && rest.length) return show(`Cerca: ${rest.join(" ")}`, query(root, rest.join(" ")).text);
 				if (command === "explain" && rest.length) return show(`Spiega: ${rest.join(" ")}`, explain(root, rest.join(" ")).text);
 				if (command === "path" && rest.length === 2) return show(`Percorso: ${rest[0]} → ${rest[1]}`, path(root, rest[0], rest[1]).text);
