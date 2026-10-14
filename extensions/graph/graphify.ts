@@ -146,6 +146,78 @@ export function hubs(root: string, limit = 10): string {
 	}
 }
 
+export interface GraphState {
+	nodes: number;
+	edges: number;
+	files: number;
+	communities: number;
+	concepts: number;
+	inferredPercent: number;
+	builtAt: number;
+	changed: number;
+	hubs: { name: string; links: number }[];
+}
+
+/** Files edited since `builtAt`: dirty and untracked files touched after it, plus files in commits made after it. graphify-out is not counted. */
+export function changedFiles(root: string, builtAt: number): string[] {
+	const git = (args: string[]) => (spawnSync("git", args, { cwd: root, encoding: "utf8", timeout: 5000 }).stdout ?? "").split("\n").filter(Boolean);
+	const touched = (file: string) => {
+		try {
+			return statSync(join(root, file)).mtimeMs > builtAt;
+		} catch {
+			return false;
+		}
+	};
+	const files = new Set([...git(["diff", "--name-only", "HEAD"]).filter(touched), ...git(["ls-files", "--others", "--exclude-standard"]).filter(touched), ...git(["log", `--since=${new Date(builtAt).toISOString()}`, "--name-only", "--pretty=format:"])]);
+	return [...files].filter((file) => !file.startsWith(`${OUT}/`)).sort();
+}
+
+export const changedSince = (root: string, builtAt: number): number => changedFiles(root, builtAt).length;
+
+/** Files changed after the last build, checked only at startup and after a build or update (not every turn), then remembered per project. */
+const freshness = new Map<string, { builtAt: number; files: string[] }>();
+
+/** Checks the graph against the files now and remembers the result; undefined when there is no graph. */
+export function checkFreshness(root: string): { builtAt: number; files: string[] } | undefined {
+	const stats = readStats(root);
+	if (!stats) return void freshness.delete(root);
+	const value = { builtAt: stats.builtAt, files: changedFiles(root, stats.builtAt) };
+	freshness.set(root, value);
+	return value;
+}
+
+const known = (root: string) => freshness.get(root);
+
+/** True when a graph exists and no file changed after its build at the last check: only then the model gets the graph. */
+export const isFresh = (root: string): boolean => {
+	const state = known(root);
+	return state !== undefined && state.files.length === 0;
+};
+
+/** What the panel shows about the graph; undefined when it was never built. Reads graph.json, so callers cache by `builtAt`. */
+export function graphState(root: string): GraphState | undefined {
+	const stats = readStats(root);
+	if (!stats) return undefined;
+	try {
+		const graph = JSON.parse(readFileSync(graphFile(root), "utf8")) as { nodes: RawNode[]; links: (RawLink & { confidence?: string })[] };
+		const inferred = graph.links.filter((link) => link.confidence && link.confidence !== "EXTRACTED").length;
+		const byId = new Map(graph.nodes.map((node) => [node.id, node]));
+		const degree = new Map<string, number>();
+		for (const link of graph.links) {
+			if (isNoise(byId.get(link.source) ?? { id: link.source }) || isNoise(byId.get(link.target) ?? { id: link.target })) continue;
+			for (const id of [link.source, link.target]) degree.set(id, (degree.get(id) ?? 0) + 1);
+		}
+		const hubs = [...degree]
+			.filter(([id]) => byId.get(id)?.file_type === "code")
+			.sort((a, b) => b[1] - a[1])
+			.slice(0, 3)
+			.map(([id, links]) => ({ name: byId.get(id)?.source_file?.split("/").pop() ?? byId.get(id)?.label ?? id, links }));
+		return { ...stats, concepts: graph.nodes.filter((node) => node.file_type === "concept").length, inferredPercent: graph.links.length ? Math.round((inferred / graph.links.length) * 100) : 0, changed: known(root)?.files.length ?? 0, hubs };
+	} catch {
+		return undefined;
+	}
+}
+
 /** Short text for the system prompt: size of the graph and its most connected nodes. Max ~1400 characters. */
 export function summary(root: string): string | undefined {
 	const stats = readStats(root);
@@ -160,13 +232,42 @@ export function registerGraphify(pi: ExtensionAPI, rootOf: (cwd: string) => stri
 	const cache = new Map<string, { builtAt: number; text: string | undefined }>();
 	let running = false;
 
+	/** The graph tools are declared to the model only while the graph is fresh; a stale or missing graph is left out entirely. */
+	const GRAPH_TOOLS = ["graph_query", "graph_explain", "graph_path"];
+	const syncTools = (usable: boolean) => {
+		try {
+			const active = pi.getActiveTools();
+			const others = active.filter((name) => !GRAPH_TOOLS.includes(name));
+			const next = usable ? [...others, ...GRAPH_TOOLS] : others;
+			if (next.length !== active.length || next.some((name, index) => name !== active[index])) pi.setActiveTools(next);
+		} catch {
+			// tools are a courtesy; never break startup for them
+		}
+	};
+
+	/** Tells the side panel what the graph holds. `check` re-reads the files (startup, after a build); otherwise the last result is reused. */
+	let panelCache: { builtAt: number; state: GraphState } | undefined;
+	const announce = (cwd: string, check = false) => {
+		const root = rootOf(cwd);
+		const checked = check ? checkFreshness(root) : (known(root) ?? checkFreshness(root));
+		if (!checked) return void pi.events.emit("graph:state", undefined);
+		if (check || panelCache?.builtAt !== checked.builtAt) {
+			const state = graphState(root);
+			if (!state) return;
+			panelCache = { builtAt: checked.builtAt, state };
+		}
+		pi.events.emit("graph:state", panelCache?.state);
+		syncTools(isFresh(root));
+	};
+
+	/** The prompt text, built once per build from the decision saved at startup or after a build: no file is read on a normal turn. */
 	const summaryOf = (root: string) => {
-		const stats = readStats(root);
-		if (!stats) return undefined;
+		const state = known(root);
+		if (!state) return undefined;
 		const hit = cache.get(root);
-		if (hit?.builtAt === stats.builtAt) return hit.text;
+		if (hit?.builtAt === state.builtAt) return hit.text;
 		const value = summary(root);
-		cache.set(root, { builtAt: stats.builtAt, text: value });
+		cache.set(root, { builtAt: state.builtAt, text: value });
 		return value;
 	};
 
@@ -197,6 +298,11 @@ export function registerGraphify(pi: ExtensionAPI, rootOf: (cwd: string) => stri
 		} finally {
 			clearInterval(tick);
 			if (ctx.hasUI) ctx.ui.setStatus("graph", undefined);
+		}
+		try {
+			announce(ctx.cwd, true);
+		} catch {
+			// best effort
 		}
 		modal.finish(message);
 		await shown;
@@ -330,9 +436,19 @@ export function registerGraphify(pi: ExtensionAPI, rootOf: (cwd: string) => stri
 		},
 	});
 
+	pi.on("session_start", (_event, ctx) => {
+		try {
+			announce(ctx.cwd, true);
+		} catch {
+			// best effort
+		}
+	});
+
 	pi.on("before_agent_start", (event, ctx) => {
 		if (event.systemPrompt.includes(SUMMARY_MARKER)) return;
-		const value = summaryOf(rootOf(ctx.cwd));
+		const root = rootOf(ctx.cwd);
+		if (!isFresh(root)) return;
+		const value = summaryOf(root);
 		if (value) return { systemPrompt: `${event.systemPrompt}\n\n${value}` };
 	});
 

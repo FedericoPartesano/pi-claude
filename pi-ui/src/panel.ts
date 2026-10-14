@@ -41,6 +41,22 @@ export interface PanelInfo {
 	intent?: { file: string; title: string; outcomes: string[] };
 	/** Tokens saved by lean-tools in this session (estimated). */
 	saved?: number;
+	/** The project graph (extensions/graph/graphify.ts, pi.events "graph:state"). */
+	graph?: {
+		nodes: number;
+		edges: number;
+		files: number;
+		communities: number;
+		/** Concept nodes read from documents by the semantic pass; 0 when it never ran. */
+		concepts: number;
+		/** Share of edges guessed rather than read from the code, 0-100. */
+		inferredPercent: number;
+		builtAt: number;
+		/** Files edited since the graph was built. */
+		changed: number;
+		/** Most connected files, with their link count. */
+		hubs: { name: string; links: number }[];
+	};
 	/** The running goal (extensions/goal.ts, pi.events "goal:state"). */
 	goal?: {
 		state: "attivo" | "in pausa";
@@ -55,6 +71,14 @@ export interface PanelInfo {
 		minutes: number;
 		lastEvent?: string;
 	};
+}
+
+/** "5 min", "3 h", "2 g": how long ago, coarse. */
+export function ageText(ms: number): string {
+	const minutes = Math.max(0, Math.round(ms / 60_000));
+	if (minutes < 1) return "meno di 1 min";
+	if (minutes < 60) return `${minutes} min`;
+	return minutes < 1440 ? `${Math.round(minutes / 60)} h` : `${Math.round(minutes / 1440)} g`;
 }
 
 /** `git rev-list --left-right --count @{upstream}...HEAD` → commits behind / ahead of the remote. */
@@ -99,7 +123,7 @@ export function renderPanel(info: PanelInfo, width: number, key = PANEL_KEY, max
 	const inner = width - 2;
 	// Sections with their icon; the HUD style numbers them: `// 01 SESSIONE`.
 	let sections = 0;
-	const ICONS: Record<string, IconName> = { SESSIONE: "session", TURNO: "turn", "SUB-AGENTI": "agent", "ATTIVITÀ": "activity", FILE: "files", TEST: "test", MEMORIA: "memory", SUGGERIMENTI: "suggest", GIT: "branch", IMMAGINI: "image", USO: "usage", PIANO: "todo", INTENT: "session", RISPARMIO: "usage", GOAL: "session" };
+	const ICONS: Record<string, IconName> = { SESSIONE: "session", TURNO: "turn", "SUB-AGENTI": "agent", "ATTIVITÀ": "activity", FILE: "files", TEST: "test", MEMORIA: "memory", SUGGERIMENTI: "suggest", GIT: "branch", IMMAGINI: "image", USO: "usage", PIANO: "todo", INTENT: "session", RISPARMIO: "usage", GOAL: "session", GRAFO: "files" };
 	const section = (title: string, right = "") => {
 		sections++;
 		const icon = I[ICONS[title] ?? "tool"];
@@ -208,6 +232,23 @@ export function renderPanel(info: PanelInfo, width: number, key = PANEL_KEY, max
 	if (info.image) {
 		const image = info.image;
 		add(7, () => ["", section("IMMAGINI"), ...image.lines, fit(fg(C.cyan, underline(image.ref)), `${fg(C.mag, "/img")}`, inner)]);
+	}
+	if (info.graph) {
+		const graph = info.graph;
+		add(5, () => {
+			const stale = graph.changed > 0;
+			const age = ageText((info.now ?? Date.now()) - graph.builtAt);
+			return [
+				"",
+				section("GRAFO", fg(stale ? C.warn : C.ok, stale ? "da aggiornare" : "aggiornato")),
+				fg(C.text, `${graph.files} file · ${graph.nodes} nodi · ${graph.edges} archi`),
+				fg(C.dim, `${graph.communities} gruppi · ${graph.concepts ? `${graph.concepts} concetti` : "documenti non letti"}`),
+				fg(C.dim, `costruito ${age} fa · ${graph.inferredPercent}% archi dedotti`),
+				...(stale ? [fg(C.warn, `${graph.changed} ${graph.changed === 1 ? "file cambiato" : "file cambiati"} dopo la build`)] : []),
+				...graph.hubs.slice(0, 3).map((hub, index) => fit(`${fg(C.faint, `${index + 1}.`)} ${fg(C.text, hub.name)}`, fg(C.dim, String(hub.links)), inner)),
+				fit("", `${fg(C.mag, "/graph")} ${fg(C.dim, stale ? "aggiorna" : "apri")}`, inner),
+			];
+		});
 	}
 	if (info.saved) {
 		const saved = info.saved;

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -49,4 +49,45 @@ test("filteredGraph toglie i nodi rumore e gli archi che li toccano; hubs non li
 	assert.equal(copy.links.length, 1);
 	assert.match(hubs(dir), /A \(a\.ts\) - 1 collegamenti/);
 	assert.doesNotMatch(hubs(dir), /fs/);
+});
+
+test("graphState conta concetti, archi dedotti e file più collegati senza rumore; changedSince conta file toccati dopo la build", async () => {
+	const { graphState, changedSince } = await import("./graphify.ts");
+	const { spawnSync } = await import("node:child_process");
+	const dir = mkdtempSync(join(tmpdir(), "gfy-"));
+	const git = (...args: string[]) => spawnSync("git", args, { cwd: dir, encoding: "utf8" });
+	git("init", "-q");
+	git("-c", "user.email=a@b.c", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "x");
+	mkdirSync(join(dir, "graphify-out"));
+	const nodes = [{ id: "a", label: "A", source_file: "src/a.ts", file_type: "code" }, { id: "b", label: "B", source_file: "src/b.ts", file_type: "code" }, { id: "c", label: "Idea", source_file: "doc.md", file_type: "concept" }, { id: "ref_node_fs", label: "fs" }];
+	const links = [{ source: "a", target: "b", confidence: "EXTRACTED" }, { source: "a", target: "ref_node_fs", confidence: "EXTRACTED" }, { source: "c", target: "a", confidence: "INFERRED" }, { source: "b", target: "c", confidence: "INFERRED" }];
+	writeFileSync(join(dir, "graphify-out", "graph.json"), JSON.stringify({ nodes, links }));
+	const state = graphState(dir)!;
+	assert.equal(state.concepts, 1);
+	assert.equal(state.inferredPercent, 50);
+	assert.deepEqual(state.hubs.map((hub) => hub.name), ["a.ts", "b.ts"]);
+	assert.equal(state.hubs[0].links, 2);
+	assert.equal(state.changed, 0);
+	writeFileSync(join(dir, "nuovo.ts"), "x");
+	assert.equal(changedSince(dir, Date.now() - 60_000), 1, "il file nuovo conta, graphify-out no");
+	assert.equal(changedSince(dir, Date.now() + 60_000), 0);
+});
+
+test("isFresh: vero solo dopo un controllo senza file cambiati; mai controllato o indietro è falso", async () => {
+	const { isFresh, checkFreshness } = await import("./graphify.ts");
+	const { spawnSync } = await import("node:child_process");
+	const dir = mkdtempSync(join(tmpdir(), "gfy-"));
+	assert.equal(isFresh(dir), false, "nessun grafo");
+	spawnSync("git", ["init", "-q"], { cwd: dir });
+	mkdirSync(join(dir, "graphify-out"));
+	writeFileSync(join(dir, "graphify-out", "graph.json"), JSON.stringify({ nodes: [], links: [] }));
+	assert.equal(isFresh(dir), false, "mai controllato");
+	checkFreshness(dir);
+	assert.equal(isFresh(dir), true);
+	const later = new Date(Date.now() + 5000);
+	writeFileSync(join(dir, "nuovo.ts"), "x");
+	utimesSync(join(dir, "nuovo.ts"), later, later);
+	assert.equal(isFresh(dir), true, "senza nuovo controllo vale l'ultimo risultato");
+	checkFreshness(dir);
+	assert.equal(isFresh(dir), false, "file cambiato dopo la build");
 });

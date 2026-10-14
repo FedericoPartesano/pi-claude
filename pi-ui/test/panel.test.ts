@@ -152,3 +152,23 @@ test("statusesChanged: the panel refreshes when an extension status changes (the
 	assert.equal(statusesChanged(before, new Map([["memory", "◇ 103 ricordi"], ["goal", "goal 1/3"]])), true);
 	assert.equal(statusesChanged(before, new Map([["memory", "⠋ carico la memoria…"]])), true);
 });
+
+test("la sezione GRAFO mostra numeri, età, file cambiati e i file più collegati alla larghezza esatta", () => {
+	const now = 10_000_000;
+	const graph = { nodes: 4137, edges: 8831, files: 529, communities: 224, concepts: 90, inferredPercent: 4, builtAt: now - 5 * 60_000, changed: 3, hubs: [{ name: "index.ts", links: 132 }, { name: "memory.ts", links: 107 }] };
+	const lines = renderPanel({ ...info, now, graph }, 40, "alt+s");
+	for (const line of lines) assert.equal(visibleWidth(line), 40);
+	const text = lines.map(strip).join("\n");
+	assert.match(text, /GRAFO ─+ da aggiornare/);
+	assert.match(text, /529 file · 4137 nodi · 8831 archi/);
+	assert.match(text, /224 gruppi · 90 concetti/);
+	assert.match(text, /costruito 5 min fa · 4% archi dedotti/);
+	assert.match(text, /3 file cambiati dopo la build/);
+	assert.match(text, /1\. index\.ts\s+132/);
+	assert.match(text, /\/graph\s+aggiorna/);
+	const fresh = renderPanel({ ...info, now, graph: { ...graph, changed: 0, concepts: 0 } }, 40, "alt+s").map(strip).join("\n");
+	assert.match(fresh, /GRAFO ─+ aggiornato/);
+	assert.match(fresh, /documenti non letti/);
+	assert.doesNotMatch(fresh, /file cambiat/);
+	assert.doesNotMatch(renderPanel(info, 40, "alt+s").map(strip).join("\n"), /GRAFO/);
+});

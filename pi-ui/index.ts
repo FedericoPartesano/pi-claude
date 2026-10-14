@@ -168,6 +168,13 @@ export default function (pi: ExtensionAPI) {
 		panelDirty = true;
 		tui?.requestRender();
 	});
+	// The graph extension reports what the project graph holds and whether it is behind the files.
+	let graphState: PanelInfo["graph"];
+	pi.events.on("graph:state", (data) => {
+		graphState = (data as PanelInfo["graph"]) ?? undefined;
+		panelDirty = true;
+		tui?.requestRender();
+	});
 	// lean-tools reports the tokens its compactions saved.
 	pi.events.on("lean:saved", (data) => {
 		saved += Number((data as { tokens?: number })?.tokens) || 0;
@@ -694,6 +701,7 @@ export default function (pi: ExtensionAPI) {
 			// The goal section already shows its intent.
 			intent: goalState?.intentFile && goalState.intentFile === intentInfo?.file ? undefined : intentInfo,
 			saved,
+			graph: graphState,
 			usage: {
 				fiveHour: usage?.fiveHour,
 				sevenDay: usage?.sevenDay,
