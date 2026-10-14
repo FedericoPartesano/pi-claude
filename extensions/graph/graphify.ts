@@ -226,7 +226,6 @@ export function summary(root: string): string | undefined {
 }
 
 const text = (value: string, isError = false) => ({ content: [{ type: "text" as const, text: value }], details: undefined, ...(isError ? { isError } : {}) });
-const MENU = ["Stato del grafo", "Aggiorna grafo (codice, poi documenti se vuoi)", "Interroga il grafo…", "Nodi più connessi", "Report (GRAPH_REPORT.md)", "Esci"];
 
 export function registerGraphify(pi: ExtensionAPI, rootOf: (cwd: string) => string): void {
 	const cache = new Map<string, { builtAt: number; text: string | undefined }>();
@@ -298,17 +297,17 @@ export function registerGraphify(pi: ExtensionAPI, rootOf: (cwd: string) => stri
 		return `${stats.nodes} nodi · ${stats.edges} archi · ${isFresh(root) ? "aggiornato" : "da aggiornare"}`;
 	};
 
-	/** Opens the modal on the Interroga tab alone, without a job. */
-	const interroga = async (ctx: ExtensionContext): Promise<void> => {
-		if (!ctx.hasUI) return;
-		const modal = new JobModal("Grafo del progetto", { job: false, ask: ask(rootOf(ctx.cwd)), info: () => infoLine(rootOf(ctx.cwd)) });
-		await ctx.ui.custom<void>((tui, theme, _keys, done) => (modal.theme(theme), modal.attach(() => tui.requestRender(), () => done()), modal), { overlay: true, overlayOptions: { anchor: "center", width: "90%", maxHeight: "90%" } });
-	};
+	/** The open hub modal (bare /graph), so jobs and questions run inside it instead of opening another window. */
+	let hubModal: JobModal | undefined;
+
+	/** Yes/no question: inside the hub it is shown in the modal, elsewhere it is pi's confirm dialog. */
+	const yesNo = (ctx: ExtensionContext, title: string, text: string): Promise<boolean> => (hubModal ? hubModal.confirm(`${title}\n${text}`) : ctx.ui.confirm(title, text));
 
 	/** Runs `work` while a fixed modal shows progress and the log; the modal stays until the user closes it. */
 	const job = async (ctx: ExtensionContext, title: string, work: (modal: JobModal) => Promise<string>): Promise<string> => {
-		const modal = new JobModal(title, { ask: ask(rootOf(ctx.cwd)), info: () => infoLine(rootOf(ctx.cwd)) });
-		const shown = ctx.hasUI ? ctx.ui.custom<void>((tui, theme, _keys, done) => (modal.theme(theme), modal.attach(() => tui.requestRender(), () => done()), modal), { overlay: true, overlayOptions: { anchor: "center", width: "90%", maxHeight: "90%" } }) : Promise.resolve();
+		const modal = hubModal ?? new JobModal(title, { ask: ask(rootOf(ctx.cwd)), info: () => infoLine(rootOf(ctx.cwd)) });
+		if (hubModal) modal.begin(title);
+		const shown = hubModal ? Promise.resolve() : ctx.hasUI ? ctx.ui.custom<void>((tui, theme, _keys, done) => (modal.theme(theme), modal.attach(() => tui.requestRender(), () => done()), modal), { overlay: true, overlayOptions: { anchor: "center", width: "90%", maxHeight: "90%" } }) : Promise.resolve();
 		const tick = setInterval(() => {
 			modal.set({ now: Date.now() });
 			if (ctx.hasUI) ctx.ui.setStatus("graph", `GRAPH ${modal.progress.total ? Math.round((modal.progress.done / modal.progress.total) * 100) : 0}%`);
@@ -369,13 +368,13 @@ export function registerGraphify(pi: ExtensionAPI, rootOf: (cwd: string) => stri
 		const built = await build(ctx);
 		if (!/^Fatto/.test(built)) return built;
 		if (!ctx.hasUI) return `${built}\nDocumenti non letti (serve /graph semantic).`;
-		if (!(await ctx.ui.confirm("Leggere anche i documenti?", costNote(rootOf(ctx.cwd))))) return `${built}\nDocumenti non letti.`;
+		if (!(await yesNo(ctx, "Leggere anche i documenti?", costNote(rootOf(ctx.cwd))))) return `${built}\nDocumenti non letti.`;
 		return semantic(ctx, true);
 	};
 
 	/** `graphify extract --backend claude-cli`: AST plus documents read by Claude Code (Haiku by default, on the plan). */
 	const semantic = async (ctx: ExtensionContext, confirmed = false): Promise<string> => {
-		if (!confirmed && ctx.hasUI && !(await ctx.ui.confirm("Documenti con Claude Code", costNote(rootOf(ctx.cwd))))) return "Documenti non letti: hai risposto No (o Esc) alla conferma.";
+		if (!confirmed && ctx.hasUI && !(await yesNo(ctx, "Documenti con Claude Code", costNote(rootOf(ctx.cwd))))) return "Documenti non letti: hai risposto No (o Esc) alla conferma.";
 		return job(ctx, "Graphify + Claude Code: semantica", async (modal) => {
 			const root = rootOf(ctx.cwd);
 			ensureExcluded(root);
@@ -421,41 +420,97 @@ export function registerGraphify(pi: ExtensionAPI, rootOf: (cwd: string) => stri
 		return stats ? `Graphify: ${stats.files} file, ${stats.nodes} nodi, ${stats.edges} archi, ${stats.communities} gruppi. Costruito il ${new Date(stats.builtAt).toLocaleString()}. Cartella ${OUT}/ (usa "Aggiorna grafo" per rinfrescare).` : 'Grafo non costruito: scegli "Aggiorna grafo".';
 	};
 
-	const choose = async (choice: string, ctx: ExtensionContext): Promise<void> => {
-		const root = rootOf(ctx.cwd);
-		if (choice.startsWith("Stato")) return show("Stato del grafo", status(root));
-		if (choice.startsWith("Aggiorna")) return show("Aggiorna grafo", await update(ctx));
-		if (choice.startsWith("Nodi")) return show("Nodi più connessi (senza moduli esterni e file JSON)", hubs(root, 15) || "Grafo non costruito.");
-		if (choice.startsWith("Report")) {
-			const file = join(root, OUT, "GRAPH_REPORT.md");
-			return show("Report", existsSync(file) ? readFileSync(file, "utf8").slice(0, 3500) : "Nessun report: esegui la build.");
-		}
-		if (choice.startsWith("Interroga")) return interroga(ctx);
+	/** Text of the Stato tab: sizes, age, what changed since the build, and the keys that update it. */
+	const statoText = (root: string): string => {
+		const state = graphState(root);
+		if (!state) return 'Grafo non costruito.\n\nPremi a per costruirlo: legge il codice (circa 12 s, 0 token) e poi ti chiede se leggere anche i documenti.';
+		const changed = known(root)?.files ?? [];
+		return [
+			"# Grafo",
+			`File:      ${state.files}`,
+			`Nodi:      ${state.nodes}`,
+			`Archi:     ${state.edges}`,
+			`Gruppi:    ${state.communities}`,
+			`Concetti:  ${state.concepts ? `${state.concepts} (documenti letti)` : "nessuno, documenti non letti"}`,
+			`Dedotti:   ${state.inferredPercent}% degli archi (il resto è letto dal codice)`,
+			`Costruito: ${new Date(state.builtAt).toLocaleString()}`,
+			"",
+			"# Aggiornamento",
+			changed.length ? `Indietro di ${changed.length} file rispetto all'ultimo controllo (avvio o ultima build):` : "Aggiornato: nessun file cambiato dopo la build (controllo all'avvio o all'ultima build).",
+			...changed.slice(0, 10).map((file) => `- ${file}`),
+			...(changed.length > 10 ? [`- … e altri ${changed.length - 10}`] : []),
+			"",
+			"# Azioni",
+			"- a  aggiorna: prima il codice, poi ti chiede se leggere i documenti",
+			"- c  solo codice (circa 12 s, 0 token)",
+			"- d  solo documenti (Claude Code, usa il piano)",
+		].join("\n");
 	};
 
-	const USAGE = "Uso: /graph (menu) | update (codice, poi documenti) | build (solo codice) | semantic (solo documenti) | status | ask (finestra Interroga) | query <testo> | explain <nodo> | path <da> <a>";
+	/** Bare /graph: one window with Stato, Interroga, Nodi, Report and Lavoro; jobs run inside it. */
+	const hub = async (ctx: ExtensionContext, start?: string): Promise<void> => {
+		const root = rootOf(ctx.cwd);
+		const modal = new JobModal("Grafo del progetto", {
+			job: false,
+			ask: ask(root),
+			info: () => infoLine(root),
+			start,
+			backTo: "stato",
+			layout: ["stato", "interroga", "nodi", "report", "lavoro"],
+			pages: [
+				{
+					id: "stato",
+					label: "Stato",
+					body: () => statoText(root),
+					actions: [
+						{ key: "a", label: "aggiorna", run: () => void launch(() => update(ctx)) },
+						{ key: "c", label: "solo codice", run: () => void launch(() => build(ctx)) },
+						{ key: "d", label: "documenti", run: () => void launch(() => semantic(ctx)) },
+					],
+				},
+				{ id: "nodi", label: "Nodi", body: () => (hubs(root, 20) ? `# Nodi più connessi (senza moduli esterni e file JSON)\n${hubs(root, 20)}` : "Grafo non costruito.") },
+				{
+					id: "report",
+					label: "Report",
+					body: () => {
+						const file = join(root, OUT, "GRAPH_REPORT.md");
+						return existsSync(file) ? readFileSync(file, "utf8").slice(0, 20000) : "Nessun report: aggiorna il grafo dalla scheda Stato.";
+					},
+				},
+			],
+		});
+		const launch = async (work: () => Promise<string>): Promise<void> => {
+			if (modal.running) return;
+			try {
+				await work();
+			} catch (error) {
+				modal.finish(`Errore: ${error instanceof Error ? error.message : String(error)}`);
+			}
+		};
+		hubModal = modal;
+		try {
+			await ctx.ui.custom<void>((tui, theme, _keys, done) => (modal.theme(theme), modal.attach(() => tui.requestRender(), () => done()), modal), { overlay: true, overlayOptions: { anchor: "center", width: "90%", maxHeight: "90%" } });
+		} finally {
+			hubModal = undefined;
+			if (modal.running) modal.abort.abort();
+		}
+	};
+
+	const USAGE = "Uso: /graph (finestra con schede) | update (codice, poi documenti) | build (solo codice) | semantic (solo documenti) | status | ask (finestra Interroga) | query <testo> | explain <nodo> | path <da> <a>";
 	pi.registerCommand("graph", {
-		description: "Grafo del progetto (Graphify): menu con build, stato, nodi centrali, ricerca. Anche /graph build | status | query | explain | path",
+		description: "Grafo del progetto (Graphify): finestra con schede Stato, Interroga, Nodi, Report. Anche /graph update | build | semantic | status | query | explain | path",
 		handler: async (args, ctx) => {
 			if (running) return void ctx.ui.notify("Un'operazione del grafo è già in corso.", "warning");
 			const [command = "", ...rest] = (args ?? "").trim().split(/\s+/).filter(Boolean);
 			const root = rootOf(ctx.cwd);
 			running = true;
 			try {
-				if (!command) {
-					if (!ctx.hasUI) return void ctx.ui.notify(USAGE, "info");
-					for (;;) {
-						const stats = readStats(root);
-						const choice = await ctx.ui.select(stats ? `Grafo del progetto (Graphify) — ${stats.nodes} nodi, ${stats.edges} archi, ${stats.communities} gruppi` : "Grafo del progetto (Graphify) — non ancora costruito", MENU);
-						if (!choice || choice === "Esci") return;
-						await choose(choice, ctx);
-					}
-				}
+				if (!command) return ctx.hasUI ? hub(ctx) : void ctx.ui.notify(USAGE, "info");
 				if (command === "update") return show("Aggiorna grafo", await update(ctx));
 				if (command === "build") return show("Build Graphify", await build(ctx));
 				if (command === "status") return show("Stato del grafo", status(root));
 				if (command === "semantic") return show("Semantica Graphify + Claude Code", await semantic(ctx));
-				if ((command === "query" || command === "ask") && !rest.length) return interroga(ctx);
+				if ((command === "query" || command === "ask") && !rest.length) return ctx.hasUI ? hub(ctx, "interroga") : undefined;
 				if (command === "query" && rest.length) return show(`Cerca: ${rest.join(" ")}`, query(root, rest.join(" ")).text);
 				if (command === "explain" && rest.length) return show(`Spiega: ${rest.join(" ")}`, explain(root, rest.join(" ")).text);
 				if (command === "path" && rest.length === 2) return show(`Percorso: ${rest[0]} → ${rest[1]}`, path(root, rest[0], rest[1]).text);

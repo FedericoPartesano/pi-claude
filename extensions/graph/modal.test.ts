@@ -83,3 +83,41 @@ test("parseAsk riconosce spiega, percorso e ricerca libera", async () => {
 	assert.deepEqual(parseAsk("come funziona il recall"), { kind: "query", text: "come funziona il recall" });
 	assert.equal(parseAsk("  "), undefined);
 });
+
+test("schede di sola lettura e azioni: Tab scorre nell'ordine, un tasto lancia l'azione, begin apre Lavoro, confirm aspetta s/n", async () => {
+	const ran: string[] = [];
+	const modal = new JobModal("Grafo", {
+		job: false,
+		ask: () => "",
+		layout: ["stato", "interroga", "nodi", "lavoro"],
+		backTo: "stato",
+		pages: [
+			{ id: "stato", label: "Stato", body: () => "# Grafo\nNodi:  10", actions: [{ key: "a", label: "aggiorna", run: () => ran.push("a") }] },
+			{ id: "nodi", label: "Nodi", body: () => "x" },
+		],
+		rows: () => 40,
+	});
+	modal.attach(() => {}, () => {});
+	assert.equal(modal.tab, "stato");
+	assert.match(modal.render(80).join("\n"), /Grafo[\s\S]*Nodi:\s+10[\s\S]*a aggiorna/);
+	modal.handleInput("a");
+	assert.deepEqual(ran, ["a"]);
+	modal.handleInput("\t");
+	assert.equal(modal.tab, "interroga");
+	modal.handleInput("\t");
+	assert.equal(modal.tab, "nodi");
+	modal.handleInput("\t");
+	assert.equal(modal.tab, "stato", "Lavoro non c'è finché non parte un lavoro");
+	modal.begin("Build");
+	assert.equal(modal.tab, "lavoro");
+	const answer = modal.confirm("Leggere i documenti?");
+	assert.match(modal.render(80).join("\n"), /\? Leggere i documenti\?/);
+	modal.handleInput("s");
+	assert.equal(await answer, true);
+	const no = modal.confirm("Ancora?");
+	modal.handleInput("\x1b");
+	assert.equal(await no, false);
+	modal.finish("Fatto");
+	modal.handleInput("\r");
+	assert.equal(modal.tab, "stato", "a lavoro finito Invio torna allo stato invece di chiudere");
+});

@@ -7,7 +7,16 @@
  */
 import { type Progress, bar, compact, duration } from "./progress.ts";
 
-export type Tab = "lavoro" | "interroga";
+export type Tab = string;
+
+/** A read-only tab: its text is computed at every redraw, so it follows the graph as it changes. */
+export interface Page {
+	id: string;
+	label: string;
+	body: () => string;
+	/** Keys offered while this tab is open: pressing one runs it. */
+	actions?: { key: string; label: string; run: () => void }[];
+}
 
 /** Same shape as pi's theme; without one the modal renders as plain text (tests, no colors). */
 export interface ModalTheme {
@@ -62,6 +71,14 @@ export interface ModalOptions {
 	job?: boolean;
 	/** Answers a typed line; sync or async. Without it the Interroga tab is not shown. */
 	ask?: (text: string) => string | Promise<string>;
+	/** Read-only tabs (Stato, Nodi, Report…), placed where `layout` says. */
+	pages?: Page[];
+	/** Order of the tabs by id; "lavoro" and "interroga" are the built-in ones. Default: lavoro, interroga. */
+	layout?: string[];
+	/** Tab to open on (default: the first available). */
+	start?: string;
+	/** Tab to go back to when a job ends and the user presses Enter/Esc, instead of closing the modal. */
+	backTo?: string;
 	/** Short text next to the title (for example the graph size), read at every redraw. */
 	info?: () => string;
 	theme?: ModalTheme;
@@ -70,11 +87,12 @@ export interface ModalOptions {
 }
 
 export class JobModal {
-	readonly abort = new AbortController();
+	abort = new AbortController();
 	readonly title: string;
 	progress: Progress;
 	/** Free line under the time line (for example the documents already in graphify's cache). */
 	extra = "";
+	private backTo: string | undefined;
 	result: string | undefined;
 	tab: Tab;
 	input = "";
@@ -83,7 +101,11 @@ export class JobModal {
 	busy = false;
 	private scroll = 0;
 	private lines: { at: number; text: string }[] = [];
-	private readonly hasJob: boolean;
+	private hasJob: boolean;
+	private readonly pages: Page[];
+	private readonly layout: string[];
+	/** A yes/no question shown on Lavoro, waiting for a key. */
+	private pending: { question: string; resolve: (answer: boolean) => void } | undefined;
 	private readonly askFn: ModalOptions["ask"];
 	private readonly infoFn: ModalOptions["info"];
 	private t: ModalTheme;
@@ -98,10 +120,13 @@ export class JobModal {
 		this.hasJob = options.job ?? true;
 		this.askFn = options.ask;
 		this.infoFn = options.info;
+		this.pages = options.pages ?? [];
+		this.layout = options.layout ?? ["lavoro", "interroga"];
 		this.t = options.theme ?? PLAIN;
 		this.now = options.now ?? Date.now;
 		this.rows = options.rows ?? (() => process.stdout.rows || 30);
-		this.tab = this.hasJob ? "lavoro" : "interroga";
+		this.backTo = options.backTo;
+		this.tab = options.start && this.available(options.start) ? options.start : (this.layout.find((id) => this.available(id)) ?? "interroga");
 		this.progress = { title, phase: "avvio", done: 0, total: 1, input: 0, output: 0, cost: 0, startedAt: this.now(), now: this.now() };
 	}
 
@@ -136,12 +161,44 @@ export class JobModal {
 		this.log("— fine —");
 	}
 
+	/** Starts a new job in this same modal: clean progress and log, Lavoro appears and comes to the front. */
+	begin(title: string): void {
+		this.hasJob = true;
+		this.abort = new AbortController();
+		this.result = undefined;
+		this.lines = [];
+		this.extra = "";
+		this.progress = { title, phase: "avvio", done: 0, total: 1, input: 0, output: 0, cost: 0, startedAt: this.now(), now: this.now() };
+		this.tab = "lavoro";
+		this.redraw();
+	}
+
+	/** Asks a yes/no question on Lavoro; resolves with the answer (Esc and anything else count as no). */
+	confirm(question: string): Promise<boolean> {
+		this.tab = "lavoro";
+		this.redraw();
+		return new Promise((resolve) => {
+			this.pending = { question, resolve };
+			this.redraw();
+		});
+	}
+
 	get running(): boolean {
 		return this.hasJob && this.result === undefined;
 	}
 
+	private available(id: string): boolean {
+		return id === "lavoro" ? this.hasJob : id === "interroga" ? Boolean(this.askFn) : this.pages.some((page) => page.id === id);
+	}
+
 	private get tabs(): { id: Tab; label: string }[] {
-		return [...(this.hasJob ? [{ id: "lavoro" as Tab, label: this.running ? "Lavoro ●" : "Lavoro" }] : []), ...(this.askFn ? [{ id: "interroga" as Tab, label: "Interroga" }] : [])];
+		return this.layout
+			.filter((id) => this.available(id))
+			.map((id) => ({ id, label: id === "lavoro" ? (this.running ? "Lavoro ●" : "Lavoro") : id === "interroga" ? "Interroga" : (this.pages.find((page) => page.id === id)?.label ?? id) }));
+	}
+
+	private get page(): Page | undefined {
+		return this.pages.find((page) => page.id === this.tab);
 	}
 
 	private async submit(): Promise<void> {
@@ -165,8 +222,17 @@ export class JobModal {
 
 	handleInput(data: string): void {
 		const tabs = this.tabs;
-		if (matchesKey(data, "tab") && tabs.length > 1) {
-			this.tab = tabs[(tabs.findIndex((tab) => tab.id === this.tab) + 1) % tabs.length].id;
+		if (this.pending) {
+			const yes = /^[sSyY]$/.test(data) || matchesKey(data, "enter");
+			const { resolve } = this.pending;
+			this.pending = undefined;
+			resolve(yes);
+			return this.redraw();
+		}
+		const step = matchesKey(data, "tab") ? 1 : data === "\x1b[Z" ? -1 : 0;
+		if (step && tabs.length > 1) {
+			this.tab = tabs[(tabs.findIndex((tab) => tab.id === this.tab) + step + tabs.length) % tabs.length].id;
+			this.scroll = 0;
 			return this.redraw();
 		}
 		if (this.running && matchesKey(data, "escape")) {
@@ -176,8 +242,22 @@ export class JobModal {
 			}
 			return;
 		}
+		const page = this.page;
+		if (page) {
+			const action = page.actions?.find((item) => item.key === data);
+			if (action) return action.run();
+			if (matchesKey(data, "escape")) return this.shut();
+			if (matchesKey(data, "up")) return ((this.scroll = Math.max(0, this.scroll - 1)), this.redraw());
+			if (matchesKey(data, "down")) return ((this.scroll += 1), this.redraw());
+			if (matchesKey(data, "pageUp")) return ((this.scroll = Math.max(0, this.scroll - 8)), this.redraw());
+			if (matchesKey(data, "pageDown")) return ((this.scroll += 8), this.redraw());
+			return;
+		}
 		if (this.tab === "lavoro") {
-			if (!this.running && (matchesKey(data, "escape") || matchesKey(data, "enter") || data === " ")) return this.shut();
+			if (!this.running && (matchesKey(data, "escape") || matchesKey(data, "enter") || data === " ")) {
+				if (this.backTo && this.available(this.backTo)) return ((this.tab = this.backTo), (this.scroll = 0), this.redraw());
+				return this.shut();
+			}
 			return;
 		}
 		if (matchesKey(data, "escape")) return this.input ? ((this.input = ""), this.redraw()) : this.running ? undefined : this.shut();
@@ -210,7 +290,7 @@ export class JobModal {
 		const t = this.t;
 		const inner = Math.max(40, width - 4);
 		const room = Math.max(12, Math.min(22, this.rows() - 8));
-		const body = this.tab === "lavoro" ? this.workBody(inner, room) : this.askBody(inner, room);
+		const body = this.page ? this.pageBody(inner, room) : this.tab === "lavoro" ? this.workBody(inner, room) : this.askBody(inner, room);
 		while (body.length < room) body.push("");
 		const border = (text: string) => t.fg("border", text);
 		const row = (text: string) => `${border("│")} ${pad(text, inner)} ${border("│")}`;
@@ -223,11 +303,12 @@ export class JobModal {
 			.map((tab) => (tab.id === this.tab ? t.fg("accent", t.bold(`▌ ${tab.label} ▐`)) : t.fg("muted", `  ${tab.label}  `)))
 			.join(" ");
 
-		const stop = this.running ? this.hints([["Esc", this.abort.signal.aborted ? "annullamento in corso…" : "annulla il lavoro"]]) : undefined;
-		const keys: [string, string][] = this.tab === "lavoro" ? [["Invio o Esc", "chiude"]] : this.input ? [["Invio", "chiede"], ["Esc", "cancella la riga"]] : [["Invio", "chiede"], ["↑↓", "scorrono"], ["Esc", "chiude"]];
+		const stop = this.running ? this.hints(this.pending ? [["s / Invio", "sì"], ["n / Esc", "no"]] : [["Esc", this.abort.signal.aborted ? "annullamento in corso…" : "annulla il lavoro"]]) : undefined;
+		const pageKeys: [string, string][] = (this.page?.actions ?? []).map((item) => [item.key, item.label]);
+		const keys: [string, string][] = this.pending ? [["s / Invio", "sì"], ["n / Esc", "no"]] : this.page ? [...pageKeys, ["↑↓", "scorri"], ["Esc", "chiude"]] : this.tab === "lavoro" ? [["Invio o Esc", this.backTo ? "torna allo stato" : "chiude"]] : this.input ? [["Invio", "chiede"], ["Esc", "cancella la riga"]] : [["Invio", "chiede"], ["↑↓", "scorri"], ["Esc", "chiude"]];
 		const hint = stop ?? this.hints(this.running ? [] : keys);
-		const more = this.tabs.length > 1 ? `${t.fg("dim", "  ·  ")}${this.hints([["Tab", "cambia scheda"]])}` : "";
-		return [top, row(tabs), `${border("├")}${border("─".repeat(inner + 2))}${border("┤")}`, ...body.slice(0, room).map(row), `${border("├")}${border("─".repeat(inner + 2))}${border("┤")}`, row(`${hint}${more}`), border(`╰${"─".repeat(inner + 2)}╯`)];
+		const more = this.tabs.length > 1 ? `${t.fg("dim", "  ·  ")}${this.hints([["Tab", "schede"]])}` : "";
+		return [top, row(tabs), `${border("├")}${border("─".repeat(inner + 2))}${border("┤")}`, ...body.slice(0, room).map(row), `${border("├")}${border("─".repeat(inner + 2))}${border("┤")}`, row(visibleWidth(`${hint}${more}`) > inner ? cut(`${hint}${more}`.replace(ANSI, ""), inner) : `${hint}${more}`), border(`╰${"─".repeat(inner + 2)}╯`)];
 	}
 
 	/** "label   value" with a fixed label column so the figures line up. */
@@ -257,7 +338,9 @@ export class JobModal {
 			...(this.extra ? [this.field("Cache", this.extra.replace(/^Cache:\s*/i, ""))] : []),
 		].map((line) => (visibleWidth(line) > inner ? cut(line.replace(ANSI, ""), inner) : line));
 
-		const result = this.result
+		const result = this.pending
+			? [t.fg("border", "─".repeat(inner)), ...wrap(this.pending.question, inner - 2).map((line) => `${t.fg("warning", "?")} ${t.fg("text", line)}`)]
+			: this.result
 			? [
 					t.fg("border", "─".repeat(inner)),
 					...wrap(this.result, inner - 2).map((line, index) => `${t.fg(/non|errore|annullat|fallit/i.test(this.result ?? "") ? "warning" : "success", index === 0 ? "✔ " : "  ")}${t.fg("text", line)}`),
@@ -285,6 +368,24 @@ export class JobModal {
 		if (field) return `${t.fg("muted", field[1])}${t.fg("text", field[2])}`;
 		if (/^Node:|^Connections|^Errore/.test(line)) return t.fg(/^Errore/.test(line) ? "error" : "accent", t.bold(line));
 		return t.fg("text", line);
+	}
+
+	/** A read-only tab: its text, headings in accent, scrollable. */
+	private pageBody(inner: number, room: number): string[] {
+		const t = this.t;
+		const content = wrap(this.page?.body() ?? "", inner - 2).map((line) => {
+			if (/^#{1,3} /.test(line)) return `  ${t.fg("accent", t.bold(line.replace(/^#+ /, "")))}`;
+			const pair = /^(\S[^:]{0,24}):(\s+.*)$/.exec(line);
+			if (pair) return `  ${t.fg("muted", `${pair[1]}:`)}${t.fg("text", pair[2])}`;
+			if (/^\s*[-*] /.test(line)) return `  ${t.fg("accent", "•")} ${t.fg("text", line.replace(/^\s*[-*] /, ""))}`;
+			return `  ${t.fg("text", line)}`;
+		});
+		const space = Math.max(3, room - 1);
+		const top = Math.min(this.scroll, Math.max(0, content.length - space));
+		this.scroll = top;
+		const shown = content.slice(top, top + space);
+		const counter = content.length > space ? t.fg("dim", `  righe ${top + 1}-${top + shown.length} di ${content.length}`) : "";
+		return [...shown, ...Array(Math.max(0, space - shown.length)).fill(""), counter];
 	}
 
 	private askBody(inner: number, room: number): string[] {
