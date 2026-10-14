@@ -15,7 +15,7 @@
  * not resolve symlinks for relative imports.
  * Format and rationale: docs/research/2026-10-06-intent-md-best-practices.md
  */
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { ASK_FIRST_HINT, adviseWork, formatWorkAdvice } from "./work-advisor.ts";
@@ -211,9 +211,18 @@ export async function pickIntent(ctx: ExtensionContext): Promise<boolean> {
 	return true;
 }
 
-/** The newest intent with status in-progress, if any. */
+/** The in-progress intent worked on last (latest file modification; by name on a tie), if any. The work in hand is the one being ticked off, not the one with the latest date in its name. */
 export function activeIntent(cwd: string): { file: string; intent: Intent } | undefined {
-	return listIntents(cwd).find(({ intent }) => intent.status === "in-progress");
+	const modified = (file: string) => {
+		try {
+			return statSync(join(cwd, file)).mtimeMs;
+		} catch {
+			return 0;
+		}
+	};
+	return listIntents(cwd)
+		.filter(({ intent }) => intent.status === "in-progress")
+		.sort((a, b) => modified(b.file) - modified(a.file))[0];
 }
 
 /** True when every outcome is ticked ("[x]"): nothing left to remind. */

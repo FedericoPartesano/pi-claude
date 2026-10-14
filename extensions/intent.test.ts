@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { activeIntent, intentPickerItems, intentTemplate, interviewPrompt, parseIntent, allOutcomesDone, outcomeProgress, renderIntentUpkeep, renderIntentReminder, setStatus, slugify } from "./intent.ts";
@@ -127,6 +127,18 @@ test("activeIntent: newest in-progress intent, or none", () => {
 	const active = activeIntent(cwd);
 	assert.equal(active?.intent.title, "Nuovo");
 	assert.equal(active?.file, join("intents", "2026-10-05-nuovo.md"));
+});
+
+test("activeIntent: tra due in-progress vince quello modificato per ultimo, non il nome più recente", () => {
+	const cwd = mkdtempSync(join(tmpdir(), "intent-"));
+	mkdirSync(join(cwd, "intents"));
+	const a = join(cwd, "intents", "2026-10-14-zeta.md");
+	const b = join(cwd, "intents", "2026-10-14-alfa.md");
+	writeFileSync(a, setStatus(intentTemplate("Zeta", "2026-10-14"), "in-progress"));
+	writeFileSync(b, setStatus(intentTemplate("Alfa", "2026-10-14"), "in-progress"));
+	utimesSync(a, new Date(2026, 9, 14, 10), new Date(2026, 9, 14, 10));
+	utimesSync(b, new Date(2026, 9, 14, 16), new Date(2026, 9, 14, 16));
+	assert.equal(activeIntent(cwd)?.intent.title, "Alfa");
 });
 
 test("renderIntentReminder keeps outcome, constraints and open questions", () => {
