@@ -4,10 +4,11 @@
  * through the repository's local exclude file). The own engine in this folder stays available with PI_GRAPH_ENGINE=custom.
  */
 import { spawn, spawnSync } from "node:child_process";
-import { appendFileSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { type Progress, duration, progressLines } from "./progress.ts";
+import { JobModal } from "./modal.ts";
+import { duration } from "./progress.ts";
 
 const OUT = "graphify-out";
 const GIT_DIR = ".g" + "it";
@@ -171,83 +172,101 @@ export function registerGraphify(pi: ExtensionAPI, rootOf: (cwd: string) => stri
 
 	const show = (title: string, body: string) => pi.sendMessage({ customType: "graph-report", content: `${title}\n${body}`, display: true });
 
-	const panel = (ctx: ExtensionContext, progress?: Progress, cancellable = false) => {
-		if (!ctx.hasUI) return;
-		ctx.ui.setWidget("graph", progress ? progressLines({ ...progress, now: Date.now() }, cancellable) : undefined);
-		ctx.ui.setStatus("graph", progress ? `GRAPH ${progress.total ? Math.round((progress.done / progress.total) * 100) : 0}%` : undefined);
+	/** Files under a folder, recursively; 0 when it does not exist. Used to watch graphify's cache grow. */
+	const countFiles = (dir: string): number => {
+		try {
+			return readdirSync(dir, { withFileTypes: true }).reduce((total, entry) => total + (entry.isDirectory() ? countFiles(join(dir, entry.name)) : 1), 0);
+		} catch {
+			return 0;
+		}
+	};
+
+	/** Runs `work` while a fixed modal shows progress and the log; the modal stays until the user closes it. */
+	const job = async (ctx: ExtensionContext, title: string, work: (modal: JobModal) => Promise<string>): Promise<string> => {
+		const modal = new JobModal(title);
+		const shown = ctx.hasUI ? ctx.ui.custom<void>((tui, _theme, _keys, done) => (modal.attach(() => tui.requestRender(), () => done()), modal), { overlay: true, overlayOptions: { anchor: "center", width: "90%", maxHeight: "90%" } }) : Promise.resolve();
+		const tick = setInterval(() => {
+			modal.set({ now: Date.now() });
+			if (ctx.hasUI) ctx.ui.setStatus("graph", `GRAPH ${modal.progress.total ? Math.round((modal.progress.done / modal.progress.total) * 100) : 0}%`);
+		}, 500);
+		let message: string;
+		try {
+			message = await work(modal);
+		} catch (error) {
+			message = `Errore: ${error instanceof Error ? error.message : String(error)}`;
+		} finally {
+			clearInterval(tick);
+			if (ctx.hasUI) ctx.ui.setStatus("graph", undefined);
+		}
+		modal.finish(message);
+		await shown;
+		return message;
 	};
 
 	/** `graphify update`: local AST extraction, no model. Progress comes from its own output lines. */
-	const build = async (ctx: ExtensionContext): Promise<string> => {
-		const root = rootOf(ctx.cwd);
-		ensureExcluded(root);
-		const abort = new AbortController();
-		const stop = ctx.hasUI ? ctx.ui.onTerminalInput((data) => (data === "\x1b" ? (abort.abort(), { consume: true }) : undefined)) : () => {};
-		const progress: Progress = { title: "Graphify", phase: "avvio", done: 0, total: 1, input: 0, output: 0, cost: 0, startedAt: Date.now(), now: 0 };
-		panel(ctx, progress, true);
-		const tick = setInterval(() => panel(ctx, progress, true), 500);
-		try {
+	const build = (ctx: ExtensionContext): Promise<string> =>
+		job(ctx, "Graphify: build (AST locale, 0 token)", async (modal) => {
+			const root = rootOf(ctx.cwd);
+			ensureExcluded(root);
+			modal.log(`Cartella: ${root}`);
 			const result = await runGraphify(
 				["update", root],
 				root,
 				(line) => {
+					modal.log(clean(line));
 					const found = parseProgress(line);
-					if (found) Object.assign(progress, { phase: "estrazione AST", done: found.done, total: found.total });
-					else if (/Rebuilt|updated/i.test(line)) Object.assign(progress, { phase: "comunità, report e HTML", done: progress.total });
-					else if (line.trim()) progress.current = clean(line).slice(0, 100);
+					if (found) modal.set({ phase: "estrazione AST", ...found });
+					else if (/Rebuilt|updated/i.test(line)) modal.set({ phase: "comunità, report e HTML", done: modal.progress.total });
 				},
-				abort.signal,
+				modal.abort.signal,
 			);
-			if (abort.signal.aborted) return "Build annullata.";
+			if (modal.abort.signal.aborted) return "Build annullata.";
 			const stats = readStats(root);
-			const rebuilt = /Rebuilt: (.*)/.exec(result.out)?.[1];
 			if (result.code !== 0 || !stats) return `Graphify non è riuscito (codice ${result.code}):\n${clean(result.out).split("\n").slice(-6).join("\n")}`;
-			return `Fatto in ${duration(Date.now() - progress.startedAt)}: ${rebuilt ?? `${stats.nodes} nodi, ${stats.edges} archi`}. ${stats.files} file, ${stats.communities} gruppi. Token usati: 0. Output in ${OUT}/ (graph.json, GRAPH_REPORT.md, graph.html).`;
-		} finally {
-			clearInterval(tick);
-			stop();
-			panel(ctx);
-		}
-	};
+			return `Fatto in ${duration(Date.now() - modal.progress.startedAt)}: ${stats.nodes} nodi, ${stats.edges} archi, ${stats.communities} gruppi, ${stats.files} file. Token usati: 0.\nOutput in ${OUT}/ (graph.json, GRAPH_REPORT.md, graph.html).`;
+		});
 
 	/** `graphify extract --backend claude-cli`: AST plus documents read by Claude Code (Haiku by default, on the plan). */
 	const semantic = async (ctx: ExtensionContext): Promise<string> => {
-		const root = rootOf(ctx.cwd);
-		if (ctx.hasUI && !(await ctx.ui.confirm("Semantica con Claude Code", "Graphify fa leggere a Claude Code (Haiku) i documenti non ancora in cache: concetti e relazioni. Usa il tuo piano (costo in dollari 0) ma consuma quota e può durare minuti: misurato su 2 documenti piccoli: circa 80.000 token in ingresso, 18 s. Esc annulla. Procedere?"))) return "Semantica annullata.";
-		ensureExcluded(root);
-		const abort = new AbortController();
-		const stop = ctx.hasUI ? ctx.ui.onTerminalInput((data) => (data === "\x1b" ? (abort.abort(), { consume: true }) : undefined)) : () => {};
-		const progress: Progress = { title: "Graphify + Claude Code", phase: "avvio", done: 0, total: 1, input: 0, output: 0, cost: 0, startedAt: Date.now(), now: 0 };
-		panel(ctx, progress, true);
-		const tick = setInterval(() => panel(ctx, progress, true), 500);
-		try {
-			const env = { GRAPHIFY_CLAUDE_CLI_MODEL: process.env.PI_GRAPH_MODEL ?? "haiku" };
-			const result = await runGraphify(
-				["extract", root, "--backend", "claude-cli", "--max-concurrency", "1"],
-				root,
-				(line) => {
-					const chunk = /chunk (\d+)\/(\d+)/.exec(line);
-					if (chunk) Object.assign(progress, { phase: "lettura dei documenti", done: Number(chunk[1]), total: Number(chunk[2]) });
-					else if (/AST extraction/.test(line)) progress.phase = "estrazione AST";
-					else if (/semantic extraction on (\d+) files/.test(line)) Object.assign(progress, { phase: "lettura dei documenti", done: 0, total: 1, current: clean(line).replace("[graphify extract] ", "") });
-					else if (line.trim()) progress.current = clean(line).slice(0, 100);
-				},
-				abort.signal,
-				env,
-			);
-			if (abort.signal.aborted) return "Semantica annullata.";
-			if (result.code !== 0) return `Graphify non è riuscito (codice ${result.code}):\n${clean(result.out).split("\n").slice(-6).join("\n")}`;
-			Object.assign(progress, { phase: "report e comunità", done: progress.total });
-			panel(ctx, progress, false);
-			await runGraphify(["cluster-only", root], root);
-			const tokens = /tokens: ([\d,]+) in \/ ([\d,]+) out/.exec(result.out);
-			const stats = readStats(root);
-			return `Fatto in ${duration(Date.now() - progress.startedAt)}${stats ? `: ${stats.nodes} nodi, ${stats.edges} archi, ${stats.communities} gruppi` : ""}. Token: ${tokens ? `${tokens[1]} in, ${tokens[2]} out` : "non riportati"} (modello ${env.GRAPHIFY_CLAUDE_CLI_MODEL}, piano Claude Code, costo $0).`;
-		} finally {
-			clearInterval(tick);
-			stop();
-			panel(ctx);
-		}
+		if (ctx.hasUI && !(await ctx.ui.confirm("Semantica con Claude Code", "Graphify fa leggere a Claude Code (Haiku) i documenti non ancora in cache: concetti e relazioni. Usa il tuo piano (costo in dollari 0) ma consuma quota e può durare minuti: misurato su 2 documenti piccoli: circa 80.000 token in ingresso, 18 s. Esc annulla. Procedere?"))) return "Semantica non avviata: hai risposto No (o Esc) alla conferma.";
+		return job(ctx, "Graphify + Claude Code: semantica", async (modal) => {
+			const root = rootOf(ctx.cwd);
+			ensureExcluded(root);
+			const model = process.env.PI_GRAPH_MODEL ?? "haiku";
+			const cacheDir = join(root, OUT, "cache");
+			const before = countFiles(cacheDir);
+			modal.log(`Modello: ${model} (piano Claude Code). Cache iniziale: ${before} file.`);
+			modal.extra = `Cache di graphify: ${before} file (+0 in questa esecuzione)`;
+			const watch = setInterval(() => {
+				const now = countFiles(cacheDir);
+				modal.extra = `Cache di graphify: ${now} file (+${now - before} in questa esecuzione)`;
+			}, 1000);
+			try {
+				const result = await runGraphify(
+					["extract", root, "--backend", "claude-cli", "--max-concurrency", "1"],
+					root,
+					(line) => {
+						modal.log(clean(line).replace("[graphify extract] ", ""));
+						const chunk = /chunk (\d+)\/(\d+)/.exec(line);
+						if (chunk) modal.set({ phase: "lettura dei documenti", done: Number(chunk[1]), total: Number(chunk[2]) });
+						else if (/AST extraction/.test(line)) modal.set({ phase: "estrazione AST" });
+						else if (/semantic extraction on \d+ files/.test(line)) modal.set({ phase: "lettura dei documenti (la barra avanza a fine blocco)", done: 0, total: 1 });
+						const tokens = /tokens: ([\d,]+) in \/ ([\d,]+) out/.exec(line);
+						if (tokens) modal.set({ input: Number(tokens[1].replace(/,/g, "")), output: Number(tokens[2].replace(/,/g, "")) });
+					},
+					modal.abort.signal,
+					{ GRAPHIFY_CLAUDE_CLI_MODEL: model },
+				);
+				if (modal.abort.signal.aborted) return "Semantica interrotta: Esc premuto mentre girava.";
+				if (result.code !== 0) return `Graphify non è riuscito (codice ${result.code}):\n${clean(result.out).split("\n").slice(-6).join("\n")}`;
+				modal.set({ phase: "report e comunità", done: modal.progress.total });
+				await runGraphify(["cluster-only", root], root, (line) => modal.log(clean(line)), modal.abort.signal);
+				const stats = readStats(root);
+				return `Fatto in ${duration(Date.now() - modal.progress.startedAt)}${stats ? `: ${stats.nodes} nodi, ${stats.edges} archi, ${stats.communities} gruppi` : ""}.\nToken: ${modal.progress.input.toLocaleString()} in, ${modal.progress.output.toLocaleString()} out (modello ${model}, piano Claude Code, costo $0).`;
+			} finally {
+				clearInterval(watch);
+			}
+		});
 	};
 
 	const status = (root: string) => {
