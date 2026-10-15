@@ -3,7 +3,7 @@
  * of MB of the model really go back to the system (measured: dropping it inside Pi's process freed 37 of ~600 MB).
  */
 import { fork, type ChildProcess } from "node:child_process";
-import { DEFAULT_MODEL, MODELS, type EmbedKind, type Embedder, type LoadProgress, type ModelProfile } from "./embed.ts";
+import { BackgroundEmbedder, DEFAULT_MODEL, MODELS, type EmbedKind, type Embedder, type LoadProgress, type ModelProfile } from "./embed.ts";
 
 export class ProcessEmbedder implements Embedder {
 	readonly profile: ModelProfile;
@@ -13,9 +13,16 @@ export class ProcessEmbedder implements Embedder {
 	private nextId = 0;
 	private readonly pending = new Map<number, { resolve: (vectors: Float32Array[]) => void; reject: (error: Error) => void }>();
 	private readonly onProgress?: (progress: LoadProgress) => void;
-	constructor(profile: ModelProfile = MODELS[process.env.PI_MEMORY_MODEL ?? DEFAULT_MODEL] ?? MODELS[DEFAULT_MODEL], options: { onProgress?: (progress: LoadProgress) => void } = {}) {
+	/** The process cannot start (no .ts support, fork refused): the model loads in this process instead, as before. */
+	private fallback: BackgroundEmbedder | undefined;
+	private readonly childFile: URL | string;
+	constructor(
+		profile: ModelProfile = MODELS[process.env.PI_MEMORY_MODEL ?? DEFAULT_MODEL] ?? MODELS[DEFAULT_MODEL],
+		options: { onProgress?: (progress: LoadProgress) => void; childFile?: URL | string } = {},
+	) {
 		this.profile = profile;
 		this.onProgress = options.onProgress;
+		this.childFile = options.childFile ?? new URL("./embed-child.ts", import.meta.url);
 	}
 	get model() {
 		return this.profile.name;
@@ -27,23 +34,34 @@ export class ProcessEmbedder implements Embedder {
 		return this.profile.semSpan;
 	}
 	get ready() {
-		return this.isReady;
+		return this.isReady || Boolean(this.fallback?.ready);
 	}
-	private key(): string {
-		return Object.entries(MODELS).find(([, profile]) => profile.name === this.profile.name)?.[0] ?? DEFAULT_MODEL;
+	/** True when the model runs inside Pi's process because the child could not start. */
+	get inProcess(): boolean {
+		return this.fallback !== undefined;
 	}
 	/** Resolves true when the model is ready, false on any failure (never throws). */
 	start(): Promise<boolean> {
+		if (this.fallback) return this.fallback.start();
 		this.loading ??= new Promise<boolean>((resolve) => {
+			const wasReady = () => this.isReady;
 			const fail = () => {
+				const everWorked = wasReady();
 				this.isReady = false;
 				this.loading = undefined;
 				for (const entry of this.pending.values()) entry.reject(new Error("embedder process failed"));
 				this.pending.clear();
+				// A process that died before it was ready could not run at all: use the in-process model. One that
+				// worked and then died is simply started again by the next call.
+				if (!everWorked && !this.child) {
+					this.fallback = new BackgroundEmbedder(this.profile, { onProgress: this.onProgress });
+					void this.fallback.start().then(resolve);
+					return;
+				}
 				resolve(false);
 			};
 			try {
-				const child = fork(new URL("./embed-child.ts", import.meta.url), { serialization: "advanced", stdio: ["ignore", "ignore", "ignore", "ipc"] });
+				const child = fork(this.childFile, { serialization: "advanced", stdio: ["ignore", "ignore", "ignore", "ipc"] });
 				this.child = child;
 				child.unref();
 				(child.channel as { unref?: () => void } | undefined)?.unref?.();
@@ -53,8 +71,11 @@ export class ProcessEmbedder implements Embedder {
 						this.isReady = true;
 						resolve(true);
 					} else if (message.type === "failed") {
+						// The model itself did not load (network, corrupt cache): the in-process path would fail the same.
 						this.close();
-						fail();
+						this.isReady = false;
+						this.loading = undefined;
+						resolve(false);
 					} else if (message.type === "result" && message.id !== undefined) {
 						const entry = this.pending.get(message.id);
 						this.pending.delete(message.id);
@@ -62,14 +83,17 @@ export class ProcessEmbedder implements Embedder {
 						else entry?.resolve(message.vectors ?? []);
 					}
 				});
-				child.on("error", fail);
+				child.on("error", () => {
+					if (this.child === child) this.child = undefined;
+					fail();
+				});
 				child.on("exit", () => {
 					if (this.child === child) {
 						this.child = undefined;
 						fail();
 					}
 				});
-				child.send({ type: "load", model: this.key() });
+				child.send({ type: "load", profile: this.profile });
 			} catch {
 				fail();
 			}
@@ -77,6 +101,7 @@ export class ProcessEmbedder implements Embedder {
 		return this.loading;
 	}
 	async embed(texts: string[], kind: EmbedKind = "passage"): Promise<Float32Array[]> {
+		if (this.fallback) return this.fallback.embed(texts, kind);
 		if (!this.child || !this.isReady) throw new Error("embedder not ready");
 		const id = this.nextId++;
 		return new Promise((resolve, reject) => {
@@ -91,5 +116,6 @@ export class ProcessEmbedder implements Embedder {
 		this.isReady = false;
 		this.loading = undefined;
 		child?.kill("SIGKILL");
+		this.fallback = undefined; // released for garbage collection; a later start tries the process again
 	}
 }
