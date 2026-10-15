@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 created: 2026-10-15
 source: user
 ---
@@ -16,7 +16,7 @@ Un `pi` a riposo usa fino al 12% di CPU e circa 1 GB di RAM (sessione di 2h50). 
 - [x] Tempo di avvio di Pi non peggiorato; ridotto di almeno il 30% se la misura lo permette. — prova: avvio 942 ms prima, 800-1450 ms dopo: rumore, misurato in alternanza old/new (new 1065-1762, old 1045-2005); non peggiorato
 - [x] Il timeout di inattività sul pool `claude -p` è attivo e la ripresa dopo la chiusura riparte da sola dal transcript (test verde + prova con `fake-claude`). — prova: `PI_CLAUDE_MCP_TRANSPORT=http … node test/rpc-driver.mjs "ciao" "!procs" "!sleep:4000" "!procs" "e ora?" "!procs"`: processi claude 2 → 0 dopo l'inattività, poi la risposta `ECHO: e ora?` arriva (ripartito dal transcript); `test/idle-reaper.test.ts` verde
 - [x] Nessuna regressione: tutti i test dei pacchetti toccati passano e `tsc` non dà errori. — prova: `npm test` pi-claude-code 19/19, pi-memory 142/142 (compresi `embed-process.test.ts` e il nuovo test del caricamento al primo richiamo); `tsc --noEmit -p` pulito nei due pacchetti
-- [ ] Modifiche committate con messaggio chiaro, dopo aver controllato che `main` sia allineato con `origin`.
+- [x] Modifiche committate con messaggio chiaro, dopo aver controllato che `main` sia allineato con `origin`. — prova: `git fetch` + `git status -sb` = `main...origin/main` allineato prima del commit; commit 2bcdc99 (perf) e 2567c0a (graph)
 
 ## Utenti e sistemi impattati
 Chi usa Pi con pi-claude: `pi-ui` (TUI), `pi-claude-code` (pool di processi), estensioni in `extensions/`, `pi-memory`, `pi-team`.
