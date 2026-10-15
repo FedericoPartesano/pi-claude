@@ -338,18 +338,25 @@ export function registerGraphify(pi: ExtensionAPI, rootOf: (cwd: string) => stri
 			const root = rootOf(ctx.cwd);
 			ensureExcluded(root);
 			modal.log(`Cartella: ${root}`);
-			const result = await runGraphify(
-				["update", root],
-				root,
-				(line) => {
-					modal.log(clean(line));
-					const found = parseProgress(line);
-					if (found) modal.set({ phase: "estrazione AST", ...found });
-					else if (/Rebuilt|updated/i.test(line)) modal.set({ phase: "comunità, report e HTML", done: modal.progress.total });
-				},
-				modal.abort.signal,
-			);
+			const onLine = (line: string) => {
+				modal.log(clean(line));
+				const found = parseProgress(line);
+				if (found) modal.set({ phase: "estrazione AST", ...found });
+				else if (/Rebuilt|updated/i.test(line)) modal.set({ phase: "comunità, report e HTML", done: modal.progress.total });
+			};
+			let result = await runGraphify(["update", root], root, onLine, modal.abort.signal);
 			if (modal.abort.signal.aborted) return "Build annullata.";
+			// Graphify refuses to overwrite when saved semantic nodes are absent from the new scan (ids changed, code deleted).
+			if (result.code !== 0 && /Refusing to overwrite/.test(result.out)) {
+				const ok = await ctx.ui.confirm(
+					"Graphify non sovrascrive il grafo",
+					"Alcuni nodi semantici salvati non compaiono nella nuova scansione. Sovrascrivere comunque? Quei nodi vanno persi (le etichette dei gruppi si rifanno con /graph semantic).",
+				);
+				if (!ok) return "Build fermata: il grafo precedente è rimasto com'era.";
+				modal.log("Riprovo con --force.");
+				result = await runGraphify(["update", root, "--force"], root, onLine, modal.abort.signal);
+				if (modal.abort.signal.aborted) return "Build annullata.";
+			}
 			const stats = readStats(root);
 			if (result.code !== 0 || !stats) return `Graphify non è riuscito (codice ${result.code}):\n${clean(result.out).split("\n").slice(-6).join("\n")}`;
 			return `Fatto in ${duration(Date.now() - modal.progress.startedAt)}: ${stats.nodes} nodi, ${stats.edges} archi, ${stats.communities} gruppi, ${stats.files} file. Token usati: 0.\nOutput in ${OUT}/ (graph.json, GRAPH_REPORT.md, graph.html).`;
