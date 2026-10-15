@@ -196,7 +196,12 @@ export function streamClaudeCode(
 			session.knownFingerprints = fingerprints;
 
 			stream.push({ type: "start", partial: output });
-			await streamOneAssistantMessage(session, output, stream, tools, options?.signal);
+			session.activeRequests++;
+			try {
+				await streamOneAssistantMessage(session, output, stream, tools, options?.signal);
+			} finally {
+				session.activeRequests--;
+			}
 
 			if (output.stopReason === "pending") throw new Error("Claude Code stream ended without a stop reason");
 			session.knownFingerprints = [...fingerprints, fingerprintMessage(output)];

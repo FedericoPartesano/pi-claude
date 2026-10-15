@@ -39,3 +39,14 @@ test("limits come from the environment, 0 means close at the first check", () =>
 	assert.equal(reapLimits({ PI_CLAUDE_IDLE_OTHER_MIN: "0" }).otherMs, 0);
 	assert.equal(reapLimits({ PI_CLAUDE_IDLE_LATEST_MIN: "abc" }).latestMs, 60 * 60_000);
 });
+
+test("a busy process (streaming or waiting for a tool) is never closed, however long it takes", () => {
+	const now = 500 * 60_000;
+	const latest = make(now);
+	const busy = Object.assign(make(now - 120 * 60_000), { isBusy: true });
+	const list = [latest, busy];
+	reapIdle(list, now, limits);
+	assert.equal(busy.disposed, false);
+	assert.equal(busy.lastUsed, now, "idle countdown restarts when it finishes");
+	assert.deepEqual(list, [latest, busy]);
+});

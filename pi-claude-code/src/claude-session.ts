@@ -77,6 +77,8 @@ export class ClaudeSession {
 	readonly signature: string;
 	/** Last time a request used this process (Date.now()); idle processes are reaped. */
 	lastUsed = Date.now();
+	/** Requests streaming from this process right now. */
+	activeRequests = 0;
 	private readonly process: ChildProcessWithoutNullStreams;
 	private readonly disposeEndpoint: () => void;
 	private readonly mcpHandler: McpEndpointHandler;
@@ -285,6 +287,11 @@ export class ClaudeSession {
 	/** Pi has executed the tool: release the pending MCP request (or store the result for it). */
 	resolveToolCall(id: string, result: McpToolCallResult): boolean {
 		return this.toolCalls.resolve(id, result);
+	}
+
+	/** Working: a request is streaming or Pi is running one of its tool calls. Never reaped while true. */
+	get isBusy(): boolean {
+		return this.activeRequests > 0 || this.toolCalls.pendingCount > 0;
 	}
 
 	hasPendingToolCall(id: string): boolean {

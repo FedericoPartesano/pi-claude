@@ -59,6 +59,11 @@ export class ToolCallMatcher {
 		call.match(expected);
 	}
 
+	/** Tool calls Pi still has to run and answer. */
+	get pendingCount(): number {
+		return this.expected.size;
+	}
+
 	has(id: string): boolean {
 		return this.expected.has(id);
 	}

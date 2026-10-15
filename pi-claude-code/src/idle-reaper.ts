@@ -7,6 +7,8 @@
 export interface Reapable {
 	lastUsed: number;
 	isAlive: boolean;
+	/** Streaming or waiting for a tool: never closed. */
+	isBusy?: boolean;
 	dispose(): void;
 }
 
@@ -31,6 +33,10 @@ export function reapLimits(env: NodeJS.ProcessEnv = process.env): ReapLimits {
 export function reapIdle<T extends Reapable>(sessions: T[], now: number, limits: ReapLimits): T[] {
 	const closed: T[] = [];
 	sessions.forEach((session, index) => {
+		if (session.isAlive && session.isBusy) {
+			session.lastUsed = now;
+			return;
+		}
 		const limit = index === 0 ? limits.latestMs : limits.otherMs;
 		if (session.isAlive && now - session.lastUsed < limit) return;
 		session.dispose();
