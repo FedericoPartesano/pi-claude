@@ -29,7 +29,7 @@ export class MemoryWorker implements Embedder {
 	constructor(options: { profile?: ModelProfile; fake?: boolean; idleMs?: number } = {}) {
 		this.profile = options.profile ?? MODELS[process.env.PI_MEMORY_MODEL ?? DEFAULT_MODEL] ?? MODELS[DEFAULT_MODEL];
 		this.fake = Boolean(options.fake);
-		this.idleMs = options.idleMs ?? Number(process.env.PI_MEMORY_EMBED_IDLE_MS ?? 10 * 60_000);
+		this.idleMs = options.idleMs ?? Number(process.env.PI_MEMORY_EMBED_IDLE_MS ?? 3 * 60_000);
 	}
 
 	get model() {
@@ -141,9 +141,15 @@ export class MemoryWorker implements Embedder {
 		return this.call<Float32Array[]>("embed", texts, kind);
 	}
 
-	recall(query: string, dirs: StoreDirs, today: string, options: RunOptions = {}): Promise<RecallRun> {
+	async recall(query: string, dirs: StoreDirs, today: string, options: RunOptions = {}): Promise<RecallRun> {
 		if (this.modelReady) this.touch();
-		return this.call<RecallRun>("recall", query, dirs, today, options);
+		const run = await this.call<RecallRun>("recall", query, dirs, today, options);
+		// The worker loads the model by itself at the first recall that finds vectors: from here the idle countdown applies.
+		if (run.embedderReady && !this.modelReady) {
+			this.modelReady = true;
+			this.touch();
+		}
+		return run;
 	}
 
 	/** Past sessions: the passages that answer a question (`ricorda` with `episodio`). */

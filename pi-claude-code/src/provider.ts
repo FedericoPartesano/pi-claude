@@ -34,6 +34,7 @@ import {
 	type ToolResultMessage,
 	type TranscriptContext,
 } from "@earendil-works/pi-ai";
+import { reapIdle, reapLimits } from "./idle-reaper.ts";
 import { ClaudeSession, type ClaudeRecord, MCP_TOOL_PREFIX, advisorFor } from "./claude-session.ts";
 import { toContentBlocks, writeClaudeSession } from "./claude-transcript.ts";
 import { McpHttpServer, type McpToolCallResult, type McpToolDefinition } from "./mcp-http-server.ts";
@@ -56,6 +57,18 @@ type StreamingBlock = (TextContent | ThinkingContent | (ToolCall & { partialJson
 
 const mcpServer = new McpHttpServer();
 const liveSessions: ClaudeSession[] = [];
+
+let reaper: ReturnType<typeof setInterval> | undefined;
+/** Checks once a minute for idle processes. unref: never keeps Pi alive. */
+function startReaper(): void {
+	if (reaper) return;
+	const limits = reapLimits();
+	reaper = setInterval(() => {
+		const closed = reapIdle(liveSessions, Date.now(), limits);
+		if (closed.length) debugLog?.(`reaped ${closed.length} idle session(s)`);
+	}, Number(process.env.PI_CLAUDE_REAP_EVERY_MS ?? 60_000));
+	reaper.unref();
+}
 
 const debugLogPath = process.env.PI_CLAUDE_DEBUG;
 const debugLog = debugLogPath
@@ -86,6 +99,7 @@ export async function prewarmSession(modelId: string, thinkingLevel: string | un
 	});
 	liveSessions.unshift(session);
 	while (liveSessions.length > MAX_LIVE_SESSIONS) liveSessions.pop()?.dispose();
+	startReaper();
 }
 
 /** Tool order does not matter to the model; sort so prewarmed and real requests compare equal. */
@@ -125,6 +139,8 @@ function recordRateLimit(info: unknown): void {
 }
 
 export function disposeAllSessions(): void {
+	if (reaper) clearInterval(reaper);
+	reaper = undefined;
 	for (const session of liveSessions.splice(0)) session.dispose();
 	void mcpServer.stop();
 }
@@ -184,6 +200,7 @@ export function streamClaudeCode(
 
 			if (output.stopReason === "pending") throw new Error("Claude Code stream ended without a stop reason");
 			session.knownFingerprints = [...fingerprints, fingerprintMessage(output)];
+			session.lastUsed = Date.now();
 			stream.push({
 				type: "done",
 				reason: output.stopReason as Extract<StopReason, "stop" | "length" | "toolUse">,
@@ -229,6 +246,7 @@ function findReusableSession(
 		// Most recently used first.
 		liveSessions.splice(liveSessions.indexOf(session), 1);
 		liveSessions.unshift(session);
+		session.lastUsed = Date.now();
 		return session;
 	}
 	return undefined;
@@ -269,6 +287,7 @@ function startSessionFromTranscript(
 	});
 	liveSessions.unshift(session);
 	while (liveSessions.length > MAX_LIVE_SESSIONS) liveSessions.pop()?.dispose();
+	startReaper();
 
 	const pending = oneUserTurn(pendingUserMessages, toContentBlocks);
 	if (pending) {

@@ -2,9 +2,11 @@
  * The memory work behind MemoryWorker: embedding model + Recaller (index, recall, core, vectors). Runs in the worker
  * thread (memory-worker.ts) or, if a worker cannot start, in the caller's thread: same code either way.
  */
-import { BackgroundEmbedder, createFakeEmbedder, type EmbedKind, type Embedder, type ModelProfile } from "./embed.ts";
+import { ProcessEmbedder } from "./embed-process.ts";
+import { createFakeEmbedder, type EmbedKind, type Embedder, type ModelProfile } from "./embed.ts";
 import { Recaller, fillVectors, type StoreDirs } from "./engine.ts";
 import { EpisodeSearch } from "./episodes.ts";
+import { storeExists } from "./store.ts";
 import type { RecallOptions } from "./recall.ts";
 import type { MemoryProgress } from "./dashboard.ts";
 
@@ -28,7 +30,7 @@ export function createHandlers(options: HandlerOptions, emit: (progress: MemoryP
 		if (model) return Promise.resolve(true);
 		loading ??= (async () => {
 			try {
-				const candidate: Embedder & { start?: () => Promise<boolean> } = options.fake ? { ...createFakeEmbedder(384), model: options.profile.name } : new BackgroundEmbedder(options.profile, { onProgress: emit });
+				const candidate: Embedder & { start?: () => Promise<boolean> } = options.fake ? { ...createFakeEmbedder(384), model: options.profile.name } : new ProcessEmbedder(options.profile, { onProgress: emit });
 				const ok = candidate.start ? await candidate.start() : true;
 				if (ok) model = candidate;
 				emit({ phase: "idle" });
@@ -51,6 +53,7 @@ export function createHandlers(options: HandlerOptions, emit: (progress: MemoryP
 		start,
 		/** Drops the model (hundreds of MB); the index stays, recall goes on with keywords until the next start. */
 		unloadModel() {
+			(model as { close?: () => void } | undefined)?.close?.();
 			model = undefined;
 		},
 		async embed(texts: string[], kind: EmbedKind) {
@@ -61,6 +64,16 @@ export function createHandlers(options: HandlerOptions, emit: (progress: MemoryP
 				let timer: ReturnType<typeof setTimeout> | undefined;
 				await Promise.race([start(), new Promise((resolve) => (timer = setTimeout(resolve, runOptions.waitModelMs)))]);
 				clearTimeout(timer);
+			}
+			// No model (not yet loaded, or closed while idle): this answer uses keywords; the model loads in the background
+			// for the next ones, with the vectors still missing. The model is not loaded at session start any more:
+			// a session that is only read or resumed never pays its ~4 s of CPU and ~650 MB.
+			if (!model && !runOptions.waitModelMs && recaller.hasVectors(dirs)) {
+				void start().then(async (ok) => {
+					if (!ok) return;
+					for (const dir of [dirs.project, dirs.global]) if (dir && storeExists(dir)) await fillVectors(dir, model!, emit).catch(() => 0);
+					emit({ phase: "idle" });
+				});
 			}
 			return recaller.run(query, dirs, today, model, runOptions);
 		},

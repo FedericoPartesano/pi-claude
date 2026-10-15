@@ -493,15 +493,9 @@ export default function (pi: ExtensionAPI) {
 			migrate(ctx.cwd, today());
 			if (hasStore(dirs)) {
 				showStatus(ctx, { loading: true });
+				// Only the keyword index now; the model loads at the first recall that finds vectors (memory-handlers.ts).
 				setTimeout(() => {
-					// The keyword index first (in the worker), then the model, missing vectors and the vector index.
-					void memoryWorker.warm(dirs).catch(() => 0);
-					void memoryWorker.start().then(async (ready) => {
-						showStatus(ctx);
-						if (!ready) return;
-						for (const dir of [dirs.project, dirs.global]) if (dir && storeExists(dir)) await memoryWorker.fillVectors(dir).catch(() => 0);
-						await memoryWorker.warm(dirs).catch(() => 0);
-					});
+					void memoryWorker.warm(dirs).catch(() => 0).then(() => showStatus(ctx));
 				}, 1500).unref();
 			}
 		}

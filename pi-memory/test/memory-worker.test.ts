@@ -142,3 +142,23 @@ test("the worker reports what it is doing (index, vectors) to Pi's side", async 
 		memory.close();
 	}
 });
+
+test("the model is not loaded at start: the first recall answers with keywords and loads it for the next ones", async () => {
+	const project = join(mkdtempSync(join(tmpdir(), "mw-")), "p");
+	saveStore(project, { records: [rec("r1", "Le esportazioni Excel usano exceljs in streaming", { entities: ["exceljs"] })], vectors: new Map() });
+	const filler = new MemoryWorker({ fake: true });
+	await filler.start();
+	await filler.fillVectors(project);
+	filler.close();
+	const memory = new MemoryWorker({ fake: true });
+	try {
+		assert.equal(memory.ready, false, "nothing loaded at start");
+		const first = await memory.recall("esportazioni excel", { project }, "2026-10-08");
+		assert.deepEqual(first.ids, ["r1"]);
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		const second = await memory.recall("esportazioni excel", { project }, "2026-10-08");
+		assert.equal(second.embedderReady, true, "the first recall started the model in the background");
+	} finally {
+		memory.close();
+	}
+});

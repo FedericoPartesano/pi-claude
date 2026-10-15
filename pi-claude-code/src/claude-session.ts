@@ -75,6 +75,8 @@ export class ClaudeSession {
 	/** Fingerprints of the transcript messages this process already knows, in order. */
 	knownFingerprints: string[] = [];
 	readonly signature: string;
+	/** Last time a request used this process (Date.now()); idle processes are reaped. */
+	lastUsed = Date.now();
 	private readonly process: ChildProcessWithoutNullStreams;
 	private readonly disposeEndpoint: () => void;
 	private readonly mcpHandler: McpEndpointHandler;

@@ -100,6 +100,17 @@ for (const [index, step] of steps.entries()) {
 		console.log(`\n### model ${modelMatch[1]}: success=${response.success} ${response.error ?? ""}`);
 		continue;
 	}
+	const sleepMatch = /^!sleep:(\d+)$/.exec(step);
+	if (sleepMatch) {
+		await new Promise((resolve) => setTimeout(resolve, Number(sleepMatch[1])));
+		continue;
+	}
+	if (step === "!procs") {
+		const { execFileSync } = await import("node:child_process");
+		const children = execFileSync("ps", ["--ppid", String(pi.pid), "-o", "args="], { encoding: "utf8" }).split("\n").filter((line) => /fake-claude|claude -p/.test(line));
+		console.log(`\n### claude processes alive: ${children.length}`);
+		continue;
+	}
 	if (step === "!stats") {
 		const response = await request({ type: "get_session_stats" });
 		console.log(`\n### stats: ${JSON.stringify(response.data)}`);
