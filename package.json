@@ -40,5 +40,8 @@
     "@huggingface/transformers": "^3.7.0",
     "jpeg-js": "^0.4.4",
     "pngjs": "^7.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
   }
 }
