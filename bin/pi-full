@@ -16,10 +16,16 @@ EXTENSIONS=(
   "$REPO/extensions/tool-groups.ts" # per ultima: gestisce i tool delle estensioni precedenti
 )
 
+# The standalone pickers import Pi's packages: host-pi.mjs takes them from the installed Pi when pi-picker has no
+# node_modules of its own (install.sh does not install them, so without this --pick and --resume died at import).
+PI_BIN="$(command -v pi 2>/dev/null)"
+[ -n "$PI_BIN" ] && export PI_HOST_DIR="$(cd "$(dirname "$(readlink -f "$PI_BIN")")/../.." 2>/dev/null && pwd)"
+PICKER=(node --disable-warning=ExperimentalWarning --import "$REPO/pi-picker/bin/host-pi.mjs")
+
 if [ "${1:-}" = "--pick" ]; then
   shift
   chosen="$(mktemp)"
-  node --disable-warning=ExperimentalWarning "$REPO/pi-picker/bin/pick-project.ts" --out "$chosen" || { rm -f "$chosen"; exit 1; }
+  "${PICKER[@]}" "$REPO/pi-picker/bin/pick-project.ts" --out "$chosen" || { rm -f "$chosen"; exit 1; }
   cd "$(cat "$chosen")" || exit 1
   rm -f "$chosen"
 fi
@@ -33,7 +39,7 @@ resume=()
 if [ "${1:-}" = "--resume" ] || [ "${1:-}" = "-r" ]; then
   shift
   chosen="$(mktemp)"
-  node --disable-warning=ExperimentalWarning "$REPO/pi-picker/bin/pick-session.ts" --out "$chosen" || { rm -f "$chosen"; exit 1; }
+  "${PICKER[@]}" "$REPO/pi-picker/bin/pick-session.ts" --out "$chosen" || { rm -f "$chosen"; exit 1; }
   resume=(--session "$(sed -n 1p "$chosen")")
   dir="$(sed -n 2p "$chosen")"
   rm -f "$chosen"
