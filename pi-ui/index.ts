@@ -364,8 +364,13 @@ export default function (pi: ExtensionAPI) {
 		const stopGuard = ctx.ui.onTerminalInput((data) =>
 			isTerminalReplyLeak(data) || (Date.now() - startedAt < 1500 && /^(?:[\d;:]|\x1b\\)$/.test(data)) ? { consume: true } : undefined);
 		setTimeout(() => {
-			stopGuard();
-			if (isTerminalReplyLeak(ctx.ui.getEditorText())) ctx.ui.setEditorText("");
+			// The session may have been replaced or reloaded within these 3 s, which makes this
+			// captured ctx stale: touching ctx.ui would then throw inside the timer and crash Pi.
+			// This is only startup-leak cleanup, so skip it when the ctx is no longer live.
+			try {
+				stopGuard();
+				if (isTerminalReplyLeak(ctx.ui.getEditorText())) ctx.ui.setEditorText("");
+			} catch {}
 		}, 3000).unref?.();
 		const session = (await runtimeAgentSession(process.argv[1], AgentSession)) as { prototype: Parameters<typeof patchPromptRace>[0] };
 		patchPromptRace(session.prototype);

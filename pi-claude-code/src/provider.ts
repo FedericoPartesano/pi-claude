@@ -218,7 +218,7 @@ export function streamClaudeCode(
 				delete (block as StreamingBlock).claudeIndex;
 				delete (block as { partialJson?: string }).partialJson;
 			}
-			output.stopReason = options?.signal?.aborted ? "aborted" : "error";
+			output.stopReason = options?.signal?.aborted || isAbortError(error) ? "aborted" : "error";
 			output.errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
 			stream.push({ type: "error", reason: output.stopReason, error: output });
 			stream.end();
@@ -471,6 +471,18 @@ function applyUsage(output: AssistantMessage, usage: Record<string, number> | un
 	output.usage.totalTokens =
 		output.usage.input + output.usage.output + output.usage.cacheRead + output.usage.cacheWrite;
 	// Subscription usage: no per-token cost.
+}
+
+// A request cancelled mid-flight (the user typed while the model was streaming,
+// or an in-flight tool was killed) surfaces as an abort, not a real model error.
+// The abort does not always flip options.signal in time, and the cancellation can
+// come from another source, so recognise it by the error itself as well.
+export function isAbortError(error: unknown): boolean {
+	if (error instanceof Error) {
+		if (error.name === "AbortError") return true;
+		return /\baborted\b/i.test(error.message);
+	}
+	return false;
 }
 
 function mapStopReason(reason: string): StopReason {
