@@ -13,3 +13,6 @@ eval/logs/memory-*/
 eval/logs/bench-*/
 eval/logs/collab-*/
 eval/logs/parallel-*/
+
+# Obsidian: stato locale della finestra
+vault/.obsidian/workspace*.json
