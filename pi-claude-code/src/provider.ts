@@ -452,8 +452,12 @@ async function streamOneAssistantMessage(
 				break;
 			}
 			case "message_delta":
-				if (event.delta?.stop_reason) output.stopReason = mapStopReason(event.delta.stop_reason);
 				applyUsage(output, event.usage);
+				if (event.delta?.stop_reason) {
+					const problem = stopReasonProblem(event.delta.stop_reason);
+					if (problem) throw new Error(problem);
+					output.stopReason = mapStopReason(event.delta.stop_reason);
+				}
 				break;
 			case "message_stop":
 				if (messageStarted) return;
@@ -485,18 +489,33 @@ export function isAbortError(error: unknown): boolean {
 	return false;
 }
 
+// A stop reason that ends the turn without an answer. Mapped to a bare "error" it
+// reached Pi with no message at all, shown as an unknown model error.
+export function stopReasonProblem(reason: string): string | undefined {
+	switch (reason) {
+		case "tool_use":
+		case "max_tokens":
+		case "end_turn":
+		case "stop_sequence":
+		case "pause_turn":
+			return undefined;
+		case "refusal":
+			return "Claude Code: the model declined to answer (stop_reason refusal)";
+		case "model_context_window_exceeded":
+			return "Claude Code: the model context window is full (stop_reason model_context_window_exceeded)";
+		default:
+			return `Claude Code: unexpected stop_reason ${reason}`;
+	}
+}
+
 function mapStopReason(reason: string): StopReason {
 	switch (reason) {
 		case "tool_use":
 			return "toolUse";
 		case "max_tokens":
 			return "length";
-		case "end_turn":
-		case "stop_sequence":
-		case "pause_turn":
-			return "stop";
 		default:
-			return "error";
+			return "stop";
 	}
 }
 
