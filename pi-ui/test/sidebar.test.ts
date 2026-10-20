@@ -25,3 +25,19 @@ test("the fullscreen layout root becomes an hstack: the chat grows, the panel ha
 	assert.deepEqual(root.render(80), ["chat 80"], "outside the layout engine (transcript export) it renders the chat");
 	assert.equal(root.inner, chat);
 });
+
+test("hiding the panel keeps the browser column: each entry has its own visibility", () => {
+	const part = (name: string) => ({ render: () => [name], invalidate() {} });
+	let panelOn = true;
+	let browserOn = true;
+	const root = sidebarRoot(part("chat"), part("panel"), 41, { component: part("browser"), width: () => 60, visible: () => browserOn }, () => panelOn);
+	const [, browser, panel] = root[LAYOUT_NODE]().entries;
+	const viewport = { width: 200, height: 40 };
+	assert.equal(browser.visible?.(viewport), true);
+	assert.equal(panel.visible?.(viewport), true);
+	panelOn = false;
+	assert.equal(panel.visible?.(viewport), false);
+	assert.equal(browser.visible?.(viewport), true, "closing the panel must not close the browser");
+	browserOn = false;
+	assert.equal(browser.visible?.(viewport), false);
+});

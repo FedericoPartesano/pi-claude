@@ -7,6 +7,8 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { electronBinary, startElectronHeadless } from "./electron-headless.ts";
+import { findTerminalBrowser, isWsl } from "./terminal-browser.ts";
 
 const CANDIDATES = [
 	process.env.PI_BROWSER_CHROME,
@@ -50,6 +52,8 @@ export interface RunningChrome {
 	/** Undefined when attached to the user's Chrome (never closed by Pi). */
 	process?: ChildProcess;
 	attached: boolean;
+	/** A given tab to drive (terminal-browser: the one the user sees). */
+	targetId?: string;
 }
 
 export const DEFAULT_PROFILE = join(homedir(), ".cache", "pi-browser", "profile");
@@ -78,6 +82,20 @@ export async function startChrome(options: { profile?: string; headless?: boolea
 		});
 		return { endpoint: base, attached: true };
 	}
+	// The user's terminal-browser, if one is open: they see the page in their terminal. PI_BROWSER_BACKEND=chrome skips it.
+	const terminal = await findTerminalBrowser();
+	if (terminal) return { endpoint: terminal.endpoint, attached: true, targetId: terminal.targetId };
+	// Nothing open: Pi runs terminal-browser's Electron itself, without a window. Default where Chrome cannot navigate (WSL2);
+	// PI_BROWSER_BACKEND=terminal forces it, =chrome never. The user sees the page in Pi's browser column (/browser vista).
+	const backend = process.env.PI_BROWSER_BACKEND;
+	if (backend !== "chrome" && (backend === "terminal" || isWsl())) {
+		const electron = await electronBinary();
+		if (electron) {
+			const started = await startElectronHeadless(electron);
+			return { endpoint: started.endpoint, process: started.process, attached: false };
+		}
+	}
+	if (backend === "terminal") throw new Error("Terminal-browser non installato: /browser installa.");
 	const binary = findChrome();
 	if (!binary) throw new Error("Chrome non trovato: installalo, oppure indica il percorso con PI_BROWSER_CHROME.");
 	const profile = options.profile ?? process.env.PI_BROWSER_PROFILE ?? DEFAULT_PROFILE;

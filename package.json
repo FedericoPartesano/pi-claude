@@ -30,7 +30,8 @@
       "./extensions/tab-status.ts",
       "./extensions/title.ts",
       "./extensions/advisor.ts",
-      "./extensions/graph.ts"
+      "./extensions/graph.ts",
+      "./extensions/vault.ts"
     ],
     "themes": [
       "./pi-ui/themes/*.json"

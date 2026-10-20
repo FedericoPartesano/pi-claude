@@ -25,7 +25,14 @@ export interface SidebarRoot extends Component {
 	inner: Component;
 }
 
-export function sidebarRoot(inner: Component, panel: Component, width: number): SidebarRoot {
+/** An optional column between the chat and the panel (the browser): fixed width, shown while `visible()` is true. */
+export interface ExtraColumn {
+	component: Component;
+	width: (termWidth: number) => number;
+	visible: () => boolean;
+}
+
+export function sidebarRoot(inner: Component, panel: Component, width: number, extra?: ExtraColumn, panelVisible: () => boolean = () => true): SidebarRoot {
 	return {
 		inner,
 		[LAYOUT_NODE]: () => ({
@@ -36,7 +43,8 @@ export function sidebarRoot(inner: Component, panel: Component, width: number): 
 				// basis 0 + grow: the chat takes the rest without being measured at full width first (measuring it at another
 				// width than it is drawn at defeated Pi's Markdown cache: ~84 ms per keystroke instead of ~7 on a long session).
 				{ component: inner, basis: 0, grow: 1, shrink: 1 },
-				{ component: panel, basis: width, shrink: 0, visible: (viewport) => viewport.width >= PINNED_MIN_COLUMNS },
+				...(extra ? [{ component: extra.component, basis: extra.width(process.stdout.columns ?? 0), shrink: 0, visible: (viewport: { width: number; height: number }) => extra.visible() && viewport.width >= PINNED_MIN_COLUMNS }] : []),
+				{ component: panel, basis: width, shrink: 0, visible: (viewport) => panelVisible() && viewport.width >= PINNED_MIN_COLUMNS },
 			],
 		}),
 		// Outside the layout engine (e.g. the transcript printed on exit) only the chat.

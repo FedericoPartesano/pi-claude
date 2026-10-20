@@ -37,7 +37,13 @@ export class BrowserSession {
 	/** Where downloads land (the project's .pi/downloads): no dialog, and Pi can list them. */
 	readonly downloadsDir?: string;
 
-	constructor(options: { shotsDir?: string; downloadsDir?: string } = {}) {
+	/** Called with every new frame (base64 PNG) once watch() is set: the live view in Pi's own screen. */
+	private onFrame?: (png: string) => void;
+	/** Chrome without a window: the page is shown inside Pi instead. */
+	headless: boolean | undefined;
+
+	constructor(options: { shotsDir?: string; downloadsDir?: string; headless?: boolean } = {}) {
+		this.headless = options.headless;
 		this.shotsDir = options.shotsDir ?? join(homedir(), ".cache", "pi-browser", "shots");
 		this.downloadsDir = options.downloadsDir;
 	}
@@ -71,8 +77,8 @@ export class BrowserSession {
 
 	private async ensure(): Promise<CdpPage> {
 		if (this.page && !this.page.closed) return this.page;
-		this.chrome ??= await startChrome();
-		const target = await pageTarget(this.chrome.endpoint);
+		this.chrome ??= await startChrome({ headless: this.headless });
+		const target = await pageTarget(this.chrome.endpoint, undefined, this.chrome.targetId);
 		const page = await CdpPage.connect(target.webSocketDebuggerUrl);
 		await Promise.all([page.send("Page.enable"), page.send("DOM.enable"), page.send("Accessibility.enable"), page.send("Runtime.enable"), page.send("Log.enable")]);
 		const log = (line: string) => {
@@ -93,7 +99,36 @@ export class BrowserSession {
 		}
 		this.page = page;
 		this.url = target.url;
+		if (this.onFrame) this.startScreencast(page);
 		return page;
+	}
+
+	/** Frames of the page as it changes (PNG, ≤ 900 px wide). watch(undefined) stops. */
+	watch(onFrame: ((png: string) => void) | undefined): void {
+		this.onFrame = onFrame;
+		if (!this.page || this.page.closed) return;
+		if (onFrame) this.startScreencast(this.page);
+		else void this.page.send("Page.stopScreencast").catch(() => undefined);
+	}
+
+	private framed = new WeakSet<CdpPage>();
+
+	private startScreencast(page: CdpPage): void {
+		if (!this.framed.has(page)) {
+			this.framed.add(page);
+			page.on("Page.screencastFrame", (frame: { data: string; sessionId: number }) => {
+				this.onFrame?.(frame.data);
+				void page.send("Page.screencastFrameAck", { sessionId: frame.sessionId }).catch(() => undefined);
+			});
+		}
+		void page.send("Page.startScreencast", { format: "png", maxWidth: 900, maxHeight: 900, everyNthFrame: 2 }).catch(() => undefined);
+		// A page that does not change sends no frame: one screenshot now, so the view never waits on a still page.
+		void page.send<{ data: string }>("Page.captureScreenshot", { format: "png" }).then((shot) => this.onFrame?.(shot.data)).catch(() => undefined);
+	}
+
+	/** Connects now (to the open terminal-browser tab, or a new Chrome) so the live view shows the page before any tool call. */
+	async connect(): Promise<void> {
+		await this.ensure();
 	}
 
 	private async readTree(scopeRef?: string): Promise<string> {
@@ -173,7 +208,10 @@ export class BrowserSession {
 			await page.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
 			if (kind === "click") {
 				await page.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: 1 });
-				await page.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 });
+				// terminal-browser may drop the socket when a click navigates: not a failure, ensure() reconnects.
+				await page.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 }).catch((error: Error) => {
+					if (!page.closed) throw error;
+				});
 			}
 		} else if (kind === "type") {
 			const { object } = await page.send<{ object: { objectId: string } }>("DOM.resolveNode", { backendNodeId });
@@ -198,7 +236,12 @@ export class BrowserSession {
 			await page.send("Input.dispatchKeyEvent", { type: "keyUp", key: key.key, code: key.code, windowsVirtualKeyCode: key.keyCode });
 		}
 		// Let the page react: a navigation waits for the new page, otherwise a short settle.
-		if (await navigated) await this.waitForLoad(page, 15_000);
+		if (page.closed) {
+			// The socket dropped on navigation: reconnect to the (new) page and let it load.
+			await new Promise((resolve) => setTimeout(resolve, 1500));
+			this.page = undefined;
+			await this.ensure();
+		} else if (await navigated) await this.waitForLoad(page, 15_000);
 		else await new Promise((resolve) => setTimeout(resolve, 300));
 		this.url = await this.location();
 		if (this.url !== before) {
@@ -238,6 +281,41 @@ export class BrowserSession {
 		} catch {
 			// No overlay domain (some embedders): act anyway.
 		}
+	}
+
+	/** Page size in CSS pixels, to turn a position on the live view (0..1) into a point on the page. */
+	private async viewport(page: CdpPage): Promise<{ width: number; height: number }> {
+		const { result } = await page.send<{ result: { value?: { width: number; height: number } } }>("Runtime.evaluate", { expression: "({width: innerWidth, height: innerHeight})", returnByValue: true });
+		return result.value ?? { width: 1100, height: 900 };
+	}
+
+	/** A click at a position of the live view (fractions of the frame, 0..1). */
+	async clickAt(fx: number, fy: number): Promise<void> {
+		const page = await this.ensure();
+		const size = await this.viewport(page);
+		const x = Math.round(Math.min(1, Math.max(0, fx)) * size.width);
+		const y = Math.round(Math.min(1, Math.max(0, fy)) * size.height);
+		await page.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
+		await page.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: 1 });
+		await page.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 }).catch(() => undefined);
+	}
+
+	/** Wheel over a position of the live view; positive deltaY scrolls down. */
+	async wheelAt(fx: number, fy: number, deltaY: number): Promise<void> {
+		const page = await this.ensure();
+		const size = await this.viewport(page);
+		await page.send("Input.dispatchMouseEvent", { type: "mouseWheel", x: Math.round(fx * size.width), y: Math.round(fy * size.height), deltaX: 0, deltaY });
+	}
+
+	/** Keys typed by the user on the live view: raw terminal input (text, Enter, Backspace, Tab, arrows). */
+	async typeRaw(data: string): Promise<void> {
+		const page = await this.ensure();
+		const named: Record<string, string> = { "\r": "Enter", "\t": "Tab", "\x7f": "Backspace", "\x1b[A": "ArrowUp", "\x1b[B": "ArrowDown", "\x1b[C": "ArrowRight", "\x1b[D": "ArrowLeft", "\x1b[5~": "PageUp", "\x1b[6~": "PageDown" };
+		const key = KEYS[named[data] ?? ""];
+		if (key) {
+			await page.send("Input.dispatchKeyEvent", { type: "keyDown", key: key.key, code: key.code, windowsVirtualKeyCode: key.keyCode, text: key.text });
+			await page.send("Input.dispatchKeyEvent", { type: "keyUp", key: key.key, code: key.code, windowsVirtualKeyCode: key.keyCode });
+		} else if (data.length > 0 && !data.startsWith("\x1b") && data >= " ") await page.send("Input.insertText", { text: data });
 	}
 
 	async evaluate(expression: string): Promise<string> {

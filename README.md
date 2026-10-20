@@ -109,6 +109,11 @@ Screenshot (`shot`) ed errori di console e rete (`logs`) solo su richiesta.
 - Il tuo Chrome al posto di quello di Pi: avvialo con `--remote-debugging-port=9222` e imposta
   `PI_BROWSER_CDP=http://127.0.0.1:9222`. Altre variabili: `PI_BROWSER_CHROME` (percorso), `PI_BROWSER_HEADLESS=1`,
   `PI_BROWSER=0` (spento). `/browser chiudi` chiude la finestra.
+- Pagina nel terminale con [terminal-browser](https://github.com/zenbu-labs/terminal-browser) (WSL, macOS, Linux; non
+  Windows nativo): aprilo tu in un pannello (`terminal-browser open <url>`, serve un terminale con grafica kitty, per
+  esempio noctty o Ghostty) e il tool `browser` pilota quello, sulla scheda attiva, invece di aprire Chrome.
+  `/browser installa` lo installa dopo conferma e, su WSL2, sostituisce Electron 44 con 40 (SHA256 controllato: la 44
+  non completa le navigazioni). `PI_BROWSER_BACKEND=chrome` non lo usa mai, `=terminal` lo pretende.
 
 ## Guardie
 

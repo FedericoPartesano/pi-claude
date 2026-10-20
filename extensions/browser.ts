@@ -9,6 +9,7 @@
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { BrowserSession, type ActKind } from "./browser/session.ts";
+import { installTerminalBrowser } from "./browser/terminal-install.ts";
 
 /** A request about the web: a URL, a local server, or the browser named. */
 export function wantsBrowser(prompt: string): boolean {
@@ -61,6 +62,69 @@ export default function (pi: ExtensionAPI) {
 
 	const status = (ctx: ExtensionContext, text?: string) => {
 		if (ctx.hasUI) ctx.ui.setStatus("browser", text);
+	};
+
+	// Live view: the page drawn in Pi's own screen (overlay on the right). Opt in with /browser vista; PI_BROWSER_VIEW=1 starts with it.
+	let view: { close: () => void; setTitle: (title: string) => void } | undefined;
+	const showView = async (ctx: ExtensionContext): Promise<string | undefined> => {
+		if (view) return undefined;
+		if (!ctx.hasUI || ctx.mode !== "tui") return "La vista nel terminale serve l'interfaccia interattiva.";
+		// Loaded here: pi-tui exists only inside Pi.
+		const { canShowImages, LiveView } = await import("./browser/liveview.ts");
+		if (!canShowImages()) return "Questo terminale non mostra immagini (kitty o iTerm2): imposta PI_IMAGE_PROTOCOL=kitty se le supporta.";
+		// A Chrome that already has a window stays as it is; otherwise Pi starts one without a window.
+		if (!session) session = new BrowserSession({ downloadsDir: join(ctx.cwd, ".pi", "downloads"), headless: true });
+		// Preferred: a real column of Pi's layout (pi-ui), which squeezes the chat instead of covering it.
+		const column = (globalThis as unknown as Record<symbol, { available(): boolean; open(): void; close(): void; setFrame(png: string): void; setTitle(title: string): void; onInput(handler: ((input: { type: string; fx?: number; fy?: number; deltaY?: number; data?: string }) => void) | undefined): void } | undefined>)[Symbol.for("pi-claude/browser-column")];
+		if (column?.available()) {
+			column.open();
+			session.watch((png) => column.setFrame(png));
+			const watched = session;
+			void watched.connect().catch((error: Error) => column.setTitle(`non collegato: ${error.message.slice(0, 120)}`));
+			// What the user does on the column goes to the page: clicks, wheel and typing.
+			column.onInput((input) => {
+				const target = session;
+				if (!target) return;
+				const done = input.type === "click" ? target.clickAt(input.fx ?? 0, input.fy ?? 0) : input.type === "wheel" ? target.wheelAt(input.fx ?? 0, input.fy ?? 0, input.deltaY ?? 0) : target.typeRaw(input.data ?? "");
+				void done.catch(() => undefined);
+			});
+			view = {
+				close: () => {
+					column.onInput(undefined);
+					session?.watch(undefined);
+					column.close();
+					view = undefined;
+				},
+				setTitle: (title) => column.setTitle(title),
+			};
+			return undefined;
+		}
+		let live: InstanceType<typeof LiveView> | undefined;
+		let finish: (() => void) | undefined;
+		void ctx.ui.custom<void>(
+			(tui, _theme, _keys, done) => {
+				live = new LiveView(tui);
+				finish = () => done(undefined);
+				return live;
+			},
+			{ overlay: true, overlayOptions: { width: "45%", minWidth: 40, maxHeight: "85%", anchor: "right-center", margin: { right: 1 }, nonCapturing: true } },
+		).catch(() => undefined);
+		session.watch((png) => live?.setFrame(png));
+		const watched = session;
+		void watched.connect().catch((error: Error) => {
+			if (live) live.title = `non collegato: ${error.message.slice(0, 120)}`;
+		});
+		view = {
+			close: () => {
+				session?.watch(undefined);
+				finish?.();
+				view = undefined;
+			},
+			setTitle: (title) => {
+				if (live) live.title = title;
+			},
+		};
+		return undefined;
 	};
 
 	pi.registerTool({
@@ -143,13 +207,47 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("browser", {
-		description: "pi-browser: attiva il tool browser per questa sessione · /browser chiudi",
+		description: "pi-browser: attiva il tool browser per questa sessione · /browser chiudi · /browser vista (pagina a destra: clic, rotella e tastiera) · /browser vai <indirizzo> · /browser installa (terminal-browser)",
 		handler: async (args, ctx) => {
 			if (args.trim() === "chiudi" || args.trim() === "close") {
+				view?.close();
 				session?.close();
 				session = undefined;
 				status(ctx, undefined);
 				return ctx.hasUI ? ctx.ui.notify("Browser chiuso.", "info") : undefined;
+			}
+			if (args.trim() === "vista" || args.trim() === "view") {
+				if (view) {
+					view.close();
+					return ctx.hasUI ? ctx.ui.notify("Vista chiusa.", "info") : undefined;
+				}
+				activate();
+				const refused = await showView(ctx);
+				return ctx.hasUI ? ctx.ui.notify(refused ?? "Vista aperta a destra: chiedi di aprire una pagina. /browser vista la chiude.", refused ? "error" : "info") : undefined;
+			}
+			if (/^(vai|go)\s+\S/.test(args.trim())) {
+				const url = normalizeUrl(args.trim().replace(/^(vai|go)\s+/, ""));
+				activate();
+				const refused = await confirmSite(url, ctx);
+				if (refused) return ctx.hasUI ? ctx.ui.notify(refused, "error") : undefined;
+				if (!view) await showView(ctx);
+				try {
+					session ??= new BrowserSession({ downloadsDir: join(ctx.cwd, ".pi", "downloads"), headless: true });
+					await session.open(url);
+					status(ctx, `🌐 ${siteOf(session.currentUrl) ?? "pagina locale"}`);
+				} catch (error) {
+					if (ctx.hasUI) ctx.ui.notify(`Pagina non aperta: ${(error as Error).message}`, "error");
+				}
+				return;
+			}
+			if (args.trim() === "installa" || args.trim() === "install") {
+				if (!ctx.hasUI) return;
+				try {
+					ctx.ui.notify(await installTerminalBrowser({ confirm: (title, message) => ctx.ui.confirm(title, message), notify: (message) => ctx.ui.notify(message, "info") }), "info");
+				} catch (error) {
+					ctx.ui.notify(`Installazione di terminal-browser non riuscita: ${(error as Error).message}`, "error");
+				}
+				return;
 			}
 			activate();
 			if (ctx.hasUI) ctx.ui.notify("Tool browser attivo: chiedi pure di aprire una pagina.", "info");
@@ -157,6 +255,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", () => {
+		view?.close();
 		session?.close();
 		session = undefined;
 	});

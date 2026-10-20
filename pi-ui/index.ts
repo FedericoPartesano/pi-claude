@@ -24,6 +24,7 @@ import { renderImageEntry, renderImageLoading, thumbnailColumns } from "./src/im
 import { findImageRefs, thumbnailFor, type Thumbnail } from "./src/images.ts";
 import { localRefs, PREVIEW_MAX, previewColumns, renderPasteStrip } from "./src/paste-preview.ts";
 import { C, bg, bold, fg, fit, hud, label, usePalette } from "./src/palette.ts";
+import { BROWSER_MIN_COLUMNS, BrowserColumn, canDrawImages, publish as publishBrowserColumn, type FocusHost } from "./src/browser-column.ts";
 import { PINNED_MIN_COLUMNS, sidebarRoot, type SidebarRoot } from "./src/sidebar.ts";
 import { behindConPty, imageProtocolFor, isTerminalReplyLeak, regularMode, regularWidth } from "./src/terminal.ts";
 import { activeIntent, planFromBranch, planFromDetails, type PlanTask } from "./src/sources.ts";
@@ -734,6 +735,24 @@ export default function (pi: ExtensionAPI) {
 	};
 	const sidebarComponent: Component = { render: (width) => (panelCtx ? cachedPanel(panelCtx, width, true) : []), invalidate() {} };
 	const wide = () => (process.stdout.columns ?? 0) >= PINNED_MIN_COLUMNS;
+	// The browser as a layout column (see src/browser-column.ts); the browser extension finds it through a global symbol.
+	const browserColumn = new BrowserColumn(() => tui?.requestRender(), () => tui as unknown as FocusHost | undefined);
+	publishBrowserColumn({
+		available: () => Boolean(layoutHost() && (process.stdout.columns ?? 0) >= BROWSER_MIN_COLUMNS && canDrawImages()),
+		open: () => {
+			browserColumn.active = true;
+			tui?.requestRender();
+		},
+		close: () => {
+			browserColumn.active = false;
+			tui?.requestRender();
+		},
+		setFrame: (png) => browserColumn.setFrame(png),
+		setTitle: (title) => browserColumn.setTitle(title),
+		onInput: (handler) => {
+			browserColumn.handler = handler;
+		},
+	});
 	/** Fullscreen renderer with a layout root to wrap (regular mode has none: the overlay is used there). */
 	const layoutHost = (): LayoutHost | undefined => {
 		const host = tui as unknown as LayoutHost | undefined;
@@ -782,9 +801,9 @@ export default function (pi: ExtensionAPI) {
 		const host = layoutHost();
 		if (!host) return fullscreen() ? undefined : patchRegularRender();
 		const current = host.layoutRoot;
-		const wanted = sidebarOn && wide();
+		const wanted = (sidebarOn || browserColumn.active) && wide();
 		if (wanted && current && current !== sidebar) {
-			sidebar = sidebarRoot(current, sidebarComponent, PANEL_WIDTH);
+			sidebar = sidebarRoot(current, sidebarComponent, PANEL_WIDTH, { component: browserColumn, width: BrowserColumn.widthFor, visible: () => browserColumn.active }, () => sidebarOn);
 			const next = sidebar;
 			setTimeout(() => {
 				host.setLayoutRoot?.(next);
