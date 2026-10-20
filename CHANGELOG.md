@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.8.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.7.0...pi-claude-v0.8.0) (2026-10-20)
+
+
+### Features
+
+* **advisor:** /advisor on|off with ADVISOR footer badge, native Claude Code advisor for Haiku ([58a60af](https://github.com/FedericoPartesano/pi-claude/commit/58a60afe480d6c9c319169c505b72eb370704e4d))
+* **graph:** /graph opens one tabbed window (Stato, Interroga, Nodi, Report, Lavoro) ([e59e1d3](https://github.com/FedericoPartesano/pi-claude/commit/e59e1d3f604b1b8ca7f1ccb278cbac26e1de8c5b))
+* **graph:** /graph project graph with tools, prompt summary, workspaces and tsconfig aliases ([f5880bf](https://github.com/FedericoPartesano/pi-claude/commit/f5880bf894a9d69ab755ca80cc7b29bd311c26ee))
+* **graph:** fixed modal with progress, live log and cache counter for build and semantic jobs ([96eddae](https://github.com/FedericoPartesano/pi-claude/commit/96eddae407463dde21ef072835fa50de04fa9ba3))
+* **graph:** GRAFO section in the side panel; graph in prompt and tools only when fresh, checked at startup and after build ([6d09099](https://github.com/FedericoPartesano/pi-claude/commit/6d09099f5c5b8519f84bb61e51a0ea53a57b6cdc))
+* **graph:** Graphify engine with menu, progress panel, noise filter and Claude Code semantic pass; custom engine kept (PI_GRAPH_ENGINE=custom) ([89cc609](https://github.com/FedericoPartesano/pi-claude/commit/89cc609756d551353b4bb6ed7f3a2e128d9841f8))
+* **graph:** html command in the Stato tab, creates and opens the interactive graph ([aeaf501](https://github.com/FedericoPartesano/pi-claude/commit/aeaf5016349af6b447d0e548dcecf8956d2d7780))
+* **graph:** single update command, modal with Lavoro and Interroga tabs ([e0670a1](https://github.com/FedericoPartesano/pi-claude/commit/e0670a10143329c282e0380de95eead6a25f370f))
+* **graph:** themed modal with colored progress, formatted answers and graph info in the title ([619ba14](https://github.com/FedericoPartesano/pi-claude/commit/619ba1447abf47bed325da2163bb3cf2a5590988))
+
+
+### Bug Fixes
+
+* abort non è "model error", e ctx stale nel timer di session_start ([f99a4c7](https://github.com/FedericoPartesano/pi-claude/commit/f99a4c742e8add86c409f9d2d219af6b30d27697))
+* **goal:** ignore stale ctx after session replacement instead of crashing ([58a60af](https://github.com/FedericoPartesano/pi-claude/commit/58a60afe480d6c9c319169c505b72eb370704e4d))
+* **graph:** unbuffer graphify output so the progress panel updates live ([cca8ec0](https://github.com/FedericoPartesano/pi-claude/commit/cca8ec077f7d20dff7c114b442423784375a336a))
+* **intent:** active intent is the in-progress one modified last, not the latest by file name ([27625c9](https://github.com/FedericoPartesano/pi-claude/commit/27625c90af993d26223d27e15d59c9e830646676))
+* **pi-full:** --resume e --pick prendono i pacchetti di Pi da quello installato ([1ce8ec6](https://github.com/FedericoPartesano/pi-claude/commit/1ce8ec6c4f539c0e5ce128a59eb4d5a61f74282b))
+* stop_reason refusal/context-window non è più un "error" muto ([509597a](https://github.com/FedericoPartesano/pi-claude/commit/509597a4e0fd513877466b988eb4fdd49de70522))
+
+
+### Performance Improvements
+
+* modello di embedding in un processo figlio chiuso a riposo, caricato al primo richiamo; reaper delle sessioni claude -p inattive ([2bcdc99](https://github.com/FedericoPartesano/pi-claude/commit/2bcdc991a152f178f4e60742925d49470a69feaf))
+
 ## [0.7.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.6.0...pi-claude-v0.7.0) (2026-10-13)
 
 
