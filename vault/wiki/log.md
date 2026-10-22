@@ -1,5 +1,8 @@
 # Log
 
+## [2026-10-22] ingest | CHANGELOG.md
+- Creati [[partesano-2026-changelog]], [[extension-graph]].
+
 ## [2026-10-20] ingest | eval/vault/REPORT.md
 - Creati [[partesano-2026-eval-vault]], [[solo-vettori-vs-ibrido]], [[ricerca-ibrida]], [[la-soglia-coseno-regge-su-un-vault-reale]].
 

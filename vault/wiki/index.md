@@ -10,6 +10,7 @@
 - [[pi-team]] — sub-agenti guidati da un orchestratore
 - [[pi-memory]] — memoria profonda ed embedder locale
 - [[extension-vault]] — indice e ricerca di CLAUDE.md e vault Obsidian
+- [[extension-graph]] — /graph: grafo del progetto con Graphify
 
 ## Concepts
 - [[bridge-mcp-lockstep]] — come Pi esegue i tool al posto di Claude Code
@@ -21,6 +22,7 @@
 - [[partesano-2026-notes]] — NOTES.md: fattibilità e architettura del bridge
 - [[partesano-2026-handoff]] — HANDOFF.md: stato dei lavori e misure
 - [[partesano-2026-eval-vault]] — eval/vault/REPORT.md: misure della ricerca
+- [[partesano-2026-changelog]] — CHANGELOG.md: release 0.8.0
 
 ## Queries
 - [[la-soglia-coseno-regge-su-un-vault-reale]] — taratura del pavimento del coseno
