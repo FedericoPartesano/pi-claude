@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.1](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.8.0...pi-claude-v0.8.1) (2026-10-26)
+
+
+### Bug Fixes
+
+* **bug-server:** limite per pacchetto da 50 a 250 MB ([d2c77ef](https://github.com/FedericoPartesano/pi-claude/commit/d2c77efdcc68f031a49aebe69cfa746bb6934b6f))
+* **bug:** pacchetto sotto il limite del server e motivo del 413 nel messaggio ([bed8dbb](https://github.com/FedericoPartesano/pi-claude/commit/bed8dbb8a241e58d07346e4bcce5f890736e89c4))
+
 ## [0.8.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.7.0...pi-claude-v0.8.0) (2026-10-20)
 
 
