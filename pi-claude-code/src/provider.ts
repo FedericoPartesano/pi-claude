@@ -9,6 +9,7 @@
  * as a Claude Code session file.
  */
 import { oneUserTurn } from "./user-turn.ts";
+import { writeRefusalLog } from "./refusal-log.ts";
 import { createHash } from "node:crypto";
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -171,6 +172,7 @@ export function streamClaudeCode(
 
 	(async () => {
 		let session: ClaudeSession | undefined;
+		let refusalRequest: { systemPrompt: string; messages: ConversationMessage[] } | undefined;
 		try {
 			const transcript = collapseSystemMessages(context);
 			const systemPrompt = getCurrentSystemPrompt(transcript.messages);
@@ -178,6 +180,7 @@ export function streamClaudeCode(
 			const conversation = transcript.messages.filter(
 				(message): message is ConversationMessage => message.role !== "system",
 			);
+			refusalRequest = { systemPrompt, messages: conversation };
 			const fingerprints = conversation.map(fingerprintMessage);
 			const effort = options?.reasoning ? EFFORT_BY_THINKING_LEVEL[options.reasoning] : undefined;
 			const signature = sessionSignature(model.id, effort, systemPrompt, tools);
@@ -220,6 +223,16 @@ export function streamClaudeCode(
 			}
 			output.stopReason = options?.signal?.aborted || isAbortError(error) ? "aborted" : "error";
 			output.errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
+			if (refusalRequest && output.errorMessage.includes("stop_reason refusal")) {
+				// The request that was refused is otherwise lost: keep it locally for study.
+				const file = writeRefusalLog(
+					process.env.PI_CLAUDE_REFUSAL_DIR ?? join(homedir(), ".pi", "agent", "refusals"),
+					model.id,
+					refusalRequest.systemPrompt,
+					refusalRequest.messages,
+				);
+				if (file) output.errorMessage += ` (request saved in ${file})`;
+			}
 			stream.push({ type: "error", reason: output.stopReason, error: output });
 			stream.end();
 		}
