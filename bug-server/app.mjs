@@ -14,7 +14,7 @@ const sha = (text) => createHash("sha256").update(String(text)).digest();
 const same = (a, b) => timingSafeEqual(sha(a), sha(b));
 const ADMIN_HOURS = 12;
 
-export function createApp({ storage, token, adminPassword = "", maxBytes = 50 * 1024 * 1024, perHour = 10, quotaBytes = 2 * 1024 ** 3, now = () => Date.now() }) {
+export function createApp({ storage, token, adminPassword = "", maxBytes = 250 * 1024 * 1024, perHour = 10, quotaBytes = 2 * 1024 ** 3, now = () => Date.now() }) {
 	const hits = new Map(); // ip → timestamps in the last hour
 
 	const tooMany = (ip) => {

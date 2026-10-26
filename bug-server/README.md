@@ -3,7 +3,7 @@
 Receives the packages that `/bugreport` sends and keeps them in its own MongoDB (GridFS, database `pi_bugs`, bucket `bugs`).
 
 - `POST /` with the `.tar.gz` as body and `Authorization: Bearer <BUG_TOKEN>`; `GET /health`.
-- Limits: `BUG_MAX_MB` (50) per package, `BUG_PER_HOUR` (10) per IP, `BUG_QUOTA_GB` (2) in total: past the quota the oldest packages are deleted.
+- Limits: `BUG_MAX_MB` (250) per package, `BUG_PER_HOUR` (10) per IP, `BUG_QUOTA_GB` (2) in total: past the quota the oldest packages are deleted.
 - The token only keeps casual spam out: this repo is public, so it is not a secret once it is in the client.
 
 ## Run
