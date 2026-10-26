@@ -34,6 +34,18 @@ export function pack(dir: string): string {
 	return out;
 }
 
+/** The server's own words ({"error": "..."}), when it gave any. */
+async function serverReason(response: Response): Promise<string> {
+	try {
+		const text = (await response.text()).trim();
+		if (!text) return "";
+		const error = (JSON.parse(text) as { error?: unknown }).error;
+		return typeof error === "string" ? error.slice(0, 120) : "";
+	} catch {
+		return "";
+	}
+}
+
 export async function upload(config: UploadConfig, file: string, meta: { title: string; severity: string }, fetchImpl: typeof fetch = fetch): Promise<{ ok: boolean; message: string }> {
 	try {
 		const body = readFileSync(file);
@@ -50,7 +62,9 @@ export async function upload(config: UploadConfig, file: string, meta: { title: 
 			signal: AbortSignal.timeout(120_000),
 		});
 		if (response.ok) return { ok: true, message: `inviato (${Math.round(body.length / 1024)} KB)` };
-		return { ok: false, message: `il server ha risposto ${response.status}` };
+		const reason = await serverReason(response);
+		const sent = response.status === 413 ? `, inviati ${Math.round(body.length / 1024 / 1024)} MB` : "";
+		return { ok: false, message: `il server ha risposto ${response.status}${reason ? ` (${reason})` : ""}${sent}` };
 	} catch (error) {
 		return { ok: false, message: `invio non riuscito: ${(error as Error).message}` };
 	}

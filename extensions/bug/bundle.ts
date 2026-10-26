@@ -6,7 +6,7 @@
  * The folder is kept whole on disk. `redactedCopy` makes the one that is sent: same files, secrets hidden.
  */
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, cpSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { redact, SECRET_NAME } from "./redact.ts";
 
@@ -137,6 +137,34 @@ function walk(from: string, to: string) {
 export function redactedCopy(dir: string): string {
 	const target = `${dir}-oscurato`;
 	walk(dir, target);
+	return target;
+}
+
+/** Largest session.jsonl sent as is; the server refuses packages over 50 MB (BUG_MAX_MB) and a long session can pass that. */
+export const SESSION_CAP_BYTES = Number(process.env.PI_BUG_SESSION_MB) > 0 ? Number(process.env.PI_BUG_SESSION_MB) * 1024 * 1024 : 20 * 1024 * 1024;
+
+/**
+ * Folder to send: `dir` itself when session.jsonl fits under `maxBytes`, otherwise a copy ("-ridotto") whose session.jsonl
+ * keeps only the last `maxBytes`, cut at a line boundary, after a first line saying how much was left out.
+ * `branch.json` stays whole, and the folder on disk is never touched.
+ */
+export function trimSession(dir: string, maxBytes = SESSION_CAP_BYTES): string {
+	const file = join(dir, "session.jsonl");
+	if (!existsSync(file)) return dir;
+	const size = statSync(file).size;
+	if (size <= maxBytes) return dir;
+	const target = `${dir}-ridotto`;
+	cpSync(dir, target, { recursive: true });
+	const tail = Buffer.alloc(maxBytes);
+	const fd = openSync(file, "r");
+	try {
+		readSync(fd, tail, 0, maxBytes, size - maxBytes);
+	} finally {
+		closeSync(fd);
+	}
+	const start = tail.indexOf(10) + 1; // drop the cut line
+	const omittedBytes = size - (maxBytes - start);
+	writeFileSync(join(target, "session.jsonl"), JSON.stringify({ type: "troncato", omittedBytes, originalBytes: size }) + "\n" + tail.subarray(start).toString("utf8"));
 	return target;
 }
 

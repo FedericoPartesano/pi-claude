@@ -15,7 +15,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { VERSION, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { redactedCopy, writeBundle, type BugForm } from "./bug/bundle.ts";
+import { redactedCopy, trimSession, writeBundle, type BugForm } from "./bug/bundle.ts";
 import { listBugs, login, saveSession, savedPassword, savedSession, type Session } from "./bug/admin.ts";
 import { crashExists, crashForm, crashId, markSeen, readCrashes, readSeen, splitCrashes, type CrashEntry } from "./bug/crashes.ts";
 import { DETECT_SYSTEM, looksLikePiBug, parseDetect } from "./bug/detect.ts";
@@ -46,7 +46,7 @@ export default function (pi: ExtensionAPI) {
 		});
 		const config = form.send ? uploadConfig(process.env, home) : undefined;
 		if (!config) return ctx.ui.notify(`Bug salvato in ${dir}`, "info");
-		const file = pack(form.redact ? redactedCopy(dir) : dir);
+		const file = pack(trimSession(form.redact ? redactedCopy(dir) : dir));
 		await sendWithProgress(ctx.ui, () => upload(config, file, { title: form.title, severity: form.kind === "crash" ? "crash" : form.severity }), {
 			sending: "Invio del bug al server…",
 			done: (message) => `Bug ${message}. Copia locale in ${dir}`,

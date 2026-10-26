@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { lastTodo, redactedCopy, slug, writeBundle, type BugForm } from "./bundle.ts";
+import { lastTodo, redactedCopy, slug, trimSession, writeBundle, type BugForm } from "./bundle.ts";
 import { redact } from "./redact.ts";
 
 test("redact: nasconde le forme di segreto più comuni e lascia stare il resto", () => {
@@ -91,4 +91,21 @@ test("writeBundle: di crashes.json copia solo l'ultima settimana", () => {
 	const dir = writeBundle(join(root, "out"), s);
 	const kept = JSON.parse(readFileSync(join(dir, "crashes.json"), "utf8"));
 	assert.deepEqual(kept.map((entry: { message: string }) => entry.message), ["recente"]);
+});
+
+test("trimSession: sopra il tetto tiene la coda del session.jsonl a righe intere, la cartella originale resta intera", () => {
+	const dir = mkdtempSync(join(tmpdir(), "bug-trim-"));
+	const lines = Array.from({ length: 200 }, (_, i) => JSON.stringify({ n: i, pad: "x".repeat(100) }));
+	writeFileSync(join(dir, "session.jsonl"), lines.join("\n") + "\n");
+	writeFileSync(join(dir, "report.json"), "{}");
+	assert.equal(trimSession(dir, 1_000_000), dir, "sotto il tetto non si copia nulla");
+	const out = trimSession(dir, 5_000);
+	assert.equal(out, `${dir}-ridotto`);
+	const kept = readFileSync(join(out, "session.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+	assert.equal(kept[0].type, "troncato");
+	assert.ok(kept[0].omittedBytes > 0);
+	assert.equal(kept[kept.length - 1].n, 199, "l'ultima riga c'è");
+	assert.ok(statSync(join(out, "session.jsonl")).size <= 5_500);
+	assert.equal(readFileSync(join(dir, "session.jsonl"), "utf8").trim().split("\n").length, 200, "l'originale resta intero");
+	assert.ok(existsSync(join(out, "report.json")));
 });

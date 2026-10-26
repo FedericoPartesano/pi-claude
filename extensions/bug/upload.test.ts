@@ -51,3 +51,17 @@ test("pack + upload: il server riceve un tar.gz con i file, il token e il titolo
 	assert.equal(down.ok, false);
 	assert.match(down.message, /invio non riuscito/);
 });
+
+test("upload: un 413 dice il motivo del server e quanto è stato inviato", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "bug-413-"));
+	const file = join(dir, "x.tar.gz");
+	writeFileSync(file, Buffer.alloc(3 * 1024 * 1024));
+	const big = async () => new Response(JSON.stringify({ error: "pacchetto troppo grande" }), { status: 413 });
+	const result = await upload({ url: "http://x/", token: "" }, file, { title: "x", severity: "piccolo" }, big as unknown as typeof fetch);
+	assert.equal(result.ok, false);
+	assert.match(result.message, /413/);
+	assert.match(result.message, /pacchetto troppo grande/);
+	assert.match(result.message, /3 MB/);
+	const plain = await upload({ url: "http://x/", token: "" }, file, { title: "x", severity: "piccolo" }, (async () => new Response("", { status: 401 })) as unknown as typeof fetch);
+	assert.equal(plain.message, "il server ha risposto 401");
+});
