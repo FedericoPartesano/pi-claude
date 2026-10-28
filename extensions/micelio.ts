@@ -1,7 +1,9 @@
 /**
- * micelio: the team memory in its own panel. A shortcut (alt+k, PI_MICELIO_KEY changes it; alt+s stays the session
- * panel) opens a column on the right with the memories Micelio returns, shown as it returns them: one card each, ↑↓ to
- * move, Enter to open or close a card and read the whole memory. Search: at session start on the project name, then on
+ * micelio: the team memory in its own panel. A shortcut (F6, PI_MICELIO_KEY changes it; alt+s stays the session
+ * panel). Keys chosen for this setup: Ctrl+Alt+letter is AltGr on the Windows layout (types a character), Alt+H/J/K/L and
+ * most other Alt letters are komorebi's whkd, Alt+P/Q/V/Z are Pi's own on WSL opens a column on the right with the memories Micelio returns, shown as it returns them: one card each. The
+ * chat keeps the keyboard; alt+w (PI_MICELIO_FOCUS_KEY) moves it into the panel and back, a click does too. In the
+ * panel: ↑↓ to move, Enter to open or close a card and read the whole memory, Esc back to the chat. Search: at session start on the project name, then on
  * the words of each prompt; `/micelio <words>` searches by hand. Without Micelio (no server in Pi's MCP config, not
  * reachable) the extension stays silent: nothing registered, or just "offline" in the panel. PI_MICELIO=0 turns it off.
  * The auth header from the MCP config is only sent, never shown. Zero tokens: nothing goes to the model.
@@ -9,10 +11,11 @@
 import { basename } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { loadMicelioConfig, MicelioClient } from "./micelio/client.ts";
-import { cardLines, keywordsOf, parseMemories, type Memory, type Paint } from "./micelio/memories.ts";
+import { keywordsOf, parseMemories, type Memory } from "./micelio/memories.ts";
+import type { Handle } from "./micelio/panel.ts";
 
-const KEY = (process.env.PI_MICELIO_KEY || "alt+k").toLowerCase();
-const PANEL_WIDTH = 56;
+const KEY = (process.env.PI_MICELIO_KEY || "f6").toLowerCase();
+const FOCUS_KEY = (process.env.PI_MICELIO_FOCUS_KEY || "alt+w").toLowerCase();
 const TIMEOUT_MS = 6000;
 
 type Status = "idle" | "loading" | "ok" | "offline";
@@ -27,7 +30,7 @@ export default function (pi: ExtensionAPI) {
 	let query = "";
 	let memories: Memory[] = [];
 	let statusCtx: ExtensionContext | undefined;
-	let closePanel: (() => void) | undefined;
+	let panel: Handle | undefined;
 	let redraw: (() => void) | undefined;
 	let latest = 0;
 
@@ -69,69 +72,36 @@ export default function (pi: ExtensionAPI) {
 		void search(keywordsOf(event.prompt));
 	});
 
-	const openPanel = async (ctx: ExtensionContext | ExtensionCommandContext): Promise<void> => {
-		if (closePanel) return closePanel();
+	// The chat keeps the keyboard when the panel opens; `withFocus` moves it in at once (the focus key).
+	const openPanel = async (ctx: ExtensionContext | ExtensionCommandContext, withFocus = false): Promise<void> => {
+		if (panel) return panel.close();
 		if (ctx.mode !== "tui") return;
-		const { matchesKey } = await import("@earendil-works/pi-tui");
-		const open = new Set<string>();
-		let selected = 0;
-		let scroll = 0;
-		await ctx.ui.custom<void>(
-			(tui, theme, _keybindings, done) => {
-				closePanel = () => done();
-				redraw = () => tui.requestRender();
-				const typeColors: Record<string, "accent" | "warning" | "success" | "error" | "muted"> = { fact: "accent", gotcha: "warning", decision: "accent", reference: "muted", howto: "success" };
-				const paint: Paint = {
-					chip: (type, text) => theme.bold(theme.fg(typeColors[type] ?? "muted", text)),
-					title: (text) => theme.bold(text),
-					dim: (text) => theme.fg("dim", text),
-					frame: (text, isSelected) => theme.fg(isSelected ? "accent" : "borderMuted", text),
-				};
-				return {
-					render(width: number): string[] {
-						const rows = Math.max(8, (process.stdout.rows ?? 30) - 2);
-						const head = [`${theme.bold(theme.fg("accent", "Micelio"))} ${theme.fg("dim", status === "offline" ? "non raggiungibile" : status === "loading" ? "ricerca…" : `${memories.length} ricordi · «${query}»`)}`, ""];
-						const foot = theme.fg("dim", "↑↓ scegli · Invio apri/chiudi · Esc chiudi");
-						const body: string[] = [];
-						let top = 0;
-						let bottom = 0;
-						memories.forEach((memory, index) => {
-							const card = cardLines(memory, width, open.has(memory.id), index === selected, paint);
-							if (index === selected) {
-								top = body.length;
-								bottom = body.length + card.length;
-							}
-							body.push(...card);
-						});
-						if (!memories.length && status === "ok") body.push(theme.fg("dim", "Micelio non ha restituito ricordi."));
-						const room = rows - head.length - 1;
-						if (top < scroll) scroll = top;
-						if (bottom > scroll + room) scroll = Math.min(top, bottom - room);
-						return [...head, ...body.slice(scroll, scroll + room), foot];
-					},
-					handleInput(data: string) {
-						const last = Math.max(0, memories.length - 1);
-						if (matchesKey(data, "escape") || matchesKey(data, KEY as never)) return done();
-						if (matchesKey(data, "up")) selected = Math.max(0, selected - 1);
-						else if (matchesKey(data, "down")) selected = Math.min(last, selected + 1);
-						else if (matchesKey(data, "enter") || matchesKey(data, "space")) {
-							const id = memories[selected]?.id;
-							if (id) open.has(id) ? open.delete(id) : open.add(id);
-						}
-						tui.requestRender();
-					},
-					invalidate() {},
-				};
-			},
-			{ overlay: true, overlayOptions: { anchor: "top-right", width: PANEL_WIDTH, maxHeight: "100%", margin: { top: 0, right: 0 }, visible: (width) => width >= 80 } },
-		);
-		closePanel = undefined;
-		redraw = undefined;
+		try {
+			// Loaded here: pi-tui exists only inside Pi.
+			const { openMicelioPanel } = await import("./micelio/panel.ts");
+			await openMicelioPanel(ctx, () => ({ status, query, memories }), KEY, FOCUS_KEY, (handle) => {
+				panel = handle;
+				redraw = handle.redraw;
+				if (withFocus) setTimeout(() => handle.focus(), 0);
+			});
+		} catch (error) {
+			ctx.ui.notify(`Micelio: pannello non disponibile (${error instanceof Error ? error.message : String(error)})`, "error");
+		} finally {
+			panel = undefined;
+			redraw = undefined;
+		}
+	};
+	// The focus key: panel closed → open it with the keyboard in; open → move the keyboard between chat and panel.
+	const moveFocus = async (ctx: ExtensionContext): Promise<void> => {
+		if (!panel) return openPanel(ctx, true);
+		if (panel.isFocused()) panel.blur();
+		else panel.focus();
 	};
 
 	pi.registerShortcut(KEY as Parameters<typeof pi.registerShortcut>[0], { description: "Pannello Micelio: i ricordi del team", handler: (ctx) => openPanel(ctx) });
+	pi.registerShortcut(FOCUS_KEY as Parameters<typeof pi.registerShortcut>[0], { description: "Sposta la tastiera tra la chat e il pannello Micelio", handler: (ctx) => moveFocus(ctx) });
 	pi.registerCommand("micelio", {
-		description: "Pannello Micelio (come " + KEY + "): /micelio apre · /micelio <parole> cerca",
+		description: "Pannello Micelio (come " + KEY + "; " + FOCUS_KEY + " sposta la tastiera): /micelio apre · /micelio <parole> cerca",
 		handler: async (args, ctx) => {
 			statusCtx = ctx.hasUI ? ctx : statusCtx;
 			const words = args.trim();
@@ -140,7 +110,7 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 	pi.on("session_shutdown", () => {
-		closePanel?.();
+		panel?.close();
 		statusCtx = undefined;
 	});
 }

@@ -14,7 +14,6 @@ export interface Memory {
 	body: string;
 }
 
-const MAX_BODY = 2500;
 const META = /^\[(\w+)\]\s+id:(\w+)\s+·\s+(.+?)\s+·\s+(\S+)\s*(.*)$/;
 
 /** `recall` text: memories separated by `---`, each with `### title`, a `[type] id:… · author · date  #tags` line, the body. */
@@ -47,7 +46,7 @@ export function parseMemories(text: string): Memory[] {
 			author,
 			date,
 			tags,
-			body: body.length > MAX_BODY ? `${body.slice(0, MAX_BODY - 1)}…` : body,
+			body,
 		});
 	}
 	return memories;
@@ -92,6 +91,8 @@ export function decodeRpcReply(contentType: string, text: string): unknown {
 // ── Drawing ────────────────────────────────────────────────────────────────
 
 export interface Paint {
+	/** A key in the legend. */
+	key: (text: string) => string;
 	chip: (type: string, text: string) => string;
 	title: (text: string) => string;
 	dim: (text: string) => string;
@@ -100,10 +101,6 @@ export interface Paint {
 
 /** Visible length: ANSI colour codes do not count. */
 export const visibleLength = (text: string): number => text.replace(/\x1b\[[0-9;]*m/g, "").length;
-
-function truncate(text: string, width: number): string {
-	return text.length <= width ? text : `${text.slice(0, Math.max(0, width - 1))}…`;
-}
 
 export function wrapPlain(text: string, width: number): string[] {
 	const rows: string[] = [];
@@ -140,10 +137,51 @@ export function cardLines(memory: Memory, width: number, isOpen: boolean, isSele
 		rows.push(pad(""));
 		for (const row of wrapPlain(memory.body, inner)) rows.push(pad(row));
 	} else {
-		rows.push(pad(`${paint.chip(memory.type, ` ${memory.type} `)} ${paint.title(truncate(memory.title, titleRoom))}`));
-		const excerpt = memory.body.replace(/\s+/g, " ");
-		rows.push(pad(paint.dim(truncate(`${memory.author} · ${memory.date}${excerpt ? ` · ${excerpt}` : ""}`, inner))));
+		// Closed: nothing is cut to the width, it all wraps. Title, who and when, and the first paragraph of the body.
+		wrapPlain(memory.title, titleRoom).forEach((row, index) => rows.push(pad(index === 0 ? `${paint.chip(memory.type, ` ${memory.type} `)} ${paint.title(row)}` : `${" ".repeat(head.length + 2)}${paint.title(row)}`)));
+		for (const row of wrapPlain(`${memory.author} · ${memory.date}`, inner)) rows.push(pad(paint.dim(row)));
+		const first = memory.body.split(/\n\s*\n/)[0] ?? "";
+		for (const row of wrapPlain(first.replace(/\s*\n\s*/g, " "), inner)) if (row) rows.push(pad(row));
 	}
 	const bar = "─".repeat(inner + 2);
 	return [paint.frame(`╭${bar}╮`, isSelected), ...rows.map((row) => `${paint.frame("│", isSelected)} ${row} ${paint.frame("│", isSelected)}`), paint.frame(`╰${bar}╯`, isSelected)];
+}
+
+// ── Legend ─────────────────────────────────────────────────────────────────
+
+export interface Shortcut {
+	/** One or more keys, each one drawn as its own key cap: `["↑", "↓"]`. */
+	keys: string[];
+	label: string;
+}
+
+/** `ctrl+alt+k` → `Ctrl+Alt+K`: how a key id reads in the legend. */
+export const keyLabel = (id: string): string => id.split("+").map((part) => (part.length === 1 ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1))).join("+");
+
+/**
+ * The key legend as aligned rows: the action on the left, its key caps on the right. Nothing is cut: where a row does
+ * not fit the width, the key caps go on a line of their own under the action.
+ */
+export function legendLines(shortcuts: Shortcut[], width: number, paint: Paint): string[] {
+	const inner = Math.max(12, width - 2);
+	const cell = (shortcut: Shortcut) => shortcut.keys.map((key) => paint.key(` ${key} `)).join(" ");
+	const plainKeys = (shortcut: Shortcut) => shortcut.keys.map((key) => ` ${key} `).join(" ");
+	const gap = 2;
+	const keysRoom = Math.max(0, ...shortcuts.map((shortcut) => plainKeys(shortcut).length));
+	const rows: string[] = [];
+	for (const shortcut of shortcuts) {
+		const labelRoom = inner - keysRoom - gap;
+		if (labelRoom >= Math.max(...shortcuts.map((one) => one.label.length)) || shortcut.label.length <= labelRoom) {
+			const lines = wrapPlain(shortcut.label, Math.max(4, labelRoom));
+			lines.forEach((line, index) => {
+				const keys = index === 0 ? cell(shortcut) : "";
+				const room = inner - line.length - (index === 0 ? plainKeys(shortcut).length : 0);
+				rows.push(` ${paint.dim(line)}${" ".repeat(Math.max(1, room))}${keys}`);
+			});
+		} else {
+			for (const line of wrapPlain(shortcut.label, inner)) rows.push(` ${paint.dim(line)}`);
+			rows.push(` ${cell(shortcut)}`);
+		}
+	}
+	return rows;
 }
