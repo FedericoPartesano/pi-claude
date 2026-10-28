@@ -26,6 +26,7 @@ import { localRefs, PREVIEW_MAX, previewColumns, renderPasteStrip } from "./src/
 import { C, bg, bold, fg, fit, hud, label, usePalette } from "./src/palette.ts";
 import { BROWSER_MIN_COLUMNS, BrowserColumn, canDrawImages, publish as publishBrowserColumn, type FocusHost } from "./src/browser-column.ts";
 import { PINNED_MIN_COLUMNS, sidebarRoot, type SidebarRoot } from "./src/sidebar.ts";
+import { publishSideColumn, SideColumn } from "./src/side-column.ts";
 import { behindConPty, imageProtocolFor, isTerminalReplyLeak, regularMode, regularWidth } from "./src/terminal.ts";
 import { activeIntent, planFromBranch, planFromDetails, type PlanTask } from "./src/sources.ts";
 import { PANEL_KEY, PANEL_WIDTH, parseAheadBehind, parseNumstat, parsePorcelain, renderPanel, statusesChanged, type ChangedFile, type PanelInfo } from "./src/panel.ts";
@@ -765,6 +766,24 @@ export default function (pi: ExtensionAPI) {
 			browserColumn.handler = handler;
 		},
 	});
+	// A column any extension fills (Micelio): it replaces the session panel while open (see src/side-column.ts).
+	const sideColumn = new SideColumn(() => tui?.requestRender(), () => tui as unknown as FocusHost | undefined);
+	publishSideColumn({
+		available: () => Boolean(layoutHost() && wide()),
+		isOpen: () => sideColumn.active,
+		open: (component, options) => {
+			sideColumn.open(component, options);
+			syncSidebar();
+		},
+		close: () => {
+			sideColumn.close();
+			syncSidebar();
+		},
+		focus: () => sideColumn.focus(),
+		isFocused: () => sideColumn.isFocused(),
+		blur: () => sideColumn.blur(),
+		redraw: () => tui?.requestRender(),
+	});
 	/** Fullscreen renderer with a layout root to wrap (regular mode has none: the overlay is used there). */
 	const layoutHost = (): LayoutHost | undefined => {
 		const host = tui as unknown as LayoutHost | undefined;
@@ -813,9 +832,18 @@ export default function (pi: ExtensionAPI) {
 		const host = layoutHost();
 		if (!host) return fullscreen() ? undefined : patchRegularRender();
 		const current = host.layoutRoot;
-		const wanted = (sidebarOn || browserColumn.active) && wide();
+		const wanted = (sidebarOn || browserColumn.active || sideColumn.active) && wide();
 		if (wanted && current && current !== sidebar) {
-			sidebar = sidebarRoot(current, sidebarComponent, PANEL_WIDTH, { component: browserColumn, width: BrowserColumn.widthFor, visible: () => browserColumn.active }, () => sidebarOn);
+			sidebar = sidebarRoot(
+				current,
+				sidebarComponent,
+				PANEL_WIDTH,
+				[
+					{ component: browserColumn, width: BrowserColumn.widthFor, visible: () => browserColumn.active },
+					{ component: sideColumn, width: () => sideColumn.width, visible: () => sideColumn.active },
+				],
+				() => sidebarOn && !sideColumn.active,
+			);
 			const next = sidebar;
 			setTimeout(() => {
 				host.setLayoutRoot?.(next);

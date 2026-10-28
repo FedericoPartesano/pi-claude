@@ -32,7 +32,8 @@ export interface ExtraColumn {
 	visible: () => boolean;
 }
 
-export function sidebarRoot(inner: Component, panel: Component, width: number, extra?: ExtraColumn, panelVisible: () => boolean = () => true): SidebarRoot {
+export function sidebarRoot(inner: Component, panel: Component, width: number, extra?: ExtraColumn | ExtraColumn[], panelVisible: () => boolean = () => true): SidebarRoot {
+	const extras = extra === undefined ? [] : Array.isArray(extra) ? extra : [extra];
 	return {
 		inner,
 		[LAYOUT_NODE]: () => ({
@@ -43,7 +44,7 @@ export function sidebarRoot(inner: Component, panel: Component, width: number, e
 				// basis 0 + grow: the chat takes the rest without being measured at full width first (measuring it at another
 				// width than it is drawn at defeated Pi's Markdown cache: ~84 ms per keystroke instead of ~7 on a long session).
 				{ component: inner, basis: 0, grow: 1, shrink: 1 },
-				...(extra ? [{ component: extra.component, basis: extra.width(process.stdout.columns ?? 0), shrink: 0, visible: (viewport: { width: number; height: number }) => extra.visible() && viewport.width >= PINNED_MIN_COLUMNS }] : []),
+				...extras.map((column) => ({ component: column.component, basis: column.width(process.stdout.columns ?? 0), shrink: 0, visible: (viewport: { width: number; height: number }) => column.visible() && viewport.width >= PINNED_MIN_COLUMNS })),
 				{ component: panel, basis: width, shrink: 0, visible: (viewport) => panelVisible() && viewport.width >= PINNED_MIN_COLUMNS },
 			],
 		}),
