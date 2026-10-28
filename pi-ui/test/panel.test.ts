@@ -172,3 +172,27 @@ test("la sezione GRAFO mostra numeri, età, file cambiati e i file più collegat
 	assert.doesNotMatch(fresh, /file cambiat/);
 	assert.doesNotMatch(renderPanel(info, 40, "alt+s").map(strip).join("\n"), /GRAFO/);
 });
+
+test("la sezione VAULT mostra stato, numeri e comando", () => {
+	const vault = { name: "note", files: 30, notes: 27, sections: 337, pending: 4, removed: 1 };
+	const lines = renderPanel({ ...info, vault }, 40, "alt+s");
+	for (const line of lines) assert.equal(visibleWidth(line), 40);
+	const text = lines.map(strip).join("\n");
+	assert.match(text, /VAULT ─+ da aggiornare/);
+	assert.match(text, /337 sezioni · 27 note indicizzate/);
+	assert.match(text, /4 da calcolare · 1 da togliere/);
+	assert.match(text, /\/vault\s+indicizza/);
+	const fresh = renderPanel({ ...info, vault: { ...vault, pending: 0, removed: 0 } }, 40, "alt+s").map(strip).join("\n");
+	assert.match(fresh, /VAULT ─+ aggiornato/);
+});
+
+test("la sezione VAULT durante l'indicizzazione mostra barra, conteggio e nota corrente", () => {
+	const vault = { name: "note", files: 30, notes: 27, sections: 337, pending: 4, removed: 0, progress: { done: 50, total: 100, current: "adr/007.md" } };
+	const lines = renderPanel({ ...info, vault }, 40, "alt+s");
+	for (const line of lines) assert.equal(visibleWidth(line), 40);
+	const text = lines.map(strip).join("\n");
+	assert.match(text, /VAULT ─+ indicizzo/);
+	assert.match(text, /█+░+ 50%/);
+	assert.match(text, /50\/100 sezioni/);
+	assert.match(text, /adr\/007\.md/);
+});

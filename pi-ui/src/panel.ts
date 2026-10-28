@@ -41,6 +41,8 @@ export interface PanelInfo {
 	intent?: { file: string; title: string; outcomes: string[] };
 	/** Tokens saved by lean-tools in this session (estimated). */
 	saved?: number;
+	/** The vault index (extensions/vault.ts, pi.events "vault:state"). */
+	vault?: { name: string; files: number; notes: number; sections: number; pending: number; removed: number; /** Set while indexing. */ progress?: { done: number; total: number; current: string } };
 	/** The project graph (extensions/graph/graphify.ts, pi.events "graph:state"). */
 	graph?: {
 		nodes: number;
@@ -247,6 +249,33 @@ export function renderPanel(info: PanelInfo, width: number, key = PANEL_KEY, max
 				...(stale ? [fg(C.warn, `${graph.changed} ${graph.changed === 1 ? "file cambiato" : "file cambiati"} dopo la build`)] : []),
 				...graph.hubs.slice(0, 3).map((hub, index) => fit(`${fg(C.faint, `${index + 1}.`)} ${fg(C.text, hub.name)}`, fg(C.dim, String(hub.links)), inner)),
 				fit("", `${fg(C.mag, "/graph")} ${fg(C.dim, stale ? "aggiorna" : "apri")}`, inner),
+			];
+		});
+	}
+	if (info.vault) {
+		const vault = info.vault;
+		add(4, () => {
+			const stale = vault.pending > 0 || vault.removed > 0;
+			const run = vault.progress;
+			if (run) {
+				const share = run.total ? Math.min(1, run.done / run.total) : 0;
+				const cells = Math.max(4, inner - 5);
+				const full = Math.round(share * cells);
+				return [
+					"",
+					section("VAULT", fg(C.cyan, "indicizzo")),
+					`${fg(C.ok, "█".repeat(full))}${fg(C.faint, "░".repeat(cells - full))} ${fg(C.text, `${Math.round(share * 100)}%`)}`,
+					fg(C.dim, `${run.done}/${run.total} sezioni`),
+					...(run.current ? [fg(C.dim, truncateToWidth(run.current, inner))] : []),
+				];
+			}
+			return [
+				"",
+				section("VAULT", fg(stale ? C.warn : C.ok, !vault.sections ? "non indicizzato" : stale ? "da aggiornare" : "aggiornato")),
+				fg(C.text, vault.name),
+				fg(C.dim, `${vault.sections} sezioni · ${vault.notes} note indicizzate`),
+				...(stale ? [fg(C.warn, `${vault.pending} da calcolare${vault.removed ? ` · ${vault.removed} da togliere` : ""}`)] : []),
+				fit("", `${fg(C.mag, "/vault")} ${fg(C.dim, stale ? "indicizza" : "stato")}`, inner),
 			];
 		});
 	}

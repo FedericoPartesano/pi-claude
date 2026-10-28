@@ -147,3 +147,32 @@ test("i tool costano token a ogni richiesta: attivi solo con un indice, tolti se
 	await hooks.startup;
 	assert.deepEqual(yes.active(), ["read", "bash", "vault_search", "vault_read"]);
 });
+
+test("gate: la prima scrittura su un file coperto è bloccata con le regole, la ripetizione passa, il turno dopo ricomincia", async () => {
+	const f = setup({ "regole/stile.md": "---\ntype: regola\npaths: src/**/*.ts\n---\n# Mai any\nNon usare any.", "idee.md": "# Cache\nsqlite." });
+	const call = (path: string, toolName = "write") => f.handlers.get("tool_call")!({ toolName, input: { path } }, f.ctx) as { block?: boolean; reason?: string } | undefined;
+	await f.handlers.get("before_agent_start")!({ systemPrompt: "" }, f.ctx);
+	assert.equal(call("README.md"), undefined, "file non coperto: niente");
+	assert.equal(call("src/a.ts", "read"), undefined, "solo edit e write");
+	const first = call(`${f.root}/src/a.ts`);
+	assert.equal(first?.block, true);
+	assert.match(first!.reason!, /Mai any.*Non usare any/s);
+	assert.equal(call("src/b.ts"), undefined, "già mostrata in questo turno");
+	await f.handlers.get("before_agent_start")!({ systemPrompt: "" }, f.ctx);
+	assert.equal(call("src/a.ts")?.block, true, "nuovo turno: di nuovo");
+});
+
+test("gate: senza regole nel vault nessun blocco e nessun costo", async () => {
+	const f = setup({ "idee.md": "# Cache\nsqlite." });
+	await f.handlers.get("before_agent_start")!({ systemPrompt: "" }, f.ctx);
+	assert.equal(await f.handlers.get("tool_call")!({ toolName: "edit", input: { path: "src/a.ts" } }, f.ctx), undefined);
+});
+
+test("/vault regole: le sezioni confermate entrano nel gate, le rifiutate no", async () => {
+	const f = setup({ "note.md": "# Stile\nMai usare any. Sempre tipi espliciti.\n\n# Cache\nsqlite." });
+	await f.commands.get("vault")!("regole", f.ctx);
+	assert.match(f.messages.at(-1)!, /1 confermate su 1 proposte/);
+	await f.handlers.get("before_agent_start")!({ systemPrompt: "" }, f.ctx);
+	const result = await f.handlers.get("tool_call")!({ toolName: "write", input: { path: "src/a.ts" } }, f.ctx) as { block?: boolean; reason?: string };
+	assert.match(result.reason!, /Mai usare any/);
+});

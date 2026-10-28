@@ -176,6 +176,12 @@ export default function (pi: ExtensionAPI) {
 		panelDirty = true;
 		tui?.requestRender();
 	});
+	let vaultState: PanelInfo["vault"];
+	pi.events.on("vault:state", (data) => {
+		vaultState = (data as PanelInfo["vault"]) ?? undefined;
+		panelDirty = true;
+		tui?.requestRender();
+	});
 	// lean-tools reports the tokens its compactions saved.
 	pi.events.on("lean:saved", (data) => {
 		saved += Number((data as { tokens?: number })?.tokens) || 0;
@@ -708,6 +714,7 @@ export default function (pi: ExtensionAPI) {
 			intent: goalState?.intentFile && goalState.intentFile === intentInfo?.file ? undefined : intentInfo,
 			saved,
 			graph: graphState,
+			vault: vaultState,
 			usage: {
 				fiveHour: usage?.fiveHour,
 				sevenDay: usage?.sevenDay,

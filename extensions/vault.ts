@@ -12,6 +12,7 @@ import type { Embedder } from "../pi-memory/src/embed.ts";
 import { chunkMarkdown } from "./vault/chunk.ts";
 import { type Hit, type SearchFilter, VaultIndex } from "./vault/index.ts";
 import { type LoaderState, type Step, loaderLines, loaderScreen } from "./vault/loader.ts";
+import { extractRules, ruleCandidates, ruleReason, rulesFor, type Confirmed, type Rule } from "./vault/rules.ts";
 import { claudeMdFiles, findVault, readSources } from "./vault/scan.ts";
 
 const DIR = ".pi/vault";
@@ -82,10 +83,14 @@ export default function (pi: ExtensionAPI) {
 	const refreshStatus = (ctx: ExtensionContext) => {
 		if (!ctx.hasUI) return;
 		try {
-			const plan = load(ctx.cwd).plan(readSources(ctx.cwd, findVault(ctx.cwd)), modelName());
+			const sources = readSources(ctx.cwd, findVault(ctx.cwd));
+			const plan = load(ctx.cwd).plan(sources, modelName());
+			// The session panel's VAULT section.
+			pi.events?.emit("vault:state", { name: label(ctx.cwd), files: sources.length, notes: load(ctx.cwd).paths.length, sections: load(ctx.cwd).size, pending: plan.pending, removed: plan.removed });
 			ctx.ui.setStatus("vault", plan.pending || plan.removed ? `Vault: ${plan.pending} sezioni da indicizzare, scrivi /vault` : undefined);
 		} catch {
 			ctx.ui.setStatus("vault", undefined);
+			pi.events?.emit("vault:state", undefined);
 		}
 	};
 
@@ -114,10 +119,42 @@ export default function (pi: ExtensionAPI) {
 		})();
 	});
 
+	const rulesFile = (cwd: string) => join(cwd, DIR, "regole.json");
+	const confirmedRules = (cwd: string): Confirmed[] => {
+		try {
+			return JSON.parse(readFileSync(rulesFile(cwd), "utf8"));
+		} catch {
+			return [];
+		}
+	};
+	let turnRules: Rule[] | undefined;
+	const shown = new Set<string>();
 	pi.on("before_agent_start", (event, ctx) => {
+		// New turn: rules are read again (notes may have changed) and may be shown again.
+		turnRules = undefined;
+		shown.clear();
 		if (event.systemPrompt.includes(PROMPT_MARKER)) return;
 		const current = load(ctx.cwd);
 		if (current.size) return { systemPrompt: `${event.systemPrompt}\n\n${promptLine(current.paths.length, label(ctx.cwd))}` };
+	});
+
+	/**
+	 * Rule gate: the first edit/write of a turn that touches a file covered by a rule (`type: regola`, `paths:`) is blocked
+	 * once with those rules as the reason; the retry goes through. Zero tokens in turns that write nothing.
+	 */
+	pi.on("tool_call", (event, ctx) => {
+		if (event.toolName !== "edit" && event.toolName !== "write") return undefined;
+		const file = String((event.input as { path?: string; file_path?: string })?.path ?? (event.input as { file_path?: string })?.file_path ?? "");
+		if (!file) return undefined;
+		try {
+			turnRules ??= extractRules(readSources(ctx.cwd, findVault(ctx.cwd)), confirmedRules(ctx.cwd));
+			const fresh = rulesFor(turnRules, file, ctx.cwd).filter((rule) => !shown.has(rule.path));
+			if (!fresh.length) return undefined;
+			fresh.forEach((rule) => shown.add(rule.path));
+			return { block: true, reason: ruleReason(fresh, file) };
+		} catch {
+			return undefined;
+		}
 	});
 
 	/** The two tools cost schema tokens on every request: declared to the model only when an index exists. */
@@ -212,7 +249,7 @@ export default function (pi: ExtensionAPI) {
 			const model = await getEmbedder();
 			if (!(await model.start?.())) return "Modello locale non disponibile: indice non aggiornato.";
 			go("vettori");
-			const stats = await load(ctx.cwd).update(sources, model, (progress) => (feedFile(state, progress.path), Object.assign(state, { done: progress.done, total: progress.total, filesDone: progress.filesDone, filesTotal: progress.filesTotal, current: progress.path ? `${progress.path}${progress.section ? ` › ${progress.section}` : ""}` : "" }), redraw()), abort.signal);
+			const stats = await load(ctx.cwd).update(sources, model, (progress) => (feedFile(state, progress.path), (pi.events?.emit("vault:state", { name: label(ctx.cwd), files: sources.length, notes: load(ctx.cwd).paths.length, sections: load(ctx.cwd).size, pending: plan.pending, removed: plan.removed, progress: { done: progress.done, total: progress.total, current: progress.path } })), Object.assign(state, { done: progress.done, total: progress.total, filesDone: progress.filesDone, filesTotal: progress.filesTotal, current: progress.path ? `${progress.path}${progress.section ? ` › ${progress.section}` : ""}` : "" }), redraw()), abort.signal);
 			go("salvataggio");
 			save(ctx.cwd);
 			return `Indice aggiornato in ${((Date.now() - started) / 1000).toFixed(1)} s: ${stats.files} file, ${stats.chunks} sezioni (${stats.embedded} calcolate, ${stats.reused} riusate, ${stats.removed} tolte). Token usati: 0.`;
@@ -240,23 +277,38 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	pi.registerCommand("vault", {
-		description: "CLAUDE.md e vault Obsidian: indicizza (con conferma), stato, cerca. /vault index | status | search <testo>",
+		description: "CLAUDE.md e vault Obsidian: indicizza (con conferma), stato, cerca. /vault index | status | search <testo> | regole",
 		handler: async (args, ctx) => {
 			const [command = "", ...rest] = (args ?? "").trim().split(/\s+/).filter(Boolean);
 			if (running) return void ctx.ui.notify("Operazione del vault già in corso.", "warning");
 			running = true;
 			try {
-				let choice = command;
+				let choice = command === "regole" ? "rules" : command;
 				if (!choice) {
-					if (!ctx.hasUI) return void ctx.ui.notify("Uso: /vault index | status | search <testo>", "info");
-					const picked = await ctx.ui.select("Vault e CLAUDE.md", ["Stato", "Indicizza o aggiorna", "Cerca…", "Esci"]);
-					choice = picked === "Stato" ? "status" : picked?.startsWith("Indicizza") ? "index" : picked?.startsWith("Cerca") ? "search" : "";
+					if (!ctx.hasUI) return void ctx.ui.notify("Uso: /vault index | status | search <testo> | regole", "info");
+					const picked = await ctx.ui.select("Vault e CLAUDE.md", ["Stato", "Indicizza o aggiorna", "Cerca…", "Regole dedotte…", "Esci"]);
+					choice = picked === "Stato" ? "status" : picked?.startsWith("Indicizza") ? "index" : picked?.startsWith("Cerca") ? "search" : picked?.startsWith("Regole") ? "rules" : "";
 				}
 				if (choice === "status") {
 					const sources = readSources(ctx.cwd, findVault(ctx.cwd));
 					const plan = load(ctx.cwd).plan(sources, modelName());
 					const vault = findVault(ctx.cwd);
 					return show("Stato del vault", `Vault: ${vault ?? "nessuno"}. CLAUDE.md: ${claudeMdFiles(ctx.cwd).map((item) => item.id).join(", ") || "nessuno"}.\nIndicizzate: ${load(ctx.cwd).size} sezioni. In coda: ${plan.pending}, da togliere: ${plan.removed} (${plan.chunks} sezioni in ${sources.length} file).`);
+				}
+				if (choice === "rules") {
+					if (!ctx.hasUI) return;
+					const known = confirmedRules(ctx.cwd);
+					const found = ruleCandidates(readSources(ctx.cwd, findVault(ctx.cwd)), known);
+					if (!found.length) return show("Regole", "Nessuna sezione che sembri una regola da confermare. Marca una nota con `type: regola` (e `paths:`) per renderla regola.");
+					const accepted: Confirmed[] = [];
+					for (const item of found) {
+						if (await ctx.ui.confirm(`Regola? ${item.path} › ${item.section}`, `${item.text.slice(0, 400)}\n\nSe confermi, vale per ogni file che scrivo (solo i testi di regole confermate entrano nel contesto).`)) accepted.push({ path: item.path, section: item.section });
+					}
+					if (accepted.length) {
+						mkdirSync(join(ctx.cwd, DIR), { recursive: true });
+						writeFileSync(rulesFile(ctx.cwd), JSON.stringify([...known, ...accepted], null, 1));
+					}
+					return show("Regole", `${accepted.length} confermate su ${found.length} proposte.`);
 				}
 				if (choice === "index") return show("Indicizzazione", await reindex(ctx));
 				if (choice === "search") {
