@@ -5,7 +5,7 @@
 
 ## Entities
 - [[pi-claude-code]] — provider Pi che usa la CLI Claude Code con l'abbonamento
-- [[pi-ui]] — chat Neon Night: barra di stato, passi, pannello
+- [[pi-ui]] — chat Neon Night: barra di stato, passi, pannello con uso e stima di esaurimento
 - [[pi-picker]] — picker modale di file, cartelle e progetti
 - [[pi-team]] — sub-agenti guidati da un orchestratore
 - [[pi-memory]] — memoria profonda ed embedder locale

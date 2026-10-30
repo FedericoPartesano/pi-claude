@@ -13,5 +13,5 @@ Provider Pi (`pi.registerProvider`) che pilota il binario ufficiale `claude` con
 
 - Processo `claude -p` persistente in stream-json, con partial messages.
 - Tool di Pi esposti via MCP (trasporto `sdk` di default, `PI_CLAUDE_MCP_TRANSPORT=http` in alternativa): vedi [[bridge-mcp-lockstep]].
-- Resume nativo per fork, tree e compaction; thinking tradotto in `--effort`; footer con l'uso dell'abbonamento.
+- Resume nativo per fork, tree e compaction; thinking tradotto in `--effort`; footer con l'uso dell'abbonamento; salva utilizzo, reset e storia dei campioni in `~/.pi/agent/claude-code-usage.json` (letti da [[pi-ui]] per la stima di esaurimento).
 - Typecheck: `cd pi-claude-code && npx tsc -p .`

@@ -1,5 +1,8 @@
 # Log
 
+## [2026-10-30] update | sezione USO del pannello
+- Aggiornati [[pi-ui]] (stima di esaurimento 5H/7G, orari di reset, layout) e [[pi-claude-code]] (file di utilizzo con storia).
+
 ## [2026-10-22] ingest | CHANGELOG.md
 - Creati [[partesano-2026-changelog]], [[extension-graph]].
 
