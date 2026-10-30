@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.10.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.9.0...pi-claude-v0.10.0) (2026-10-30)
+
+
+### Features
+
+* **micelio:** pannello dei ricordi Micelio con Alt+K, card espandibili e ricerca con /micelio ([2ee194c](https://github.com/FedericoPartesano/pi-claude/commit/2ee194c934611d7fdd7c370f1057f16eb3ce115a))
+* **pi-ui:** colonna laterale generica per le estensioni, al posto del pannello della sessione e senza prendere la tastiera ([043ed30](https://github.com/FedericoPartesano/pi-claude/commit/043ed3099a8b80a43a5709571a16b2834227b1e8))
+* **pi-ui:** stima di esaurimento anche per il limite settimanale (7g) ([c0d6ebb](https://github.com/FedericoPartesano/pi-claude/commit/c0d6ebb60908be95a9264f2a87090a74d54de02f))
+* **pi-ui:** stima di esaurimento e orari di reset nella sezione USO ([804efa9](https://github.com/FedericoPartesano/pi-claude/commit/804efa976f38c6f5727b822d902cdb805fbc2725))
+* **vault:** regole sempre presenti dal vault e sezione VAULT nel pannello della sessione ([21de277](https://github.com/FedericoPartesano/pi-claude/commit/21de277e5fe64d507c4996dac3f8689d8833fabf))
+
+
+### Bug Fixes
+
+* **micelio:** pannello in colonna con tasti F6 e Alt+W, card a capo senza troncamenti e legenda dei tasti ([6b58b39](https://github.com/FedericoPartesano/pi-claude/commit/6b58b39091a642a2b1c098e9cb4b22bdce417251))
+* **pi-ui:** testo più chiaro quando la previsione di consumo non è ancora pronta ([d12f998](https://github.com/FedericoPartesano/pi-claude/commit/d12f998f32512f33f43b7917dca1b3da182e70f6))
+
 ## [0.9.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.8.1...pi-claude-v0.9.0) (2026-10-26)
 
 
