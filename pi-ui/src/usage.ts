@@ -55,7 +55,7 @@ export function forecastLines(
 ): Row[] {
 	const samples = (usage?.history?.five_hour ?? []).filter((s) => now - s.at <= windowMs);
 	if (usage?.fiveHour === undefined) return [];
-	if (samples.length < 2 || samples[samples.length - 1].at - samples[0].at < minSpanMs) return [{ role: "dim", label: "Stima", value: "in corso…" }];
+	if (samples.length < 2 || samples[samples.length - 1].at - samples[0].at < minSpanMs) return [{ role: "dim", label: "Previsione", value: "dopo 3 min d'uso" }];
 	const origin = samples[0].at;
 	let sx = 0, sy = 0, sxy = 0, sxx = 0;
 	for (const s of samples) {
