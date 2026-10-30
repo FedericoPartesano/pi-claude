@@ -135,7 +135,7 @@ fi
 # /custom-reload di pi-ui: la funzione pi della shell riapre Pi sulla stessa conversazione dopo il riavvio.
 LOOP_LINE="source \"$REPO/pi-ui/shell/pi-custom-reload.sh\"  # pi-ui: /custom-reload"
 # Earlier versions sourced pi-riavvia.sh: replace that line instead of adding a second one.
-[ -f "$HOME/.bashrc" ] && sed -i "s#.*pi-ui/shell/pi-riavvia\.sh.*#$LOOP_LINE#" "$HOME/.bashrc"
+[ -f "$HOME/.bashrc" ] && sed -i "s|.*pi-ui/shell/pi-riavvia\.sh.*|$LOOP_LINE|" "$HOME/.bashrc"
 if [ -f "$HOME/.bashrc" ] && ! grep -qF "pi-ui/shell/pi-custom-reload.sh" "$HOME/.bashrc"; then
   printf '\n%s\n' "$LOOP_LINE" >> "$HOME/.bashrc"
   ok "/custom-reload: funzione pi aggiunta a ~/.bashrc (apri un nuovo terminale)"
