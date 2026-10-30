@@ -59,9 +59,9 @@ test("footer without session or usage data, and with overage", () => {
 
 test("readUsage reads the subscription file and survives a missing or broken one", () => {
 	const dir = mkdtempSync(join(tmpdir(), "pi-ui-usage-"));
-	writeFileSync(join(dir, "ok.json"), JSON.stringify({ fiveHourUtilization: 0.72, sevenDayUtilization: 0.3, isUsingOverage: false }));
+	writeFileSync(join(dir, "ok.json"), JSON.stringify({ fiveHourUtilization: 0.72, sevenDayUtilization: 0.3, isUsingOverage: false, fiveHourResetsAt: 1000, sevenDayResetsAt: 2000, history: { five_hour: [{ at: 1, u: 0.7 }] } }));
 	writeFileSync(join(dir, "bad.json"), "{");
-	assert.deepEqual(readUsage(join(dir, "ok.json")), { fiveHour: 0.72, sevenDay: 0.3, overage: false });
+	assert.deepEqual(readUsage(join(dir, "ok.json")), { fiveHour: 0.72, sevenDay: 0.3, overage: false, fiveHourResetsAt: 1000, sevenDayResetsAt: 2000, history: { five_hour: [{ at: 1, u: 0.7 }] } });
 	assert.equal(readUsage(join(dir, "bad.json")), undefined);
 	assert.equal(readUsage(join(dir, "missing.json")), undefined);
 });
