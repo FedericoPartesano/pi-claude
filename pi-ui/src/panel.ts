@@ -22,7 +22,7 @@ export interface PanelInfo {
 	files: ChangedFile[];
 	failures: string[];
 	image?: { ref: string; lines: string[] };
-	usage: { fiveHourReset?: string; sevenDayReset?: string; forecast?: { role: "ok" | "warn" | "err" | "dim"; label: string; value: string }[]; fiveHour?: number; sevenDay?: number; contextPercent?: number; contextTokens?: number; contextWindow?: number; model: string; thinking: string };
+	usage: { fiveHourReset?: string; sevenDayReset?: string; forecast7?: { role: "ok" | "warn" | "err" | "dim"; label: string; value: string }[]; forecast?: { role: "ok" | "warn" | "err" | "dim"; label: string; value: string }[]; fiveHour?: number; sevenDay?: number; contextPercent?: number; contextTokens?: number; contextWindow?: number; model: string; thinking: string };
 	/** The current or last turn. */
 	turn?: { mode: "working" | "waiting" | "stopped" | "done" | "ready"; steps: number; seconds: number; tokensIn: number; tokensOut: number };
 	/** Latest steps, oldest first. */
@@ -303,8 +303,8 @@ export function renderPanel(info: PanelInfo, width: number, key = PANEL_KEY, max
 		section("USO"),
 		`${bold(fg(C.text, "5H "))} ${bar(usage.fiveHour, cells, danger ? C.err : C.cyan)} ${fg(C.text, percent(usage.fiveHour === undefined ? undefined : usage.fiveHour * 100).padStart(4))}`,
 		...usageDetails([...(usage.fiveHourReset ? [{ role: "dim" as const, label: "Reset", value: usage.fiveHourReset }] : []), ...(usage.forecast ?? [])], inner),
-		`${bold(fg(C.text, "7G "))} ${bar(usage.sevenDay, cells)} ${fg(C.text, percent(usage.sevenDay === undefined ? undefined : usage.sevenDay * 100).padStart(4))}`,
-		...usageDetails(usage.sevenDayReset ? [{ role: "dim" as const, label: "Reset", value: usage.sevenDayReset }] : [], inner),
+		`${bold(fg(C.text, "7G "))} ${bar(usage.sevenDay, cells, (usage.forecast7 ?? []).some((f) => f.role === "err") ? C.err : C.cyan)} ${fg(C.text, percent(usage.sevenDay === undefined ? undefined : usage.sevenDay * 100).padStart(4))}`,
+		...usageDetails([...(usage.sevenDayReset ? [{ role: "dim" as const, label: "Reset", value: usage.sevenDayReset }] : []), ...(usage.forecast7 ?? [])], inner),
 		`${bold(fg(C.text, "CTX"))} ${bar(usage.contextPercent === undefined ? undefined : usage.contextPercent / 100, cells)} ${fg(C.text, percent(usage.contextPercent).padStart(4))}`,
 		fg(C.dim, `    ${usage.contextTokens !== undefined && usage.contextWindow ? `${formatTokens(usage.contextTokens).replace(",0k", "k")}/${formatTokens(usage.contextWindow).replace(",0k", "k")} · ` : ""}${usage.model}·${usage.thinking}`),
 	]);

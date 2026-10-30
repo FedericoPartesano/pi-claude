@@ -121,7 +121,9 @@ export function onSubscriptionStatus(listener: (info: RateLimitInfo) => void): v
 const USAGE_FILE = join(homedir(), ".pi/agent/claude-code-usage.json");
 
 /** Recent samples per window, kept in the shared file so other processes can estimate the burn rate. */
-const HISTORY_MS = 15 * 60_000;
+const HISTORY_MS: Record<string, number> = { five_hour: 15 * 60_000, seven_day: 6 * 3600_000 };
+/** Minimum gap between two kept samples: bounds the file size for the long weekly history. */
+const SAMPLE_GAP_MS = 30_000;
 let usageHistory: Record<string, { at: number; u: number }[]> = {};
 
 function recordRateLimit(info: unknown): void {
@@ -132,7 +134,9 @@ function recordRateLimit(info: unknown): void {
 		for (const kind of ["five_hour", "seven_day"]) {
 			const u = latestRateLimit.unifiedWindows?.[kind]?.utilization;
 			if (u === undefined) continue;
-			const kept = (usageHistory[kind] ?? []).filter((s) => now - s.at <= HISTORY_MS);
+			const kept = (usageHistory[kind] ?? []).filter((s) => now - s.at <= HISTORY_MS[kind]);
+			const last = kept[kept.length - 1];
+			if (last && u >= last.u && now - last.at < SAMPLE_GAP_MS) continue;
 			// A drop means the window was reset: start over.
 			usageHistory[kind] = kept.length && u < kept[kept.length - 1].u ? [{ at: now, u }] : [...kept, { at: now, u }];
 		}

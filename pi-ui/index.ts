@@ -719,6 +719,7 @@ export default function (pi: ExtensionAPI) {
 			usage: {
 				fiveHour: usage?.fiveHour,
 				forecast: forecastLines(usage),
+				forecast7: forecastLines(usage, "seven_day"),
 				fiveHourReset: resetLabel(usage?.fiveHourResetsAt),
 				sevenDayReset: resetLabel(usage?.sevenDayResetsAt),
 				sevenDay: usage?.sevenDay,
