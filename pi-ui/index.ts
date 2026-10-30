@@ -47,7 +47,7 @@ import { elapsedSeconds, initialStatus, nextStatus, type StatusEvent } from "./s
 import { RESTART_FILE, writeRestartRequest } from "./src/restart.ts";
 import { restoreSession } from "./src/restore.ts";
 import { HIDDEN_THINKING_LABEL, renderThinkingBox, thinkingMarkdown } from "./src/thinking.ts";
-import { readUsage } from "./src/usage.ts";
+import { forecastLines, readUsage, resetLabel } from "./src/usage.ts";
 
 /** Text of a tool result (text blocks only). */
 const resultText = (result: unknown) =>
@@ -718,6 +718,9 @@ export default function (pi: ExtensionAPI) {
 			vault: vaultState,
 			usage: {
 				fiveHour: usage?.fiveHour,
+				forecast: forecastLines(usage),
+				fiveHourReset: resetLabel(usage?.fiveHourResetsAt),
+				sevenDayReset: resetLabel(usage?.sevenDayResetsAt),
 				sevenDay: usage?.sevenDay,
 				contextPercent: context?.percent ?? undefined,
 				contextTokens: context?.tokens ?? undefined,

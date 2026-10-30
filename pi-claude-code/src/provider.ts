@@ -120,16 +120,31 @@ export function onSubscriptionStatus(listener: (info: RateLimitInfo) => void): v
 /** Shared with other extensions (e.g. pi-team budget) that need the subscription usage. */
 const USAGE_FILE = join(homedir(), ".pi/agent/claude-code-usage.json");
 
+/** Recent samples per window, kept in the shared file so other processes can estimate the burn rate. */
+const HISTORY_MS = 15 * 60_000;
+let usageHistory: Record<string, { at: number; u: number }[]> = {};
+
 function recordRateLimit(info: unknown): void {
 	latestRateLimit = info as RateLimitInfo;
 	subscriptionListener?.(latestRateLimit);
 	try {
+		const now = Date.now();
+		for (const kind of ["five_hour", "seven_day"]) {
+			const u = latestRateLimit.unifiedWindows?.[kind]?.utilization;
+			if (u === undefined) continue;
+			const kept = (usageHistory[kind] ?? []).filter((s) => now - s.at <= HISTORY_MS);
+			// A drop means the window was reset: start over.
+			usageHistory[kind] = kept.length && u < kept[kept.length - 1].u ? [{ at: now, u }] : [...kept, { at: now, u }];
+		}
 		mkdirSync(dirname(USAGE_FILE), { recursive: true });
 		writeFileSync(
 			USAGE_FILE,
 			JSON.stringify({
 				fiveHourUtilization: latestRateLimit.unifiedWindows?.five_hour?.utilization,
 				sevenDayUtilization: latestRateLimit.unifiedWindows?.seven_day?.utilization,
+				fiveHourResetsAt: latestRateLimit.unifiedWindows?.five_hour?.resetsAt,
+				sevenDayResetsAt: latestRateLimit.unifiedWindows?.seven_day?.resetsAt,
+				history: usageHistory,
 				isUsingOverage: latestRateLimit.isUsingOverage ?? false,
 				updatedAt: new Date().toISOString(),
 			}),

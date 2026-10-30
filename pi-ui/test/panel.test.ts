@@ -27,8 +27,8 @@ test("the panel lists session, files, failing tests, last image and usage at its
 	assert.match(text, /TEST ─+ 1 ✗/);
 	assert.match(text, /✗ totalValue/);
 	assert.match(text, /IMMAGINI/);
-	assert.match(text, /5H\s+▰+▱+ 34%/);
-	assert.match(text, /CTX\s+▰+▱+ 41%/);
+	assert.match(text, /5H\s+▰+▱+\s+34%/);
+	assert.match(text, /CTX\s+▰+▱+\s+41%/);
 	assert.match(text, /82k\/200k · sonnet·medium/);
 });
 

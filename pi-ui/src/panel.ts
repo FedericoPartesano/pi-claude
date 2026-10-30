@@ -22,7 +22,7 @@ export interface PanelInfo {
 	files: ChangedFile[];
 	failures: string[];
 	image?: { ref: string; lines: string[] };
-	usage: { fiveHour?: number; sevenDay?: number; contextPercent?: number; contextTokens?: number; contextWindow?: number; model: string; thinking: string };
+	usage: { fiveHourReset?: string; sevenDayReset?: string; forecast?: { role: "ok" | "warn" | "err" | "dim"; label: string; value: string }[]; fiveHour?: number; sevenDay?: number; contextPercent?: number; contextTokens?: number; contextWindow?: number; model: string; thinking: string };
 	/** The current or last turn. */
 	turn?: { mode: "working" | "waiting" | "stopped" | "done" | "ready"; steps: number; seconds: number; tokensIn: number; tokensOut: number };
 	/** Latest steps, oldest first. */
@@ -113,10 +113,20 @@ export function parseNumstat(output: string): Map<string, { added: number; remov
 	return counts;
 }
 
-const bar = (fraction: number | undefined, cells = 10) => {
+const bar = (fraction: number | undefined, cells = 10, color = C.cyan) => {
 	const filled = Math.round(Math.min(1, Math.max(0, fraction ?? 0)) * cells);
-	return fg(C.cyan, "▰".repeat(filled)) + fg(C.faint, "▱".repeat(cells - filled));
+	return fg(color, "▰".repeat(filled)) + fg(C.faint, "▱".repeat(cells - filled));
 };
+
+/** Detail rows under a usage bar: label on the left, value right-aligned, indented under the bar. */
+function usageDetails(rows: { role: "ok" | "warn" | "err" | "dim"; label: string; value: string }[], inner: number): string[] {
+	return rows.map(({ role, label, value }) => {
+		const gap = Math.max(1, inner - 4 - label.length - value.length);
+		const text = `    ${label}${" ".repeat(gap)}${value}`;
+		if (role === "err") return bold(fg(C.err, text));
+		return fg(role === "ok" ? C.ok : role === "warn" ? C.warn : C.dim, text);
+	});
+}
 
 /** Default key of the panel: Alt+I and Alt+O are taken by komorebi/whkd, Ctrl+B by tmux. PI_UI_PANEL_KEY overrides it. */
 export const PANEL_KEY = "alt+s";
@@ -284,13 +294,18 @@ export function renderPanel(info: PanelInfo, width: number, key = PANEL_KEY, max
 		add(6, () => ["", section("RISPARMIO"), `${fg(C.ok, formatTokens(saved))} ${fg(C.dim, "token risparmiati")}`]);
 	}
 	const usage = info.usage;
+	// Label (3) + space + bar + space + "100%" (4): the bar takes all the rest of the width.
+	const cells = Math.max(6, inner - 3 - 1 - 1 - 4);
+	const danger = (usage.forecast ?? []).some((f) => f.role === "err");
 	const percent = (value: number | undefined) => (value === undefined ? "–" : `${Math.round(value)}%`);
 	add(0, () => [
 		"",
 		section("USO"),
-		`${bold(fg(C.text, "5H "))} ${bar(usage.fiveHour)} ${fg(C.text, percent(usage.fiveHour === undefined ? undefined : usage.fiveHour * 100))}`,
-		`${bold(fg(C.text, "7G "))} ${bar(usage.sevenDay)} ${fg(C.text, percent(usage.sevenDay === undefined ? undefined : usage.sevenDay * 100))}`,
-		`${bold(fg(C.text, "CTX"))} ${bar(usage.contextPercent === undefined ? undefined : usage.contextPercent / 100)} ${fg(C.text, percent(usage.contextPercent))}`,
+		`${bold(fg(C.text, "5H "))} ${bar(usage.fiveHour, cells, danger ? C.err : C.cyan)} ${fg(C.text, percent(usage.fiveHour === undefined ? undefined : usage.fiveHour * 100).padStart(4))}`,
+		...usageDetails([...(usage.fiveHourReset ? [{ role: "dim" as const, label: "Reset", value: usage.fiveHourReset }] : []), ...(usage.forecast ?? [])], inner),
+		`${bold(fg(C.text, "7G "))} ${bar(usage.sevenDay, cells)} ${fg(C.text, percent(usage.sevenDay === undefined ? undefined : usage.sevenDay * 100).padStart(4))}`,
+		...usageDetails(usage.sevenDayReset ? [{ role: "dim" as const, label: "Reset", value: usage.sevenDayReset }] : [], inner),
+		`${bold(fg(C.text, "CTX"))} ${bar(usage.contextPercent === undefined ? undefined : usage.contextPercent / 100, cells)} ${fg(C.text, percent(usage.contextPercent).padStart(4))}`,
 		fg(C.dim, `    ${usage.contextTokens !== undefined && usage.contextWindow ? `${formatTokens(usage.contextTokens).replace(",0k", "k")}/${formatTokens(usage.contextWindow).replace(",0k", "k")} · ` : ""}${usage.model}·${usage.thinking}`),
 	]);
 	if (hud) add(8, () => ["", fit(`${fg(C.mag, "◥■")}${fg(C.faint, "■".repeat(Math.max(0, inner - 22)))}`, fg(C.dim, `NODE ${process.pid.toString(16).slice(-4).toUpperCase()} · SYS OK`), inner)]);
