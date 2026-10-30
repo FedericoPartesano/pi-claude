@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.1](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.10.0...pi-claude-v0.10.1) (2026-10-30)
+
+
+### Bug Fixes
+
+* **install:** delimitatore del sed che rompeva l'aggiornamento di ~/.bashrc ([f4a7d9a](https://github.com/FedericoPartesano/pi-claude/commit/f4a7d9aa75178f5a9e5fff90adb3f70d86d4417d))
+
 ## [0.10.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.9.0...pi-claude-v0.10.0) (2026-10-30)
 
 
