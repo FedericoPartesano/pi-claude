@@ -3,6 +3,7 @@
  * task with retries, final verification with corrective rounds, reviewer, and a report.
  * All side effects (agents, commands, progress) are injected so the loop is testable.
  */
+import { CALLOUT_INSTRUCTIONS, REVIEW_INSTRUCTIONS, crmEnabled, isHalting, parseCallout, reviewMaterial, taskBriefing, stripCallout, withCallout } from "./crm.ts";
 import type { AgentFeed } from "./feed.ts";
 import type { TeamPlan, TeamTask } from "./plan.ts";
 import type { Role } from "./roles.ts";
@@ -144,6 +145,8 @@ export async function runTeamPlan(plan: TeamPlan, dependencies: OrchestratorDepe
 		outcome: TaskOutcome;
 		feedback: string;
 		context: string;
+		/** Set when the agent called BLOCCATO or DISACCORDO: retrying the same prompt would not help. */
+		halted?: string;
 	}
 
 	const newState = (task: TeamTask): TaskState => ({
@@ -162,6 +165,7 @@ export async function runTeamPlan(plan: TeamPlan, dependencies: OrchestratorDepe
 		Object.assign(entry, { state: "running", attempts: outcome.attempts, parallel });
 		emit();
 		progress(`▶ ${task.id} ${task.role} (${role.model}) · tentativo ${outcome.attempts}${parallel ? " · in parallelo" : ""}: ${task.title}`);
+		const briefing = "";  // taskBriefing measured slower (blind parallel edits stall): kept in crm.ts, unused
 		const prompt = [
 			`Obiettivo del team: ${plan.goal}`,
 			plan.contracts?.trim() ? `Interfacce concordate tra i compiti (rispettale esattamente, anche se il file di un altro compito non esiste ancora):\n${plan.contracts.trim()}` : "",
@@ -171,6 +175,8 @@ export async function runTeamPlan(plan: TeamPlan, dependencies: OrchestratorDepe
 			dependencies.notes ? notesInstructions(dependencies.notes.path) : "",
 			"Nella stessa risposta chiedi insieme le chiamate indipendenti (più file da leggere, più ricerche): Pi le esegue in contemporanea.",
 			dependencies.lessons ?? "",
+			briefing,
+			crmEnabled() ? CALLOUT_INSTRUCTIONS : "",
 			task.verify?.length ? `Al termine verranno eseguiti questi controlli, che devono passare:\n${task.verify.map((command) => `- \`${command}\``).join("\n")}` : "",
 			feedback ? `ATTENZIONE, tentativo precedente non riuscito:\n${feedback}\nCorreggi e completa il compito.` : "",
 		].filter(Boolean).join("\n\n");
@@ -187,7 +193,19 @@ export async function runTeamPlan(plan: TeamPlan, dependencies: OrchestratorDepe
 			progress(`✗ ${task.id} errore agente: ${error}`);
 			return false;
 		}
-		outcome.summary = extractSummary(agentRun.text);
+		const callout = parseCallout(agentRun.text);
+		outcome.summary = withCallout(callout ? stripCallout(agentRun.text) : extractSummary(agentRun.text), callout);
+		if (isHalting(callout)) {
+			const word = callout.kind === "blocked" ? "bloccato" : "in disaccordo";
+			const reason = `${word}: ${callout.detail || "senza motivo"}`;
+			state.halted = reason;
+			outcome.reason = reason;
+			outcome.failures.push(`agente ${reason}`);
+			Object.assign(entry, { state: "failed", error: shortError(reason) });
+			emit();
+			progress(`⛔ ${task.id} ${reason}`);
+			return false;
+		}
 		return true;
 	};
 
@@ -283,7 +301,7 @@ export async function runTeamPlan(plan: TeamPlan, dependencies: OrchestratorDepe
 
 	const executeWriter = async (task: TeamTask): Promise<TaskOutcome> => {
 		const state = newState(task);
-		while (state.outcome.attempts < maxTaskAttempts && !signal?.aborted) {
+		while (state.outcome.attempts < maxTaskAttempts && !state.halted && !signal?.aborted) {
 			// A check waiting for a quiet tree goes first: no new edits start until it ran.
 			await until(() => quietWaiters === 0);
 			editing++;
@@ -300,7 +318,7 @@ export async function runTeamPlan(plan: TeamPlan, dependencies: OrchestratorDepe
 
 	const executeReader = async (task: TeamTask): Promise<TaskOutcome> => {
 		const state = newState(task);
-		while (state.outcome.attempts < maxTaskAttempts && !signal?.aborted) {
+		while (state.outcome.attempts < maxTaskAttempts && !state.halted && !signal?.aborted) {
 			if ((await attemptAgent(state, false)) && (await checkTask(state))) break;
 		}
 		return finish(state);
@@ -422,12 +440,13 @@ export async function runTeamPlan(plan: TeamPlan, dependencies: OrchestratorDepe
 		board.phase = "review";
 		emit();
 		progress("🔍 revisione");
+		const material = crmEnabled() ? await reviewMaterial(dependencies.cwd) : "";
 		const reviewPrompt = `Obiettivo del team: ${plan.goal}\n\nCompiti svolti:\n${tasks.map((outcome) => `### ${outcome.id} (${outcome.role}): ${outcome.title}\n${outcome.summary}`).join("\n\n")}\n\nRivedi le modifiche (usa git diff) rispetto all'obiettivo. I controlli ${finalCommands.map((command) => `\`${command}\``).join(", ") || "(nessuno)"} passano.${
 			preexistingFailures.length
 				? `\n\nQuesti controlli fallivano già prima del lavoro del team: ${preexistingFailures.map((command) => `\`${command}\``).join(", ")}. I problemi che li facevano fallire sono fuori perimetro: non chiederne la correzione, salvo che l'obiettivo la chieda esplicitamente.`
 				: ""
-		}`;
-		const reviewRun = await run(reviewer, reviewPrompt, { id: "revisione", title: "Revisione finale" });
+		}${material ? `\n\n${REVIEW_INSTRUCTIONS}\n\n${material}` : ""}`;
+		const reviewRun = await run(material ? { ...reviewer, thinking: "low" } : reviewer, reviewPrompt, { id: "revisione", title: "Revisione finale" });
 		const parsed = reviewRun.ok ? parseReviewVerdict(reviewRun.text) : undefined;
 		review = parsed ?? { verdict: "error", notes: reviewRun.error ?? "verdetto non trovato nella risposta del revisore" };
 		board.review = ({ approved: "approvato", changes: "modifiche richieste", error: "non riuscita", skipped: "saltata" } as const)[review.verdict];

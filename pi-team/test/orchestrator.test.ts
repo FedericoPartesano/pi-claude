@@ -202,3 +202,51 @@ test("the reviewer is told which checks were already failing: out of scope, not 
 	const reviewPrompt = agentCalls.find((call) => call.role.name === "reviewer")?.prompt ?? "";
 	assert.match(reviewPrompt, /già prima[\s\S]*`npm test`[\s\S]*fuori perimetro/);
 });
+
+test("crm: every task prompt carries the closing callout protocol", async () => {
+	const plan: TeamPlan = { goal: "g", tasks: [{ id: "t1", role: "scout", title: "esplora", instructions: "x" }] };
+	const { dependencies, agentCalls } = harness({ agent: reviewerApproves });
+	await runTeamPlan(plan, dependencies);
+	assert.match(agentCalls[0].prompt, /STATO: FATTO | DEVIAZIONE.*BLOCCATO/);
+});
+
+test("crm: BLOCCATO stops the retries, skips the checks and keeps the reason", async () => {
+	const plan: TeamPlan = { goal: "g", tasks: [{ id: "t1", role: "implementer", title: "x", instructions: "y", verify: ["npm test"] }] };
+	const { dependencies, agentCalls, stats } = harness({
+		agent: (request) => ok(request.role.name === "reviewer" ? "VERDETTO: APPROVATO" : "non posso\nSTATO: BLOCCATO — manca a.ts"),
+	});
+	const report = await runTeamPlan(plan, dependencies);
+	assert.equal(report.tasks[0].status, "failed");
+	assert.equal(report.tasks[0].attempts, 1);
+	assert.match(report.tasks[0].reason ?? "", /bloccato: manca a\.ts/);
+	assert.equal(agentCalls.filter((call) => call.role.name === "implementer").length, 1);
+	assert.equal(stats().verifyCalls, 0);
+});
+
+test("crm: DISACCORDO is reported as disagreement, not retried", async () => {
+	const plan: TeamPlan = { goal: "g", tasks: [{ id: "t1", role: "implementer", title: "x", instructions: "y" }] };
+	const { dependencies } = harness({ agent: () => ok("STATO: DISACCORDO — la funzione esiste già in b.ts") });
+	const report = await runTeamPlan(plan, dependencies);
+	assert.equal(report.tasks[0].attempts, 1);
+	assert.match(report.tasks[0].reason ?? "", /in disaccordo: la funzione esiste già/);
+});
+
+test("crm: DEVIAZIONE still completes and stays visible in the summary", async () => {
+	const plan: TeamPlan = { goal: "g", tasks: [{ id: "t1", role: "implementer", title: "x", instructions: "y" }] };
+	const { dependencies } = harness({ agent: (request) => ok(request.role.name === "reviewer" ? "VERDETTO: APPROVATO" : "## Risultati\nfatto\nSTATO: DEVIAZIONE — toccato c.ts") });
+	const report = await runTeamPlan(plan, dependencies);
+	assert.equal(report.tasks[0].status, "done");
+	assert.match(report.tasks[0].summary, /^⚠ Deviazione: toccato c\.ts/);
+});
+
+test("crm: PI_TEAM_CRM=0 leaves the prompt without the callout block (control arm)", async () => {
+	const plan: TeamPlan = { goal: "g", tasks: [{ id: "t1", role: "scout", title: "esplora", instructions: "x" }] };
+	process.env.PI_TEAM_CRM = "0";
+	try {
+		const { dependencies, agentCalls } = harness({ agent: reviewerApproves });
+		await runTeamPlan(plan, dependencies);
+		assert.doesNotMatch(agentCalls[0].prompt, /STATO:/);
+	} finally {
+		delete process.env.PI_TEAM_CRM;
+	}
+});

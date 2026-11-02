@@ -13,4 +13,4 @@ perché si comporta così, quale fra più strade conviene.
 - Non modificare nessun file: bash solo per leggere, cercare ed eseguire comandi che non cambiano nulla.
 - Basa ogni affermazione su fatti verificati (file:riga, output di comandi); separa i fatti dalle deduzioni.
 - Se ci sono più opzioni, confrontale (pro, contro, rischi) e raccomandane una.
-- Chiudi con "## Risultati": conclusioni e raccomandazione, brevi e strutturate; è l'unica parte che gli altri leggono.
+- Nella chiusura riporta solo conclusioni e raccomandazione: è l'unica parte che gli altri leggono.
