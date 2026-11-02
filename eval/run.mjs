@@ -36,10 +36,11 @@ async function runJob({ testCase, harnessName }) {
 	execSync(`node ${JSON.stringify(join(evalDirectory, "fixture/build.mjs"))} ${JSON.stringify(directory)}`);
 
 	// "pi-team": Pi with the team extension, plans auto-approved, told to use the team tool.
-	const harness = harnessName === "pi-team"
-		? new PiHarness(directory, model, join(logDirectory, `${testCase.id}-pi-team.log`), {
+	// "pi-team-free": same, with the CRM callout protocol off (PI_TEAM_CRM=0): control arm of eval/TEAM-CRM-REPORT.md.
+	const harness = harnessName === "pi-team" || harnessName === "pi-team-free"
+		? new PiHarness(directory, model, join(logDirectory, `${testCase.id}-${harnessName}.log`), {
 				extraArgs: ["-e", join(evalDirectory, "../pi-team")],
-				environment: { PI_TEAM_AUTO_APPROVE: "1" },
+				environment: { PI_TEAM_AUTO_APPROVE: "1", ...(harnessName === "pi-team-free" ? { PI_TEAM_CRM: "0" } : {}) },
 			})
 		: harnessName === "pi-parallel" || harnessName === "pi-parallel-forced"
 		? // Pi with pi-team loaded directly (parallel active, no tool-groups), left free to choose unless forced.
@@ -54,7 +55,7 @@ async function runJob({ testCase, harnessName }) {
 	const started = Date.now();
 	const turns = [];
 	for (const prompt of testCase.turns) {
-		const turn = await harness.runTurn(harnessName === "pi-team" ? `Usa il tool team per questo lavoro.\n\n${prompt}` : harnessName === "pi-parallel-forced" ? `Usa il tool parallel per questo lavoro.\n\n${prompt}` : prompt);
+		const turn = await harness.runTurn(harnessName === "pi-team" || harnessName === "pi-team-free" ? `Usa il tool team per questo lavoro.\n\n${prompt}` : harnessName === "pi-parallel-forced" ? `Usa il tool parallel per questo lavoro.\n\n${prompt}` : prompt);
 		turns.push(turn);
 		if (turn.errors.some((error) => error.startsWith("process exited"))) break;
 	}

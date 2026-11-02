@@ -1,0 +1,2 @@
+{"arm":"crm","round":1,"pass":true,"detail":"valori=[300,\"€ -1,50\",\"Uomini, boschi e api\",\"perche-e-cosi\",[1,2]] test pass=12 fail=0","seconds":949.4,"outcome":"verified","input":92979,"output":4744,"requests":14,"agentRuns":4,"outChars":1555,"attempts":3,"summaryChars":648}
+{"arm":"free","round":1,"pass":true,"detail":"valori=[300,\"€ -1,50\",\"Uomini, boschi e api\",\"perche-e-cosi\",[1,2]] test pass=10 fail=0","seconds":57.9,"outcome":"verified","input":74580,"output":2610,"requests":13,"agentRuns":3,"outChars":1175,"attempts":2,"summaryChars":858}
