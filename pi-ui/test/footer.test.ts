@@ -18,8 +18,8 @@ test("renderFooter: badge Caveman con il livello, anche da spento", () => {
 });
 
 test("renderFooter: INTENT con i punti fatti", () => {
-	const info = { statuses: new Map([["intent", "3/7"]]), project: "p", changes: 0, model: "m", thinking: "t" };
-	assert.match(renderFooter(info, 120).replace(/\x1b\[[0-9;]*m/g, ""), /INTENT 3\/7/);
+	const info = { statuses: new Map([["intent", "Sconti nel carrello · 3 di 7 fatti"]]), project: "p", changes: 0, model: "m", thinking: "t" };
+	assert.match(renderFooter(info, 120).replace(/\x1b\[[0-9;]*m/g, ""), /INTENT Sconti nel carrello · 3 di 7 fatti/);
 });
 
 test("renderFooter: versioni di Pi e di pi-claude fisse a destra, più corte se lo spazio è poco", () => {

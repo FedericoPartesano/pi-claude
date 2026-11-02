@@ -198,3 +198,56 @@ test("renderIntentUpkeep: fixed text per file, says to tick with proof and to se
 	assert.match(text, /status: done/);
 	assert.doesNotMatch(text, /\d+\/\d+/);
 });
+
+test("renderIntentReminder gives the state, not the history: done outcomes shrink to one line without proof", () => {
+	const intent = parseIntent("# T\n\n## Outcome atteso\n- [x] Il footer mostra le note da indicizzare. Test automatici. — prova: `a.test.ts` verde, molte parole di prova che non servono più a proseguire\n- [ ] Provato in una sessione reale.\n");
+	const reminder = renderIntentReminder("intents/x.md", intent);
+	assert.match(reminder, /- \[x\] Il footer mostra le note da indicizzare/);
+	assert.doesNotMatch(reminder, /prova:|molte parole/);
+	assert.match(reminder, /- \[ \] Provato in una sessione reale\./);
+	assert.match(reminder, /prove nel file/);
+});
+
+test("renderIntentReminder is much shorter than the file once proofs pile up", () => {
+	const done = Array.from({ length: 8 }, (_, n) => `- [x] Outcome ${n} descritto con una frase abbastanza lunga da contare davvero. — prova: ${"comando eseguito e risultato letto, ".repeat(6)}`);
+	const intent = parseIntent(`# T\n\n## Outcome atteso\n${done.join("\n")}\n- [ ] Aperto.\n`);
+	const compact = renderIntentReminder("intents/x.md", intent);
+	const fullLength = done.join("\n").length;
+	assert.ok(compact.length < fullLength * 0.5, `${compact.length} vs ${fullLength}`);
+});
+
+test("intentStatusText: title, done/total and the next open outcome, in plain words", async () => {
+	const { intentStatusText } = await import("./intent.ts");
+	const intent = parseIntent("# Vault Obsidian e CLAUDE.md indicizzati e cercabili con embedding locale\n\n## Outcome atteso\n- [x] Uno.\n- [x] Due.\n- [ ] Provato in una sessione reale.\n");
+	const text = intentStatusText(intent);
+	assert.match(text, /^Vault Obsidian/);
+	assert.match(text, /2 di 3 fatti/);
+	assert.ok(text.length <= 60, String(text.length));
+	assert.equal(intentStatusText(parseIntent("# T\n\n## Outcome atteso\n- [ ] A\n")), "T · 0 di 1 fatti");
+});
+
+test("intentChatLine: what the user reads in the chat when an intent is active", async () => {
+	const { intentChatLine } = await import("./intent.ts");
+	const intent = parseIntent("# Sconti\n\n## Outcome atteso\n- [x] Uno.\n- [ ] Provato in una sessione reale.\n");
+	const line = intentChatLine("intents/x.md", intent);
+	assert.match(line, /Intent attivo: Sconti/);
+	assert.match(line, /1 di 2 fatti/);
+	assert.match(line, /prossimo: Provato in una sessione reale/);
+});
+
+test("renderActiveIntent: title, progress and only the open outcomes, plus open questions", async () => {
+	const { renderActiveIntent } = await import("./intent.ts");
+	const intent = parseIntent("# Sconti\n\n## Outcome atteso\n- [x] Uno.\n- [ ] Due da fare.\n- [ ] Tre da fare.\n\n## Domande aperte\n- Cumulabili?\n");
+	const text = renderActiveIntent("intents/x.md", intent);
+	assert.match(text, /Intent attivo: Sconti · 1 di 3 fatti/);
+	assert.match(text, /intents\/x\.md/);
+	assert.match(text, /Da fare:\n- Due da fare\.\n- Tre da fare\./);
+	assert.doesNotMatch(text, /Uno\./);
+	assert.match(text, /Domande aperte:\n- Cumulabili\?/);
+});
+
+test("renderActiveIntent: all done says so", async () => {
+	const { renderActiveIntent } = await import("./intent.ts");
+	const text = renderActiveIntent("intents/x.md", parseIntent("# T\n\n## Outcome atteso\n- [x] A.\n"));
+	assert.match(text, /Tutti gli outcome sono fatti/);
+});

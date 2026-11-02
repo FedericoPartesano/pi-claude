@@ -245,15 +245,53 @@ export function renderIntentUpkeep(file: string): string {
 	].join("\n");
 }
 
+/** Footer text: title, progress and nothing else, in plain words ("Sconti nel carrello · 2 di 5 fatti"). */
+export function intentStatusText(intent: Intent): string {
+	const { done, total } = outcomeProgress(intent);
+	const tail = ` · ${done} di ${total} fatti`;
+	const title = (intent.title || "intent").trim();
+	const room = Math.max(12, 58 - tail.length);
+	return `${title.length > room ? `${title.slice(0, room - 1).trimEnd()}…` : title}${tail}`;
+}
+
+/** The one line the user reads in the chat when an intent is active (the model gets the full reminder). */
+export function intentChatLine(_file: string, intent: Intent): string {
+	const { done, total } = outcomeProgress(intent);
+	const next = intent.outcomes.find((item) => !/^\[x\]/i.test(item))?.replace(/^\[ \]\s*/, "");
+	const head = `Intent attivo: ${intent.title || "senza titolo"} · ${done} di ${total} fatti`;
+	return next ? `${head} · prossimo: ${next.length > 70 ? `${next.slice(0, 69)}…` : next}` : head;
+}
+
+/** What `/intent` shows first: the active intent and what is still open (done outcomes are only counted). */
+export function renderActiveIntent(file: string, intent: Intent): string {
+	const { done, total } = outcomeProgress(intent);
+	const open = intent.outcomes.filter((item) => !/^\[x\]/i.test(item)).map((item) => item.replace(/^\[ \]\s*/, ""));
+	return [
+		`Intent attivo: ${intent.title || "senza titolo"} · ${done} di ${total} fatti`,
+		file,
+		"",
+		...(open.length > 0 ? ["Da fare:", ...open.map((item) => `- ${item}`)] : ["Tutti gli outcome sono fatti: metti status: done nel file."]),
+		...(intent.openQuestions.length > 0 ? ["", "Domande aperte:", ...intent.openQuestions.map((item) => `- ${item}`)] : []),
+	].join("\n");
+}
+
+/** A done outcome keeps its first sentence; the proof stays in the file (the state matters after a compaction, not the history). */
+function compactOutcome(item: string): string {
+	if (!/^\[x\]/i.test(item)) return item;
+	const withoutProof = item.replace(/\s*[—-]\s*prova:.*$/is, "");
+	const firstSentence = /^(.{20,90}?[.;:])\s/s.exec(withoutProof)?.[1] ?? withoutProof.slice(0, 90);
+	return firstSentence.trim();
+}
+
 /** Compact reminder of an intent, for the context after a compaction. Empty sections are left out. */
 export function renderIntentReminder(file: string, intent: Intent): string {
 	const list = (title: string, items: string[]) => (items.length > 0 ? [`${title}:`, ...items.map((item) => `- ${item}`), ""] : []);
 	return [
-		`Intent in corso (${file}), riportato dopo la compaction: è il riferimento del lavoro, rileggi il file se serve il dettaglio.`,
+		`Intent in corso (${file}), riportato dopo la compaction: è il riferimento del lavoro, rileggi il file se serve il dettaglio (prove nel file).`,
 		"",
 		`# ${intent.title || "(senza titolo)"}`,
 		"",
-		...list("Outcome atteso", intent.outcomes),
+		...list("Outcome atteso", intent.outcomes.map(compactOutcome)),
 		...list("Vincoli", intent.constraints),
 		...list("Domande aperte", intent.openQuestions),
 		...list("Verifica", intent.checks),
@@ -303,15 +341,28 @@ export default function (pi: ExtensionAPI) {
 		if (!ctx.hasUI) return;
 		const active = activeIntent(ctx.cwd);
 		const { done, total } = active ? outcomeProgress(active.intent) : { done: 0, total: 0 };
-		ctx.ui.setStatus("intent", active && total > 0 ? `${done}/${total}` : undefined);
+		ctx.ui.setStatus("intent", active && total > 0 ? intentStatusText(active.intent) : undefined);
 	};
-	pi.on("session_start", (_event, ctx) => showProgress(ctx));
+	let reminderPending = false;
+	// Message for the user in the chat; the content is the full reminder the model gets (shown as one line).
+	pi.registerMessageRenderer("intent-reminder", (message, _options, theme) => {
+		const text = String(message.content ?? "");
+		const title = /^# (.*)$/m.exec(text)?.[1] ?? "intent";
+		const done = (text.match(/^- \[x\]/gim) ?? []).length;
+		const total = done + (text.match(/^- \[ \]/gm) ?? []).length;
+		const line = `↳ intent attivo: ${title} · ${done} di ${total} fatti (promemoria inviato al modello)`;
+		return { render: (width: number) => ["", ` ${theme.fg("dim", line.length > width - 2 ? `${line.slice(0, width - 3)}…` : line)}`], invalidate() {} };
+	});
+	pi.on("session_start", (_event, ctx) => {
+		showProgress(ctx);
+		// Both the user and the model learn at the start of a session that an intent is open (once, then the cache keeps it).
+		if (process.env.PI_INTENT_UPKEEP !== "0" && activeIntent(ctx.cwd) && !allOutcomesDone(activeIntent(ctx.cwd)!.intent)) reminderPending = true;
+	});
 	pi.on("agent_end", (_event, ctx) => showProgress(ctx));
 
 	// After a compaction the summary may drop constraints: put the active intent back in the context.
 	// The file is read when the next turn starts (not at compaction), so ticks and status are current;
 	// nothing is added when no intent is in progress or all its outcomes are already ticked.
-	let reminderPending = false;
 	pi.on("session_compact", () => {
 		reminderPending = true;
 	});
@@ -377,10 +428,13 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	pi.registerCommand("intent", {
-		description: "Scrive un intent.md con un'intervista (/intent <idea>) o elenca gli intent del progetto (/intent)",
+		description: "Scrive un intent.md con un'intervista (/intent <idea>) o mostra l'intent attivo con gli outcome aperti e l'elenco degli intent (/intent)",
 		handler: async (args, ctx) => {
 			const idea = args.trim();
 			if (!idea) {
+				// The active intent first, in the chat flow: what is open right now.
+				const active = activeIntent(ctx.cwd);
+				if (active) ctx.ui.notify(renderActiveIntent(active.file, active.intent), "info");
 				// Open intents in the modal picker (Enter prefills /goal); otherwise the plain list.
 				if (ctx.mode === "tui" && (await pickIntent(ctx))) return;
 				const intents = listIntents(ctx.cwd);
