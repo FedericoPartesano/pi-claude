@@ -47,7 +47,7 @@ import { renderStatusBar, renderVoiceBar } from "./src/status-bar.ts";
 import { elapsedSeconds, initialStatus, nextStatus, type StatusEvent } from "./src/status.ts";
 import { RESTART_FILE, writeRestartRequest } from "./src/restart.ts";
 import { restoreSession } from "./src/restore.ts";
-import { HIDDEN_THINKING_LABEL, patchClosedLabel, renderThinkingBox, thinkingMarkdown } from "./src/thinking.ts";
+import { HIDDEN_THINKING_LABEL, patchClosedLabel, renderThinkingBox, setThinkingExpanded, thinkingExpanded, thinkingMarkdown, thinkingShown } from "./src/thinking.ts";
 import { forecastLines, readUsage, resetLabel } from "./src/usage.ts";
 
 /** Text of a tool result (text blocks only). */
@@ -410,7 +410,7 @@ export default function (pi: ExtensionAPI) {
 				fit(`${label(C.mag, " PI//CLAUDE ")}${fg(C.mag, "╲")} ${bold(fg(C.text, basename(ctx.cwd)))}`, `${fg(C.text, panelKey)} ${fg(C.dim, "pannello ▸")}`, width),
 			),
 		);
-		ctx.ui.setWidget("pi-ui-thinking", () => line_((width) => (status.mode === "working" ? renderThinkingBox(liveThinking, width, { seconds: Math.round((Date.now() - thinkingSince) / 1000), frame }) : [])), { placement: "aboveEditor" });
+		ctx.ui.setWidget("pi-ui-thinking", () => line_((width) => (status.mode === "working" && !thinkingShown() ? renderThinkingBox(liveThinking, width, { seconds: Math.round((Date.now() - thinkingSince) / 1000), frame }) : [])), { placement: "aboveEditor" });
 		ctx.ui.setWidget("pi-ui-paste", () => line_(pastePreview), { placement: "aboveEditor" });
 		usePalette(ctx.ui.theme.name);
 		ctx.ui.setWidget("pi-ui-status", (widgetTui) => {
@@ -929,6 +929,15 @@ export default function (pi: ExtensionAPI) {
 	};
 	for (const key of ["ctrl+enter", "alt+n"]) pi.registerShortcut(key as Parameters<typeof pi.registerShortcut>[0], { description: "Invia subito i messaggi in coda al modello", handler: sendNowKey });
 	pi.registerCommand("now", { description: "Invia subito al modello i messaggi in coda (ctrl+enter o alt+n)", handler: async (_args, ctx) => sendNowKey(ctx) });
+	// Long thinking shows its last 5 lines; /thinking opens it whole and back (Pi rebuilds the messages on the label reset).
+	pi.registerCommand("thinking", {
+		description: "Opens or folds long thinking: by default only the last 5 lines show",
+		handler: async (_args, ctx) => {
+			setThinkingExpanded(!thinkingExpanded());
+			ctx.ui.setHiddenThinkingLabel(HIDDEN_THINKING_LABEL);
+			ctx.ui.notify(thinkingExpanded() ? "Thinking: showing all." : "Thinking: last 5 lines.", "info");
+		},
+	});
 	pi.registerCommand("panel", { description: `Apre o chiude il pannello della sessione (come ${panelKey})`, handler: async (_args, ctx) => togglePanel(ctx) });
 
 	// /custom-reload: full restart on the same conversation (Pi's /reload only reloads resources inside this process).

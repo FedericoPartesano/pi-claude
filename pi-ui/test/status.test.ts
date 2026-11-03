@@ -8,7 +8,7 @@ test("a turn goes ready → working → done", () => {
 	assert.equal(initialStatus().mode, "ready");
 	const working = run({ type: "agent_start", at: 1000 });
 	assert.equal(working.mode, "working");
-	assert.equal(working.activity, "penso…");
+	assert.equal(working.activity, "thinking…");
 	assert.equal(working.step, 0);
 	const done = run({ type: "agent_start", at: 1000 }, { type: "tool_start", activity: "leggo a.js" }, { type: "tool_end", failed: false }, { type: "settled", at: 5000, outcome: "completed" });
 	assert.equal(done.mode, "done");

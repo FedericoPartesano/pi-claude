@@ -35,7 +35,7 @@ export function renderStatusBar(status: TurnStatus, width: number, now: number, 
 			const keys = hint("esc", "interrompi");
 			// Thinking: a moving wave and the latest thought; a tool: a light running over the action.
 			const body = status.phase === "thinking"
-				? `${wave(frame)} ${fg(C.dim, "penso")}${status.thought ? `${fg(C.dim, " · ")}${fg(C.text, status.thought)}` : ""}`
+				? `${wave(frame)} ${fg(C.dim, "thinking")}${status.thought ? `${fg(C.dim, " · ")}${fg(C.text, status.thought)}` : ""}`
 				: shimmer(status.activity, frame);
 			const room = Math.max(4, width - visibleWidth(tag) - visibleWidth(tail) - visibleWidth(keys) - 2);
 			return fit(`${tag}${truncateToWidth(body, room)}${tail}`, keys, width);

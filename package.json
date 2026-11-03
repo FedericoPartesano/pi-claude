@@ -31,6 +31,7 @@
       "./extensions/title.ts",
       "./extensions/advisor.ts",
       "./extensions/btw.ts",
+      "./extensions/test-monitor.ts",
       "./extensions/graph.ts",
       "./extensions/vault.ts",
       "./extensions/micelio.ts"

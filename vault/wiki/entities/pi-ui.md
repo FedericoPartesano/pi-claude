@@ -19,3 +19,6 @@ Barre 5H, 7G e CTX a tutta larghezza, percentuale allineata a destra. Sotto 5H e
 - Se la stima supera il limite prima del reset, la barra diventa rossa e le righe `⚠ Esaurimento` e `Prima del reset` sono in rosso grassetto.
 - Dati: [[pi-claude-code]] scrive in `~/.pi/agent/claude-code-usage.json` utilizzo, orari di reset e storia dei campioni (15 min per 5H, 6 h per 7G, uno ogni 30 s al massimo) a ogni `rate_limit_event`; codice in `pi-ui/src/usage.ts`. La storia riparte da zero al riavvio di Pi.
 - Limiti: nessun test automatico per `forecastLines` e `resetLabel`; la percentuale ha risoluzione 0,01, quindi le prime stime possono oscillare.
+
+## Monitor dei test
+Pannello sopra l'editor con un pallino per test mentre gira un comando di test. Vive in `extensions/test-monitor.ts`, non in pi-ui; un adattatore per runner (node:test, jest, vitest, pytest, `npm test`) in `extensions/test-monitor/runners.ts`. Come aggiungerne uno: `extensions/test-monitor/README.md`.

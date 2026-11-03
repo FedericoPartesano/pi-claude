@@ -1,15 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { HIDDEN_THINKING_LABEL, thinkingMarkdown } from "../src/thinking.ts";
+import { HIDDEN_THINKING_LABEL, clampThinkingLines, thinkingMarkdown } from "../src/thinking.ts";
 
 test("folded thinking is one line that says how to open it (design 03, piegato)", () => {
-	assert.match(HIDDEN_THINKING_LABEL, /^◇ penso ▸/);
+	assert.match(HIDDEN_THINKING_LABEL, /^◇ thinking ▸/);
 	assert.match(HIDDEN_THINKING_LABEL, /ctrl\+t/);
 });
 
-test("open thinking: a '◇ penso ▾' header and the text in a │ gutter (design 03, espanso)", () => {
+test("open thinking: a '◇ thinking ▾' header and the text in a │ gutter (design 03, espanso)", () => {
 	const md = thinkingMarkdown("Leggo src/cart.js.\n\nIl reduce ignora qty.");
-	assert.match(md, /^◇ \*\*penso\*\* ▾ · 6 parole\n\n/);
+	assert.match(md, /^◇ \*\*thinking\*\* ▾ · 6 words\n\n/);
 	assert.match(md, /> Leggo src\/cart.js.\n>\n> Il reduce ignora qty./);
 	assert.match(thinkingMarkdown("a\nb"), /> a b$/, "single newlines join");
 	assert.equal(thinkingMarkdown(thinkingMarkdown("x")), thinkingMarkdown("x"), "idempotent");
@@ -27,7 +27,7 @@ test("live thinking box: header plus at most 5 lines, dark and full width; nothi
 		assert.ok(box.length > 1 && box.length <= 6, `${box.length} lines @${width}`);
 		for (const line of box) assert.equal(visibleWidth(line), width);
 		assert.match(box[0], /\x1b\[48;2;19;18;26m/, "panel background");
-		assert.match(strip(box[0]), /penso · \d+ parole/);
+		assert.match(strip(box[0]), /thinking · \d+ words/);
 	}
 	assert.match(strip(renderThinkingBox(text, 120).join(" ")), /numero 12, un po' lungo per andare a capo nel riquadro\.\s*$/);
 	assert.deepEqual(renderThinkingBox("", 80), []);
@@ -40,7 +40,7 @@ import { closedLabel, patchClosedLabel, thinkingGist } from "../src/thinking.ts"
 
 test("closed label: words and first sentence; generic without text", () => {
 	assert.equal(thinkingGist("Controllo come gestisce la coda. Poi altro."), "Controllo come gestisce la coda.");
-	assert.match(closedLabel("Controllo la coda. Poi altro."), /^◇ penso ▸ 5 parole · Controllo la coda\.  ctrl\+t apre$/);
+	assert.match(closedLabel("Controllo la coda. Poi altro."), /^◇ thinking ▸ 5 words · Controllo la coda\.  ctrl\+t opens$/);
 	assert.equal(closedLabel(""), HIDDEN_THINKING_LABEL);
 });
 
@@ -51,5 +51,43 @@ test("patchClosedLabel sets the label per message, once", () => {
 	assert.equal(patchClosedLabel(proto as never), false);
 	const obj = Object.assign(Object.create(proto), { hiddenThinkingLabel: HIDDEN_THINKING_LABEL });
 	obj.updateContent({ content: [{ type: "thinking", thinking: "Leggo il file. Dopo scrivo." }] });
-	assert.match(seen, /parole · Leggo il file\./);
+	assert.match(seen, /words · Leggo il file\./);
+});
+
+import { thinkingShown } from "../src/thinking.ts";
+
+test("thinkingShown follows Pi's open/closed state, so the live box does not repeat open thinking", () => {
+	const proto = { updateContent() {} };
+	patchClosedLabel(proto as never);
+	const open = Object.assign(Object.create(proto), { hideThinkingBlock: false, hiddenThinkingLabel: HIDDEN_THINKING_LABEL });
+	open.updateContent({ content: [] });
+	assert.equal(thinkingShown(), true);
+	const folded = Object.assign(Object.create(proto), { hideThinkingBlock: true, hiddenThinkingLabel: HIDDEN_THINKING_LABEL });
+	folded.updateContent({ content: [] });
+	assert.equal(thinkingShown(), false);
+});
+
+
+test("clampThinkingLines: header plus the last 5 text lines of the real layout; whole when expanded or short", () => {
+	const lines = ["◇ thinking ▾ · 90 words", "", ...Array.from({ length: 12 }, (_, i) => `│ line ${i + 1}`)];
+	const clipped = clampThinkingLines(lines, false);
+	assert.equal(clipped.length, 7);
+	assert.match(clipped[0], /last 5 lines \(\+7 above, \/thinking opens all\)/);
+	assert.deepEqual(clipped.slice(-5).map((l) => l.replace(/\x1b\[[0-9;]*m/g, "")), ["│ line 8", "│ line 9", "│ line 10", "│ line 11", "│ line 12"]);
+	const padded = clampThinkingLines(["◇ thinking ▾ · 9 words" + " ".repeat(40), "", ...lines.slice(2)], false);
+	assert.equal(strip(padded[0]).length < 100, true, "header padding dropped");
+	assert.deepEqual(clampThinkingLines(lines, true), lines);
+	const short = ["◇ thinking ▾ · 5 words", "", "│ a", "│ b"];
+	assert.deepEqual(clampThinkingLines(short, false), short);
+	assert.deepEqual(clampThinkingLines(["plain", "text"], false), ["plain", "text"]);
+});
+
+test("patchClosedLabel also clamps the rendered children of the message", () => {
+	const proto = { updateContent() {} };
+	patchClosedLabel(proto as never);
+	const long = ["◇ thinking ▾ · 90 words", "", ...Array.from({ length: 9 }, (_, i) => `│ l${i}`)];
+	const child = { render: () => long };
+	const message = Object.assign(Object.create(proto), { hiddenThinkingLabel: "x", contentContainer: { children: [child] } });
+	message.updateContent({ content: [] });
+	assert.equal(child.render().length, 1 + 1 + 5);
 });

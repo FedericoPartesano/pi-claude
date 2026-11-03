@@ -28,7 +28,7 @@ test("working shows activity, step, seconds and how to interrupt", () => {
 	const line = strip(renderStatusBar(working, 120, 9000, 0));
 	assert.match(line, /eseguo i test · passo 4 da 8s · in tutto 8s/);
 	assert.match(line, /esc interrompi/);
-	assert.doesNotMatch(strip(renderStatusBar({ ...working, step: 0, activity: "penso…" }, 120, 1000, 0)), /passo/);
+	assert.doesNotMatch(strip(renderStatusBar({ ...working, step: 0, activity: "thinking…" }, 120, 1000, 0)), /passo/);
 });
 
 test("waiting shows the question and the answers; done shows time and tokens", () => {
@@ -69,7 +69,7 @@ test("while thinking the bar shows a moving wave and the latest thought", () => 
 	const thinking = nextStatus(working, { type: "thinking", text: "Controllo i casi limite di paginate." });
 	for (const width of [40, 80, 120]) assert.equal(visibleWidth(renderStatusBar(thinking, width, 9000, 3)), width);
 	const line = strip(renderStatusBar(thinking, 120, 9000, 3));
-	assert.match(line, /AL LAVORO\s+[▰▱]{6} penso · Controllo i casi limite di paginate\./);
+	assert.match(line, /AL LAVORO\s+[▰▱]{6} thinking · Controllo i casi limite di paginate\./);
 	assert.notEqual(renderStatusBar(thinking, 120, 9000, 3), renderStatusBar(thinking, 120, 9000, 4), "animated");
 });
 

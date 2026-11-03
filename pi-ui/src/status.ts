@@ -42,7 +42,7 @@ export const initialStatus = (): TurnStatus => ({ mode: "ready", activity: "", s
 export function nextStatus(status: TurnStatus, event: StatusEvent): TurnStatus {
 	switch (event.type) {
 		case "agent_start":
-			return { ...initialStatus(), mode: "working", activity: "penso…", startedAt: event.at, stepAt: event.at, phase: "thinking" };
+			return { ...initialStatus(), mode: "working", activity: "thinking…", startedAt: event.at, stepAt: event.at, phase: "thinking" };
 		case "tool_start":
 			return { ...status, activity: event.activity, step: status.step + 1, stepAt: event.at ?? status.stepAt, lastFailed: false, phase: "tool", thought: undefined };
 		case "thinking":
