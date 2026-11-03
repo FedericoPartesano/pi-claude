@@ -1,6 +1,7 @@
 /** The status bar above the editor: one line, one color per state (Neon Night principle 1). */
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { shimmer, wave } from "./animations.ts";
+import { shimmer } from "./animations.ts";
+import { neuralWave } from "./thinking.ts";
 import { C, fg, fit, tag as stateTag } from "./palette.ts";
 import { elapsedSeconds, type TurnStatus } from "./status.ts";
 
@@ -23,19 +24,28 @@ export function silenceNote(signalAt: number | undefined, now: number): string {
 	return fg(silent >= 30 ? C.warn : C.dim, ` · ultimo segnale da ${silent >= 60 ? `${Math.floor(silent / 60)}m ${silent % 60}s` : `${silent}s`}`);
 }
 
+/** Six bars that follow the token flow: calm and dim when idle, tall and bright when text pours (cyan to magenta). */
+function flowWave(frame: number, flow?: { level: number; phase: number }): string {
+	const level = flow ? flow.level : 0.5;
+	const color = level > 0.66 ? C.mag : level > 0.25 ? C.cyan : C.dim;
+	return fg(color, neuralWave(6, frame, flow, 2.4));
+}
+
 /** `signalAt`: when Pi last got anything from the model or a tool (any stream event). */
-export function renderStatusBar(status: TurnStatus, width: number, now: number, frame: number, signalAt?: number): string {
+export function renderStatusBar(status: TurnStatus, width: number, now: number, frame: number, signalAt?: number, flow?: { level: number; phase: number }): string {
 	const seconds = elapsedSeconds(status, now);
 	switch (status.mode) {
 		case "working": {
-			const tag = `${stateTag(C.cyan, ` ${SPINNER[frame % SPINNER.length]} AL LAVORO `)}  `;
+			// With a token flow the spinner turns faster the faster the text arrives, and stops hurrying when nothing does.
+			const spin = flow ? Math.floor(flow.phase * 1.5) : frame;
+			const tag = `${stateTag(C.cyan, ` ${SPINNER[spin % SPINNER.length]} AL LAVORO `)}  `;
 			// Two clocks, named: the current step's and the whole turn's (a lone "573s" next to "cd" read as a hung command).
 			const stepSeconds = status.stepAt ? Math.max(0, Math.round((now - status.stepAt) / 1000)) : undefined;
 			const tail = fg(C.dim, status.step > 0 && stepSeconds !== undefined ? ` · passo ${status.step} da ${stepSeconds}s · in tutto ${seconds}s` : ` · ${seconds}s`) + silenceNote(signalAt, now);
 			const keys = hint("esc", "interrompi");
 			// Thinking: a moving wave and the latest thought; a tool: a light running over the action.
 			const body = status.phase === "thinking"
-				? `${wave(frame)} ${fg(C.dim, "thinking")}${status.thought ? `${fg(C.dim, " · ")}${fg(C.text, status.thought)}` : ""}`
+				? `${flowWave(frame, flow)} ${fg(C.dim, "thinking")}${status.thought ? `${fg(C.dim, " · ")}${fg(C.text, status.thought)}` : ""}`
 				: shimmer(status.activity, frame);
 			const room = Math.max(4, width - visibleWidth(tag) - visibleWidth(tail) - visibleWidth(keys) - 2);
 			return fit(`${tag}${truncateToWidth(body, room)}${tail}`, keys, width);

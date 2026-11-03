@@ -15,11 +15,25 @@ export function thinkingGist(text: string, max = 60): string {
 	return sentence.length > max ? `${sentence.slice(0, max - 1).trimEnd()}…` : sentence;
 }
 
-/** Folded line for one thinking block: size and gist, then how to open it. */
+const BLOCKS = "▁▂▃▄▅▆▇█";
+
+/** Shape of the thought: words per sentence, as up to `cells` bars (long sentences are tall). */
+export function sparkline(text: string, cells = 8): string {
+	const lengths = plainOf(text).split(/(?<=[.!?:])\s+/).map(words).filter(Boolean);
+	if (lengths.length < 3) return "";
+	const size = Math.ceil(lengths.length / cells);
+	const groups: number[] = [];
+	for (let i = 0; i < lengths.length; i += size) groups.push(Math.max(...lengths.slice(i, i + size)));
+	const top = Math.max(...groups);
+	return groups.map((value) => BLOCKS[Math.min(7, Math.floor((value / top) * 7.99))]).join("");
+}
+
+/** Folded line for one thinking block: size, shape and gist, then how to open it. */
 export function closedLabel(text: string): string {
 	const plain = plainOf(text);
 	if (!plain) return HIDDEN_THINKING_LABEL;
-	return `◇ thinking ▸ ${words(plain)} words · ${thinkingGist(plain)}  ctrl+t opens`;
+	const shape = sparkline(plain);
+	return `◇ thinking ▸ ${words(plain)} words${shape ? ` ${shape}` : ""} · ${thinkingGist(plain)}  ctrl+t opens`;
 }
 
 const HEADER = "◇ **thinking** ▾";
@@ -66,22 +80,97 @@ export interface BoxOptions {
 	seconds?: number;
 	/** Animation frame: the left bar pulses. */
 	frame?: number;
+	/** Token flow (see ThinkingRate.sample): drives the wave. */
+	flow?: { level: number; phase: number };
 	maxLines?: number;
 }
 
-/** Dark box: a header (time, words) and the last lines of the streamed thinking, older lines fainter. */
+const mix = (from: string, to: string, t: number) => {
+	const channel = (hex: string, i: number) => Number.parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16);
+	return `#${[0, 1, 2].map((i) => Math.round(channel(from, i) + (channel(to, i) - channel(from, i)) * t).toString(16).padStart(2, "0")).join("")}`;
+};
+
+/**
+ * How fast the thinking text is arriving: characters per second, smoothed (half-life ~1.2 s), as a 0..1 level, plus a
+ * wave phase that advances faster when the flow is faster (so the wave never jumps when the speed changes).
+ */
+export class ThinkingRate {
+	private rate = 0;
+	private chars = 0;
+	private at = 0;
+	private phase = 0;
+	/** Called with the whole thinking text each time it grows. */
+	push(text: string, now: number): void {
+		if (text.length < this.chars) this.chars = 0;
+		this.advance(now, text.length - this.chars);
+		this.chars = text.length;
+	}
+	/** Called with the size of a new piece of text (thinking or answer) when only the delta is known. */
+	add(chars: number, now: number): void {
+		this.advance(now, chars);
+	}
+	private advance(now: number, added: number): void {
+		const dt = this.at ? Math.max(0, (now - this.at) / 1000) : 0;
+		this.at = now;
+		if (dt > 0) {
+			const keep = 0.5 ** (dt / 1.2);
+			this.rate = this.rate * keep + (added / dt) * (1 - keep);
+			this.phase += dt * (0.6 + 4 * this.level());
+		} else this.rate += added;
+	}
+	/** 0 (nothing arriving) to 1 (about 150 characters a second or more). */
+	level(): number {
+		return Math.min(1, this.rate / 150);
+	}
+	/** Moves the clock to `now` (no new text) and returns what the wave needs. */
+	sample(now: number): { level: number; phase: number } {
+		this.advance(now, 0);
+		return { level: this.level(), phase: this.phase };
+	}
+	reset(): void {
+		this.rate = 0;
+		this.chars = 0;
+		this.at = 0;
+		this.phase = 0;
+	}
+}
+
+/**
+ * A wave of bars, `cells` wide. With a `flow` (level 0..1 and phase) the height follows how fast the text arrives:
+ * flat when idle, tall and quick when it pours. Without one, a calm fixed wave (about 4 steps a second at 7 fps).
+ */
+export function neuralWave(cells: number, frame: number, flow?: { level: number; phase: number }, scale = 1): string {
+	const step = flow ? flow.phase : frame >> 1;
+	const amplitude = flow ? 0.12 + 0.88 * flow.level : 1;
+	return Array.from({ length: cells }, (_, i) => {
+		const level = (Math.sin(i * scale * 0.55 + step * 0.7) * 0.5 + Math.sin(i * scale * 0.23 - step * 0.45) * 0.5) * amplitude;
+		return BLOCKS[Math.max(0, Math.min(7, Math.round(((level + 1) / 2) * 7)))];
+	}).join("");
+}
+
+/** Dark box: a header with a calm wave, and the last lines of the streamed thinking: older fainter, a cursor at the end. */
 export function renderThinkingBox(text: string, width: number, options: BoxOptions = {}): string[] {
 	const plain = plainOf(text);
 	if (!plain) return [];
-	const { seconds, frame = 0, maxLines = THINKING_BOX_LINES } = options;
+	const { seconds, frame = 0, flow, maxLines = THINKING_BOX_LINES } = options;
 	const inner = Math.max(10, width - 4);
-	const bar = fg((frame >> 2) % 2 ? C.mag : C.cyan, "▌");
+	// The bar breathes between cyan and magenta over about 5 seconds.
+	const phase = (Math.sin((frame / 7) * 1.25) + 1) / 2;
+	const bar = fg(mix(C.cyan, C.mag, phase), "▌");
 	const row = (body: string) => `${bar}${bg(C.panel, body + " ".repeat(Math.max(0, width - 1 - visibleWidth(body))))}`;
-	const head = ` ${fg(C.mag, "◇")} ${bold(fg(C.mag, "thinking"))}${fg(C.dim, ` · ${seconds === undefined ? "" : `${seconds}s · `}${words(plain)} words`)}`;
+	const title = ` ${fg(C.mag, "◇")} ${bold(fg(C.mag, "thinking"))}${fg(C.dim, ` · ${seconds === undefined ? "" : `${seconds}s · `}${words(plain)} words `)}`;
+	const room = width - 1 - visibleWidth(title) - 1;
+	const head = room >= 8 ? `${title}${fg(mix(C.faint, C.cyan, 0.6), neuralWave(Math.min(24, room), frame, flow))}` : title;
 	const lines = wrapTextWithAnsi(plain, inner).slice(-maxLines);
+	const cursor = (frame >> 2) % 2 ? " " : fg(C.cyan, "▍");
 	return [
 		row(head),
-		...lines.map((line, index) => row(` ${fg(index < lines.length - 2 && lines.length > 2 ? C.faint : C.dim, truncateToWidth(line, inner))}`)),
+		...lines.map((line, index) => {
+			const age = lines.length - 1 - index;
+			const color = age === 0 ? C.text : age === 1 ? C.dim : C.faint;
+			const body = truncateToWidth(line, inner - 1);
+			return row(` ${fg(color, body)}${age === 0 ? cursor : ""}`);
+		}),
 	];
 }
 

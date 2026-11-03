@@ -47,7 +47,7 @@ import { renderStatusBar, renderVoiceBar } from "./src/status-bar.ts";
 import { elapsedSeconds, initialStatus, nextStatus, type StatusEvent } from "./src/status.ts";
 import { RESTART_FILE, writeRestartRequest } from "./src/restart.ts";
 import { restoreSession } from "./src/restore.ts";
-import { HIDDEN_THINKING_LABEL, patchClosedLabel, renderThinkingBox, setThinkingExpanded, thinkingExpanded, thinkingMarkdown, thinkingShown } from "./src/thinking.ts";
+import { HIDDEN_THINKING_LABEL, patchClosedLabel, ThinkingRate, renderThinkingBox, setThinkingExpanded, thinkingExpanded, thinkingMarkdown, thinkingShown } from "./src/thinking.ts";
 import { forecastLines, readUsage, resetLabel } from "./src/usage.ts";
 
 /** Text of a tool result (text blocks only). */
@@ -198,6 +198,9 @@ export default function (pi: ExtensionAPI) {
 	let closePanel: (() => void) | undefined;
 	/** Thinking being streamed: shown in a dark box above the status bar, gone when the thinking ends. */
 	let liveThinking = "";
+	const thinkingRate = new ThinkingRate();
+	// Speed of everything the model streams (thinking and answer): drives the status bar.
+	const turnRate = new ThinkingRate();
 	let thinkingSince = Date.now();
 	/** Last stream event from the model or a tool, for "ultimo segnale da N s". */
 	let signalAt = 0;
@@ -410,7 +413,7 @@ export default function (pi: ExtensionAPI) {
 				fit(`${label(C.mag, " PI//CLAUDE ")}${fg(C.mag, "╲")} ${bold(fg(C.text, basename(ctx.cwd)))}`, `${fg(C.text, panelKey)} ${fg(C.dim, "pannello ▸")}`, width),
 			),
 		);
-		ctx.ui.setWidget("pi-ui-thinking", () => line_((width) => (status.mode === "working" && !thinkingShown() ? renderThinkingBox(liveThinking, width, { seconds: Math.round((Date.now() - thinkingSince) / 1000), frame }) : [])), { placement: "aboveEditor" });
+		ctx.ui.setWidget("pi-ui-thinking", () => line_((width) => (status.mode === "working" && !thinkingShown() ? renderThinkingBox(liveThinking, width, { seconds: Math.round((Date.now() - thinkingSince) / 1000), frame, flow: thinkingRate.sample(Date.now()) }) : [])), { placement: "aboveEditor" });
 		ctx.ui.setWidget("pi-ui-paste", () => line_(pastePreview), { placement: "aboveEditor" });
 		usePalette(ctx.ui.theme.name);
 		ctx.ui.setWidget("pi-ui-status", (widgetTui) => {
@@ -420,7 +423,7 @@ export default function (pi: ExtensionAPI) {
 				// The palette follows Pi's theme (/settings → Theme: neon-night, lilla or night-city): on a switch, redraw everything once.
 				if (usePalette(ctx.ui.theme.name)) widgetTui.requestRender();
 				const voice = statuses.get("voice");
-				return voice ? renderVoiceBar(voice, width) : renderStatusBar(status, width, Date.now(), frame, signalAt);
+				return voice ? renderVoiceBar(voice, width) : renderStatusBar(status, width, Date.now(), frame, signalAt, turnRate.sample(Date.now()));
 			});
 		}, { placement: "aboveEditor" });
 		ctx.ui.setEditorComponent((editorTui, theme, keybindings) => new PromptEditor(editorTui, theme, keybindings));
@@ -555,11 +558,13 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("message_update", (event) => {
 		signalAt = Date.now();
-		const streamed = event.assistantMessageEvent as { type: string; contentIndex?: number; partial?: { content?: { type: string; thinking?: string }[] } };
+		const streamed = event.assistantMessageEvent as { type: string; delta?: string; contentIndex?: number; partial?: { content?: { type: string; thinking?: string }[] } };
 		if (!active || status.mode !== "working") return;
+		if ((streamed.type === "thinking_delta" || streamed.type === "text_delta") && streamed.delta) turnRate.add(streamed.delta.length, Date.now());
 		if (streamed.type === "thinking_delta") {
-			if (!liveThinking) thinkingSince = Date.now();
+			if (!liveThinking) (thinkingSince = Date.now(), thinkingRate.reset());
 			liveThinking = streamed.partial?.content?.[streamed.contentIndex ?? -1]?.thinking ?? "";
+			thinkingRate.push(liveThinking, Date.now());
 			if (status.phase !== "thinking") update({ type: "thinking", text: "", at: Date.now() });
 			else tui?.requestRender();
 		} else if (streamed.type === "thinking_end" || streamed.type === "text_start" || streamed.type === "toolcall_start") {

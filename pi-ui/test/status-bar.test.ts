@@ -69,8 +69,17 @@ test("while thinking the bar shows a moving wave and the latest thought", () => 
 	const thinking = nextStatus(working, { type: "thinking", text: "Controllo i casi limite di paginate." });
 	for (const width of [40, 80, 120]) assert.equal(visibleWidth(renderStatusBar(thinking, width, 9000, 3)), width);
 	const line = strip(renderStatusBar(thinking, 120, 9000, 3));
-	assert.match(line, /AL LAVORO\s+[▰▱]{6} thinking · Controllo i casi limite di paginate\./);
+	assert.match(line, /AL LAVORO\s+[▁-█]{6} thinking · Controllo i casi limite di paginate\./);
 	assert.notEqual(renderStatusBar(thinking, 120, 9000, 3), renderStatusBar(thinking, 120, 9000, 4), "animated");
+});
+
+test("the bar follows the token flow: idle is flat and slow, pouring is tall and its spinner turns faster", () => {
+	const thinking = nextStatus(working, { type: "thinking", text: "Controllo." });
+	const wave = (flow: { level: number; phase: number }) => /AL LAVORO\s+([▁-█]{6})/.exec(strip(renderStatusBar(thinking, 120, 9000, 0, undefined, flow)))![1];
+	const spread = (bars: string) => Math.max(...[...bars].map((c) => "▁▂▃▄▅▆▇█".indexOf(c))) - Math.min(...[...bars].map((c) => "▁▂▃▄▅▆▇█".indexOf(c)));
+	assert.ok(spread(wave({ level: 0, phase: 2 })) <= 1);
+	assert.ok(spread(wave({ level: 1, phase: 2 })) >= 3);
+	assert.notEqual(renderStatusBar(thinking, 120, 9000, 0, undefined, { level: 1, phase: 1 }), renderStatusBar(thinking, 120, 9000, 0, undefined, { level: 1, phase: 2 }));
 });
 
 import { silenceNote } from "../src/status-bar.ts";

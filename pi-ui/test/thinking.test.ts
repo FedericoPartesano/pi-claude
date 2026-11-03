@@ -16,7 +16,7 @@ test("open thinking: a '◇ thinking ▾' header and the text in a │ gutter (d
 });
 
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { renderThinkingBox } from "../src/thinking.ts";
+import { ThinkingRate, renderThinkingBox, neuralWave, sparkline } from "../src/thinking.ts";
 
 const strip = (text: string) => text.replace(/\x1b\[[0-9;]*m/g, "");
 
@@ -29,7 +29,7 @@ test("live thinking box: header plus at most 5 lines, dark and full width; nothi
 		assert.match(box[0], /\x1b\[48;2;19;18;26m/, "panel background");
 		assert.match(strip(box[0]), /thinking · \d+ words/);
 	}
-	assert.match(strip(renderThinkingBox(text, 120).join(" ")), /numero 12, un po' lungo per andare a capo nel riquadro\.\s*$/);
+	assert.match(strip(renderThinkingBox(text, 120).join(" ")), /numero 12, un po' lungo per andare a capo nel riquadro\.▍?\s*$/);
 	assert.deepEqual(renderThinkingBox("", 80), []);
 	assert.deepEqual(renderThinkingBox("   \n ", 80), []);
 	assert.equal(renderThinkingBox("Breve.", 80).length, 2);
@@ -90,4 +90,47 @@ test("patchClosedLabel also clamps the rendered children of the message", () => 
 	const message = Object.assign(Object.create(proto), { hiddenThinkingLabel: "x", contentContainer: { children: [child] } });
 	message.updateContent({ content: [] });
 	assert.equal(child.render().length, 1 + 1 + 5);
+});
+
+test("neuralWave: fixed width, moves between steps; sparkline: shape of the sentences", () => {
+	assert.equal([...neuralWave(20, 0)].length, 20);
+	assert.notEqual(neuralWave(20, 0), neuralWave(20, 4));
+	assert.equal(neuralWave(20, 0), neuralWave(20, 1), "calm: two frames share a step");
+	assert.equal(sparkline("Uno. Due parole qui. Ora una frase lunga con molte più parole del dovuto per salire."), "▁▂█");
+	assert.equal(sparkline("Una sola frase"), "");
+	assert.match(closedLabel("Uno. Due parole qui. Ora una frase lunga con molte più parole."), /words [▁-█]+ ·/);
+});
+
+test("thinking box: wave in the header, cursor on the last line, never wider than the width", () => {
+	for (const frame of [0, 4, 9]) {
+		for (const row of renderThinkingBox("Leggo il file. Poi cerco l'errore nel reduce che ignora qty e ricalcolo il totale.", 60, { seconds: 3, frame })) {
+			assert.ok(visibleWidth(row) <= 60, `${visibleWidth(row)} > 60`);
+		}
+	}
+	assert.match(strip(renderThinkingBox("Leggo il file.", 60, { frame: 0 })[0]), /[▁-█]{8,}/);
+	assert.match(strip(renderThinkingBox("Leggo il file.", 60, { frame: 0 })[1]), /▍/);
+});
+
+test("ThinkingRate: level follows the flow, decays when text stops, phase never goes back", () => {
+	const rate = new ThinkingRate();
+	let text = "";
+	let phase = 0;
+	for (let t = 0; t <= 3000; t += 100) {
+		text += "x".repeat(30); // 300 chars a second
+		rate.push(text, t);
+		const flow = rate.sample(t);
+		assert.ok(flow.phase >= phase);
+		phase = flow.phase;
+	}
+	assert.ok(rate.level() > 0.8, `level ${rate.level()}`);
+	assert.ok(rate.sample(9000).level < 0.1, "decays when nothing arrives");
+	rate.reset();
+	assert.equal(rate.level(), 0);
+});
+
+test("neuralWave with a flow: flat when idle, wider range when it pours", () => {
+	const range = (wave: string) => Math.max(...[...wave].map((c) => "▁▂▃▄▅▆▇█".indexOf(c))) - Math.min(...[...wave].map((c) => "▁▂▃▄▅▆▇█".indexOf(c)));
+	assert.ok(range(neuralWave(24, 0, { level: 0, phase: 3 })) <= 1);
+	assert.ok(range(neuralWave(24, 0, { level: 1, phase: 3 })) >= 5);
+	assert.notEqual(neuralWave(24, 0, { level: 1, phase: 3 }), neuralWave(24, 0, { level: 1, phase: 3.5 }));
 });
