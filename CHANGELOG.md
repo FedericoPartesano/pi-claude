@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.11.0...pi-claude-v0.12.0) (2026-11-03)
+
+
+### Features
+
+* **pi-ui:** pensiero animato (onda, cursore, barra che respira, sparkline) al ritmo dei token ([3afa140](https://github.com/FedericoPartesano/pi-claude/commit/3afa1401158b8b60008190a67ac91ed9492b7cca))
+
 ## [0.11.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.10.0...pi-claude-v0.11.0) (2026-11-03)
 
 
