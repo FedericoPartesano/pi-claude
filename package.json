@@ -30,6 +30,7 @@
       "./extensions/tab-status.ts",
       "./extensions/title.ts",
       "./extensions/advisor.ts",
+      "./extensions/btw.ts",
       "./extensions/graph.ts",
       "./extensions/vault.ts",
       "./extensions/micelio.ts"
