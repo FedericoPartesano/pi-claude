@@ -72,3 +72,14 @@ test("while thinking the bar shows a moving wave and the latest thought", () => 
 	assert.match(line, /AL LAVORO\s+[▰▱]{6} penso · Controllo i casi limite di paginate\./);
 	assert.notEqual(renderStatusBar(thinking, 120, 9000, 3), renderStatusBar(thinking, 120, 9000, 4), "animated");
 });
+
+import { silenceNote } from "../src/status-bar.ts";
+
+test("silenceNote: nothing while fresh, then 'ultimo segnale da N s', minutes after 60 s", () => {
+	const plain = (text: string) => text.replace(/\x1b\[[0-9;]*m/g, "");
+	assert.equal(silenceNote(0, 99_000), "");
+	assert.equal(silenceNote(95_000, 100_000), "");
+	assert.equal(plain(silenceNote(88_000, 100_000)), " · ultimo segnale da 12s");
+	assert.match(silenceNote(60_000, 100_000), /38;2;/, "colored");
+	assert.equal(plain(silenceNote(0 + 1, 1 + 75_000)), " · ultimo segnale da 1m 15s");
+});

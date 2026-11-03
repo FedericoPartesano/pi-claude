@@ -199,6 +199,8 @@ export default function (pi: ExtensionAPI) {
 	/** Thinking being streamed: shown in a dark box above the status bar, gone when the thinking ends. */
 	let liveThinking = "";
 	let thinkingSince = Date.now();
+	/** Last stream event from the model or a tool, for "ultimo segnale da N s". */
+	let signalAt = 0;
 
 	// Rendered lines of chat components, outside the components: Pi may rebuild or invalidate them on every frame, and
 	// re-measuring long ANSI lines on each keystroke made typing slow (profiled). Keys carry everything that changes the
@@ -418,7 +420,7 @@ export default function (pi: ExtensionAPI) {
 				// The palette follows Pi's theme (/settings → Theme: neon-night, lilla or night-city): on a switch, redraw everything once.
 				if (usePalette(ctx.ui.theme.name)) widgetTui.requestRender();
 				const voice = statuses.get("voice");
-				return voice ? renderVoiceBar(voice, width) : renderStatusBar(status, width, Date.now(), frame);
+				return voice ? renderVoiceBar(voice, width) : renderStatusBar(status, width, Date.now(), frame, signalAt);
 			});
 		}, { placement: "aboveEditor" });
 		ctx.ui.setEditorComponent((editorTui, theme, keybindings) => new PromptEditor(editorTui, theme, keybindings));
@@ -460,6 +462,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("agent_start", () => {
+		signalAt = Date.now();
 		if (!active) return;
 		outcome = "completed";
 		update({ type: "agent_start", at: Date.now() });
@@ -499,6 +502,7 @@ export default function (pi: ExtensionAPI) {
 		}
 	};
 	pi.on("tool_execution_start", (event) => {
+		signalAt = Date.now();
 		if (!active || event.parentToolCallId) return;
 		argsOf.set(event.toolCallId, event.args);
 		if (event.toolName === "bash" && process.env.PI_UI_LIVE !== "0") {
@@ -512,6 +516,7 @@ export default function (pi: ExtensionAPI) {
 		update({ type: "tool_start", at: Date.now(), activity: lower(phrase(event.toolName, event.args).text) });
 	});
 	pi.on("tool_execution_end", (event) => {
+		signalAt = Date.now();
 		stopWatch(event.toolCallId);
 		if (!active || event.parentToolCallId) return;
 		if (event.toolName === "todo") plan = planFromDetails((event.result as { details?: unknown } | undefined)?.details) ?? plan;
@@ -530,6 +535,7 @@ export default function (pi: ExtensionAPI) {
 	});
 	// Thinking streamed by the model: the last lines in a dark box while it reasons; the box goes when it ends.
 	pi.on("tool_execution_update", (event) => {
+		signalAt = Date.now();
 		const watch = watches.get(event.toolCallId);
 		if (watch) {
 			const lines = resultText(event.partialResult).split("\n").filter((line) => line.trim());
@@ -548,6 +554,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("message_update", (event) => {
+		signalAt = Date.now();
 		const streamed = event.assistantMessageEvent as { type: string; contentIndex?: number; partial?: { content?: { type: string; thinking?: string }[] } };
 		if (!active || status.mode !== "working") return;
 		if (streamed.type === "thinking_delta") {
@@ -562,6 +569,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("message_end", (event) => {
+		signalAt = Date.now();
 		const message = event.message as { role?: string; usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number } };
 		if (!active || message.role !== "assistant" || !message.usage) return;
 		const usage = message.usage;

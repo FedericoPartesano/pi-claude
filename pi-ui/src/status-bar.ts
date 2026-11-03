@@ -15,14 +15,23 @@ export function formatTokens(count: number): string {
 
 const hint = (key: string, text: string) => `${fg(C.text, key)} ${fg(C.dim, text)}`;
 
-export function renderStatusBar(status: TurnStatus, width: number, now: number, frame: number): string {
+/** " · ultimo segnale da 14s" once nothing arrived for 10 s (yellow from 30 s); empty while signals are fresh. */
+export function silenceNote(signalAt: number | undefined, now: number): string {
+	if (!signalAt) return "";
+	const silent = Math.round((now - signalAt) / 1000);
+	if (silent < 10) return "";
+	return fg(silent >= 30 ? C.warn : C.dim, ` · ultimo segnale da ${silent >= 60 ? `${Math.floor(silent / 60)}m ${silent % 60}s` : `${silent}s`}`);
+}
+
+/** `signalAt`: when Pi last got anything from the model or a tool (any stream event). */
+export function renderStatusBar(status: TurnStatus, width: number, now: number, frame: number, signalAt?: number): string {
 	const seconds = elapsedSeconds(status, now);
 	switch (status.mode) {
 		case "working": {
 			const tag = `${stateTag(C.cyan, ` ${SPINNER[frame % SPINNER.length]} AL LAVORO `)}  `;
 			// Two clocks, named: the current step's and the whole turn's (a lone "573s" next to "cd" read as a hung command).
 			const stepSeconds = status.stepAt ? Math.max(0, Math.round((now - status.stepAt) / 1000)) : undefined;
-			const tail = fg(C.dim, status.step > 0 && stepSeconds !== undefined ? ` · passo ${status.step} da ${stepSeconds}s · in tutto ${seconds}s` : ` · ${seconds}s`);
+			const tail = fg(C.dim, status.step > 0 && stepSeconds !== undefined ? ` · passo ${status.step} da ${stepSeconds}s · in tutto ${seconds}s` : ` · ${seconds}s`) + silenceNote(signalAt, now);
 			const keys = hint("esc", "interrompi");
 			// Thinking: a moving wave and the latest thought; a tool: a light running over the action.
 			const body = status.phase === "thinking"
