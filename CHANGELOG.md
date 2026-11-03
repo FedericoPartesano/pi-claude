@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.11.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.10.0...pi-claude-v0.11.0) (2026-11-03)
+
+
+### Features
+
+* /btw per domande laterali e invio immediato della coda (ctrl+enter, alt+n, /now) ([8c2d909](https://github.com/FedericoPartesano/pi-claude/commit/8c2d909168fe47f642ea1b39c1d10e1e731972b3))
+* **intent:** footer con titolo e progresso, riga in chat, promemoria compatto, /intent mostra l'attivo ([682966a](https://github.com/FedericoPartesano/pi-claude/commit/682966a7076686ba7e8ccf8e49aa7a7331472c94))
+* monitor dei test in estensione a parte con supporto a jest e vitest ([ffd3dcc](https://github.com/FedericoPartesano/pi-claude/commit/ffd3dccf90b908593feb600d803e161f57af546b))
+* **pi-team:** protocollo CRM tra manager e agenti (callout STATO, riassunti brevi, diff al revisore) ([0d311a6](https://github.com/FedericoPartesano/pi-claude/commit/0d311a6252e3fa5223cc2f54ed22f70917d25435))
+* **pi-ui:** «ultimo segnale da N s» nella barra di stato dopo 10 s di silenzio ([0696c36](https://github.com/FedericoPartesano/pi-claude/commit/0696c36f265647beab5f93e9c70d43fbc9d9420c))
+* **pi-ui:** pensiero più ricco (box live con tempo, riga chiusa informativa) e frasi dei comandi con il bersaglio (ricerca, test, git) ([317f269](https://github.com/FedericoPartesano/pi-claude/commit/317f26925b39cebd01daf7dcfa30b5040b860abb))
+
+
+### Bug Fixes
+
+* **install:** delimitatore del sed che rompeva l'aggiornamento di ~/.bashrc ([f4a7d9a](https://github.com/FedericoPartesano/pi-claude/commit/f4a7d9aa75178f5a9e5fff90adb3f70d86d4417d))
+
 ## [0.10.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.9.0...pi-claude-v0.10.0) (2026-10-30)
 
 
