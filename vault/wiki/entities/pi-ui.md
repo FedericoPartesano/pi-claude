@@ -22,3 +22,4 @@ Barre 5H, 7G e CTX a tutta larghezza, percentuale allineata a destra. Sotto 5H e
 
 ## Monitor dei test
 Pannello sopra l'editor con un pallino per test mentre gira un comando di test. Vive in `extensions/test-monitor.ts`, non in pi-ui; un adattatore per runner (node:test, jest, vitest, pytest, `npm test`) in `extensions/test-monitor/runners.ts`. Come aggiungerne uno: `extensions/test-monitor/README.md`.
+Lo stesso pannello ha viste per altri comandi (barra, problemi, pacchetti, passi): `tsc`, `eslint`, build, install, `git` e `docker` hanno un monitor in `extensions/test-monitor/monitors.ts` che legge l'output parziale senza riscrivere il comando.

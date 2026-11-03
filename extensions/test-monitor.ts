@@ -11,10 +11,14 @@ import { dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { teeBeforeFilter } from "./test-monitor/progress.ts";
 import { newTestRun, renderTestMonitor, useColors, type Colors, type TestRun } from "./test-monitor/render.ts";
+import { detectMonitor, type Monitor } from "./test-monitor/monitors.ts";
 import { detectRunner, type Runner } from "./test-monitor/runners.ts";
+import { renderView, type ViewState } from "./test-monitor/views.ts";
 
 interface Tracked {
-	runner: Runner;
+	/** Test runner, or (other commands) the monitor that reads the tool's partial output into a view. */
+	runner?: Runner;
+	monitor?: Monitor;
 	/** File the progress is read from, if any (tee file or reporter file). */
 	log?: string;
 	helpers: string[];
@@ -50,6 +54,8 @@ export default function (pi: ExtensionAPI) {
 	let run: TestRun | undefined;
 	let runId: string | undefined;
 	let runner: Runner | undefined;
+	/** The panel for a command that is not a test run (type check, lint, build, install, git, docker). */
+	let other: { view: ViewState; monitor: Monitor } | undefined;
 	let tui: { requestRender(): void } | undefined;
 	let hide: ReturnType<typeof setTimeout> | undefined;
 	let timer: ReturnType<typeof setInterval> | undefined;
@@ -65,6 +71,17 @@ export default function (pi: ExtensionAPI) {
 		const log = runId ? tracked.get(runId)?.log : undefined;
 		if (run && !run.endedAt && log) apply(readTail(log));
 		frame++;
+		tui?.requestRender();
+	};
+	/** The command ended: stop polling, keep the verdict for a while, then clear the panel. */
+	const finishPanel = (clear: () => void, ms: number) => {
+		if (timer) (clearInterval(timer), (timer = undefined));
+		clearTimeout(hide);
+		hide = setTimeout(() => {
+			clear();
+			tui?.requestRender();
+		}, ms);
+		hide.unref?.();
 		tui?.requestRender();
 	};
 	const cleanup = (id: string) => {
@@ -92,7 +109,7 @@ export default function (pi: ExtensionAPI) {
 			"test-monitor",
 			(widgetTui) => {
 				tui = widgetTui;
-				return { render: (width: number) => (run ? renderTestMonitor(run, width, Date.now(), frame) : []), invalidate() {} };
+				return { render: (width: number) => (other ? renderView(other.view, width, Date.now(), frame) : run ? renderTestMonitor(run, width, Date.now(), frame) : []), invalidate() {} };
 			},
 			{ placement: "aboveEditor" },
 		);
@@ -103,8 +120,21 @@ export default function (pi: ExtensionAPI) {
 		const input = event.input as { command?: unknown };
 		const original = String(input.command ?? "");
 		const found = detectRunner(original);
-		if (!found) return undefined;
 		const id = String(event.toolCallId);
+		if (!found) {
+			// Not a test run: type check, lint, build, install, git, docker. The command is never rewritten.
+			const monitor = detectMonitor(original);
+			if (!monitor) return undefined;
+			clearTimeout(hide);
+			void loadPalette(ctx.ui?.theme?.name);
+			run = undefined;
+			other = { view: monitor.init(original, Date.now()), monitor };
+			tracked.set(id, { monitor, helpers: [] });
+			runId = id;
+			timer ??= setInterval(poll, 250);
+			timer.unref?.();
+			return undefined;
+		}
 		const key = id.replace(/\W/g, "").slice(0, 24);
 		const log = join(root, `${key}.log`);
 		let command = original;
@@ -136,6 +166,7 @@ export default function (pi: ExtensionAPI) {
 		}
 		clearTimeout(hide);
 		void loadPalette(ctx.ui?.theme?.name);
+		other = undefined;
 		run = newTestRun(original, Date.now());
 		run.total = found.estimate(original, ctx.cwd);
 		runId = id;
@@ -148,24 +179,23 @@ export default function (pi: ExtensionAPI) {
 	pi.on("tool_execution_update", (event) => {
 		const item = tracked.get(String(event.toolCallId));
 		// Without a file the tool's own partial output is the only source.
-		if (item && !item.log && runId === event.toolCallId) apply(resultText(event.partialResult));
+		if (item?.monitor && other && runId === event.toolCallId) item.monitor.update(other.view, resultText(event.partialResult));
+		else if (item && !item.log && runId === event.toolCallId) apply(resultText(event.partialResult));
 	});
 
 	pi.on("tool_execution_end", (event) => {
 		const id = String(event.toolCallId);
 		const item = tracked.get(id);
 		if (!item) return;
-		if (run && runId === id && !run.endedAt) {
+		if (item.monitor && other && runId === id && other.view.kind !== "tests" && !other.view.endedAt) {
+			item.monitor.update(other.view, resultText(event.result));
+			other.view.endedAt = Date.now();
+			other.view.failed = Boolean((event as { isError?: boolean }).isError);
+			finishPanel(() => (other = undefined), other.view.failed ? 30_000 : 8_000);
+		} else if (run && runId === id && !run.endedAt) {
 			apply(item.log ? readTail(item.log) : resultText(event.result));
 			run.endedAt = Date.now();
-			if (timer) (clearInterval(timer), (timer = undefined));
-			clearTimeout(hide);
-			hide = setTimeout(() => {
-				run = undefined;
-				tui?.requestRender();
-			}, run.fail ? 30_000 : 8_000);
-			hide.unref?.();
-			tui?.requestRender();
+			finishPanel(() => (run = undefined), run.fail ? 30_000 : 8_000);
 		}
 		cleanup(id);
 	});

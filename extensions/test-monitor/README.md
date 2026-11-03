@@ -13,3 +13,10 @@ Aggiungi i test in `extensions/test-monitor.test.ts` con output reale del runner
 
 Runner: node:test, vitest (`--reporter=verbose`), jest (reporter a file, in coda al comando), pytest (`-v`), `npm|pnpm|yarn|bun test` (formato riconosciuto dall'output).
 Spento con `PI_TEST_MONITOR=0` o `PI_UI_LIVE=0`, e su Windows nativo.
+
+## Altri comandi: viste e monitor
+Oltre ai test il pannello segue type check (`tsc`), lint (`eslint`), build (`vite|next|webpack|cargo|go build`, `npm run build`), install (`npm|pnpm|yarn|bun`, `pip`), `git` (clone, fetch, pull, push) e `docker` (build, pull). Questi comandi non vengono mai riscritti: il monitor legge solo l'output parziale del tool (stdout e stderr insieme), quindi il modello riceve lo stesso output e lo stesso costo in token.
+- Viste (`views.ts`): `tests` (pallini), `bar` (barra con percentuale, fase e file corrente), `issues` (errori/avvisi, file, problema peggiore), `feed` (fase e pacchetti), `steps` (checklist di fasi). Tre righe, stessa cornice (`panel()` in `render.ts`).
+- Aggiungere un monitor: una voce in `MONITORS` (`monitors.ts`) con `matches(command)` (un solo comando semplice), `init` (stato vuoto di una vista) e `update(state, text)` (rilegge tutto il testo: deve essere idempotente). Test in `extensions/test-monitor-monitors.test.ts` con output reale.
+- Aggiungere una vista: tipo di stato, renderer, voce in `VIEWS`.
+- `git` senza terminale non stampa avanzamento (aggiungere `--progress` sporcherebbe l'output del modello): barra indeterminata con fase e ultima riga; con le percentuali nel testo diventa determinata.

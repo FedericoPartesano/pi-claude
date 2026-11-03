@@ -14,24 +14,25 @@ export interface Colors {
 	text: string;
 	faint: string;
 	panel: string;
+	warn: string;
 }
 
-export const DEFAULT_COLORS: Colors = { ok: "#3df2a0", err: "#ff4d6d", cyan: "#2ee6ff", dim: "#858ba0", text: "#dcdfe8", faint: "#4c5163", panel: "#13121a" };
-let C: Colors = DEFAULT_COLORS;
+export const DEFAULT_COLORS: Colors = { ok: "#3df2a0", err: "#ff4d6d", cyan: "#2ee6ff", dim: "#858ba0", text: "#dcdfe8", faint: "#4c5163", panel: "#13121a", warn: "#ffd166" };
+export let C: Colors = DEFAULT_COLORS;
 export const useColors = (colors: Colors) => {
 	C = colors;
 };
 
 const rgb = (hex: string) => [1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16)).join(";");
-const fg = (color: string, text: string) => `\x1b[38;2;${rgb(color)}m${text}\x1b[39m`;
-const bg = (color: string, text: string) => `\x1b[48;2;${rgb(color)}m${text}\x1b[49m`;
-const bold = (text: string) => `\x1b[1m${text}\x1b[22m`;
+export const fg = (color: string, text: string) => `\x1b[38;2;${rgb(color)}m${text}\x1b[39m`;
+export const bg = (color: string, text: string) => `\x1b[48;2;${rgb(color)}m${text}\x1b[49m`;
+export const bold = (text: string) => `\x1b[1m${text}\x1b[22m`;
 
 // pi-tui is not importable from an extension (it exists only inside Pi): the glyphs used here are one cell wide.
 const ANSI = /\x1b\[[0-9;]*[A-Za-z]/y;
-const visibleWidth = (text: string) => [...text.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "")].length;
+export const visibleWidth = (text: string) => [...text.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "")].length;
 /** Cuts to `width` cells keeping escape codes whole, and closes any open colour. */
-function truncateToWidth(text: string, width: number): string {
+export function truncateToWidth(text: string, width: number): string {
 	if (visibleWidth(text) <= width) return text;
 	let out = "";
 	let cells = 0;
@@ -51,7 +52,7 @@ function truncateToWidth(text: string, width: number): string {
 	return `${out}…\x1b[0m`;
 }
 
-const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+export const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 export interface TestRun extends Progress {
 	command: string;
@@ -70,10 +71,20 @@ export const shownCommand = (command: string) =>
 		.replace(/ --reporters=default --reporters='[^']*'/, "")
 		.replace(/ --reporter=verbose/, "").replace(/\s+/g, " ").trim();
 
-const duration = (ms: number) => {
+export const duration = (ms: number) => {
 	const seconds = Math.max(0, Math.round(ms / 1000));
 	return seconds >= 60 ? `${Math.floor(seconds / 60)}m ${seconds % 60}s` : `${seconds}s`;
 };
+
+/** The three-row frame every monitor view shares: coloured left bar, panel background, text cut to the width. */
+export function panel(color: string, width: number) {
+	const row = (body: string) => {
+		const cut = truncateToWidth(body, width - 1);
+		return `${fg(color, "▌")}${bg(C.panel, cut + " ".repeat(Math.max(0, width - 1 - visibleWidth(cut))))}`;
+	};
+	const split = (left: string, right: string) => `${left}${" ".repeat(Math.max(1, width - 2 - visibleWidth(left) - visibleWidth(right)))}${right} `;
+	return { row, split };
+}
 
 export function renderTestMonitor(run: TestRun, width: number, now: number, frame: number): string[] {
 	const done = run.endedAt !== undefined;
