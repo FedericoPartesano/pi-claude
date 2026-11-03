@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.12.0...pi-claude-v0.13.0) (2026-11-03)
+
+
+### Features
+
+* il pannello sopra l'editor segue tsc, lint, build, install, git e docker ([78dda6a](https://github.com/FedericoPartesano/pi-claude/commit/78dda6a12988166ca6add4db231a55a7f586dadb))
+
 ## [0.12.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.11.0...pi-claude-v0.12.0) (2026-11-03)
 
 
