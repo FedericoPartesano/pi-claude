@@ -14,16 +14,22 @@ test("bashPhrase names what a command does", () => {
 		["sed -i 's|a; b|c|' src/inventory.js && npm test", "Modifico inventory.js e eseguo i test"],
 		["cat src/inventory.js", "Leggo inventory.js"],
 		["npm test 2>&1 | tail -20", "Eseguo i test"],
+		["node --test extensions/btw.test.ts 2>&1 | tail", "Eseguo i test di btw.test.ts"],
+		["node --test pi-ui/test/*.test.ts", "Eseguo i test di *.test.ts"],
 		["npm test 2>&1 | grep -E 'fail|pass'", "Eseguo i test"],
 		["git add -A && git commit -m fix", "Faccio il commit"],
-		["git status", "Controllo git"],
+		["git status", "Controllo git status"],
+		["git -C x diff --stat", "Controllo git diff"],
+		["ls -la src/components", "Cerco in src/components"],
 		["ls src && grep -rn findByTag src", "Cerco nel progetto"],
+		["rg -n \"foo bar\" pi-ui/src", "Cerco «foo bar»"],
+		["find . -name '*.test.ts'", "Cerco «*.test.ts»"],
 		["cat > test/cart.test.js <<EOF\nx\nEOF", "Scrivo cart.test.js"],
 		["npm run build && npm test", "Eseguo build e test"],
 		["npx tsc -p .", "Eseguo typecheck"],
 		["python3 scripts/stats.py", "Eseguo stats.py"],
 		["npm ci", "Installo le dipendenze"],
-		["docker compose up -d", "Eseguo docker"],
+		["docker compose up -d", "Eseguo docker compose up"],
 	];
 	for (const [command, expected] of cases) assert.equal(bashPhrase(command), expected, command);
 });
@@ -45,6 +51,6 @@ test("an edit whose JSON arguments did not parse still names its file", () => {
 
 test("bashPhrase: un cd iniziale dice dove, non cosa: conta il comando dopo", () => {
 	assert.equal(bashPhrase("cd /home/x/project && npm test"), "Eseguo i test");
-	assert.equal(bashPhrase("cd /home/x/project && gh pr list"), "Eseguo gh");
+	assert.equal(bashPhrase("cd /home/x/project && gh pr list"), "Eseguo gh pr list");
 	assert.equal(bashPhrase("cd /tmp"), "Eseguo un comando");
 });

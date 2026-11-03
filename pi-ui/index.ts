@@ -15,7 +15,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
-import { AgentSession, CustomEditor, VERSION as PI_VERSION, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { AgentSession, AssistantMessageComponent, CustomEditor, VERSION as PI_VERSION, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getCapabilities, setCapabilityOverrides, visibleWidth, type Component, type TUI } from "@earendil-works/pi-tui";
 import { linkFileRefs, vscodeUrl, wslDistro } from "./src/answer.ts";
 import { subagentRows, teamRows, type AgentRow } from "./src/agents.ts";
@@ -33,7 +33,8 @@ import { PANEL_KEY, PANEL_WIDTH, parseAheadBehind, parseNumstat, parsePorcelain,
 import { shouldNotify, toastScript } from "./src/notify.ts";
 import { answerFor, dangerReason } from "./src/permission.ts";
 import { extractSuggestions, renderSuggestions, SUGGESTION_MARK, SUGGESTION_PROMPT } from "./src/suggestions.ts";
-import { patchPromptRace, runtimeAgentSession } from "./src/prompt-race.ts";
+import { patchPromptRace, runtimeAgentSession, runtimeExport } from "./src/prompt-race.ts";
+import { sendNow, trackedSession, trackSession } from "./src/send-now.ts";
 import { startTrace } from "./src/trace.ts";
 import { frameEditor } from "./src/editor.ts";
 import { phrase } from "./src/phrases.ts";
@@ -46,7 +47,7 @@ import { renderStatusBar, renderVoiceBar } from "./src/status-bar.ts";
 import { elapsedSeconds, initialStatus, nextStatus, type StatusEvent } from "./src/status.ts";
 import { RESTART_FILE, writeRestartRequest } from "./src/restart.ts";
 import { restoreSession } from "./src/restore.ts";
-import { HIDDEN_THINKING_LABEL, renderThinkingBox, thinkingMarkdown } from "./src/thinking.ts";
+import { HIDDEN_THINKING_LABEL, patchClosedLabel, renderThinkingBox, thinkingMarkdown } from "./src/thinking.ts";
 import { forecastLines, readUsage, resetLabel } from "./src/usage.ts";
 
 /** Text of a tool result (text blocks only). */
@@ -197,6 +198,7 @@ export default function (pi: ExtensionAPI) {
 	let closePanel: (() => void) | undefined;
 	/** Thinking being streamed: shown in a dark box above the status bar, gone when the thinking ends. */
 	let liveThinking = "";
+	let thinkingSince = Date.now();
 
 	// Rendered lines of chat components, outside the components: Pi may rebuild or invalidate them on every frame, and
 	// re-measuring long ANSI lines on each keystroke made typing slow (profiled). Keys carry everything that changes the
@@ -382,6 +384,9 @@ export default function (pi: ExtensionAPI) {
 		}, 3000).unref?.();
 		const session = (await runtimeAgentSession(process.argv[1], AgentSession)) as { prototype: Parameters<typeof patchPromptRace>[0] };
 		patchPromptRace(session.prototype);
+		trackSession(session.prototype as unknown as Parameters<typeof trackSession>[0]);
+		const message = (await runtimeExport("AssistantMessageComponent", process.argv[1], AssistantMessageComponent)) as { prototype: Parameters<typeof patchClosedLabel>[0] };
+		patchClosedLabel(message.prototype);
 		active = true;
 		cwd = ctx.cwd;
 		// Resumed session: images for /img and the panel, suggestions for keys 1-4.
@@ -403,7 +408,7 @@ export default function (pi: ExtensionAPI) {
 				fit(`${label(C.mag, " PI//CLAUDE ")}${fg(C.mag, "╲")} ${bold(fg(C.text, basename(ctx.cwd)))}`, `${fg(C.text, panelKey)} ${fg(C.dim, "pannello ▸")}`, width),
 			),
 		);
-		ctx.ui.setWidget("pi-ui-thinking", () => line_((width) => (status.mode === "working" ? renderThinkingBox(liveThinking, width) : [])), { placement: "aboveEditor" });
+		ctx.ui.setWidget("pi-ui-thinking", () => line_((width) => (status.mode === "working" ? renderThinkingBox(liveThinking, width, { seconds: Math.round((Date.now() - thinkingSince) / 1000), frame }) : [])), { placement: "aboveEditor" });
 		ctx.ui.setWidget("pi-ui-paste", () => line_(pastePreview), { placement: "aboveEditor" });
 		usePalette(ctx.ui.theme.name);
 		ctx.ui.setWidget("pi-ui-status", (widgetTui) => {
@@ -546,6 +551,7 @@ export default function (pi: ExtensionAPI) {
 		const streamed = event.assistantMessageEvent as { type: string; contentIndex?: number; partial?: { content?: { type: string; thinking?: string }[] } };
 		if (!active || status.mode !== "working") return;
 		if (streamed.type === "thinking_delta") {
+			if (!liveThinking) thinkingSince = Date.now();
 			liveThinking = streamed.partial?.content?.[streamed.contentIndex ?? -1]?.thinking ?? "";
 			if (status.phase !== "thinking") update({ type: "thinking", text: "", at: Date.now() });
 			else tui?.requestRender();
@@ -903,6 +909,18 @@ export default function (pi: ExtensionAPI) {
 		}, 50);
 	});
 	pi.registerShortcut(panelKey as Parameters<typeof pi.registerShortcut>[0], { description: "Pannello della sessione: goal/loop/team, file, test, immagini, uso", handler: togglePanel });
+	// Send now: queued messages (and the text in the editor) reach the model at its next call, like Claude Code's ctrl+enter.
+	// ctrl+enter needs a terminal that tells it from Enter (kitty protocol); alt+n works everywhere (alt+s is the session panel). ctrl+x and ctrl+s stay Pi's.
+	const sendNowKey = async (ctx: ExtensionContext) => {
+		const typed = ctx.ui.getEditorText();
+		const result = await sendNow(trackedSession() as Parameters<typeof sendNow>[0], typed);
+		if (result.sent > 0) {
+			if (typed.trim()) ctx.ui.setEditorText("");
+			ctx.ui.notify(`Inviato subito al modello: ${result.sent} ${result.sent === 1 ? "messaggio" : "messaggi"}.`, "info");
+		} else ctx.ui.notify(result.reason === "idle" ? "Pi è fermo: i messaggi partono da soli." : "Niente da inviare subito.", "info");
+	};
+	for (const key of ["ctrl+enter", "alt+n"]) pi.registerShortcut(key as Parameters<typeof pi.registerShortcut>[0], { description: "Invia subito i messaggi in coda al modello", handler: sendNowKey });
+	pi.registerCommand("now", { description: "Invia subito al modello i messaggi in coda (ctrl+enter o alt+n)", handler: async (_args, ctx) => sendNowKey(ctx) });
 	pi.registerCommand("panel", { description: `Apre o chiude il pannello della sessione (come ${panelKey})`, handler: async (_args, ctx) => togglePanel(ctx) });
 
 	// /custom-reload: full restart on the same conversation (Pi's /reload only reloads resources inside this process).

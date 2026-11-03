@@ -36,7 +36,10 @@ export function patchPromptRace(proto: Queueable): boolean {
  * `@earendil-works/pi-coding-agent` as dist/index.js: two copies of the class, so patching the imported one does
  * nothing. The bundle's index.js, imported next to the running cli.js, is the same module instance Pi loaded.
  */
-export async function runtimeAgentSession(argv1: string | undefined, fallback: unknown): Promise<unknown> {
+export const runtimeAgentSession = (argv1: string | undefined, fallback: unknown) => runtimeExport("AgentSession", argv1, fallback);
+
+/** Any class exported by Pi, taken from the running bundle (see above). */
+export async function runtimeExport(name: string, argv1: string | undefined, fallback: unknown): Promise<unknown> {
 	try {
 		if (argv1) {
 			const { realpathSync } = await import("node:fs");
@@ -44,8 +47,8 @@ export async function runtimeAgentSession(argv1: string | undefined, fallback: u
 			const { pathToFileURL } = await import("node:url");
 			const cli = realpathSync(argv1);
 			if (/[\\/]bundle[\\/]cli\.js$/.test(cli)) {
-				const bundle = (await import(pathToFileURL(join(dirname(cli), "index.js")).href)) as { AgentSession?: unknown };
-				if (bundle.AgentSession) return bundle.AgentSession;
+				const bundle = (await import(pathToFileURL(join(dirname(cli), "index.js")).href)) as Record<string, unknown>;
+				if (bundle[name]) return bundle[name];
 			}
 		}
 	} catch {
