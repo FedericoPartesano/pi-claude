@@ -11,7 +11,7 @@ Una voce in `RUNNERS` (`runners.ts`), nient'altro:
 - `estimate(command, cwd)`: totale stimato (di solito `estimateTotal`).
 Aggiungi i test in `extensions/test-monitor.test.ts` con output reale del runner.
 
-Runner: node:test, vitest (`--reporter=verbose`), jest (reporter a file, in coda al comando), pytest (`-v`), `npm|pnpm|yarn|bun test` (formato riconosciuto dall'output).
+Runner: node:test, vitest (`--reporter=verbose`), jest (reporter a file, in coda al comando), pytest (`-v`), Playwright e2e (`--reporter=list`, provato su output vero), Cypress e2e (spec reporter, da formato documentato, non provato con un run vero), `npm|pnpm|yarn|bun test` e `run e2e` (formato riconosciuto dall'output).
 Spento con `PI_TEST_MONITOR=0` o `PI_UI_LIVE=0`, e su Windows nativo.
 
 ## Altri comandi: viste e monitor

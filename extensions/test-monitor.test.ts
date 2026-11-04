@@ -6,7 +6,7 @@ import { test } from "node:test";
 import testMonitor from "./test-monitor.ts";
 import { estimateTotal, teeBeforeFilter } from "./test-monitor/progress.ts";
 import { newTestRun, renderTestMonitor, shownCommand } from "./test-monitor/render.ts";
-import { detectRunner, jestParse, nodeParse, pytestParse, vitestParse } from "./test-monitor/runners.ts";
+import { cypressParse, detectRunner, jestParse, nodeParse, playwrightParse, pytestParse, vitestParse } from "./test-monitor/runners.ts";
 
 const visibleWidth = (text: string) => [...text.replace(/\x1b\[[0-9;]*m/g, "")].length;
 const strip = (text: string) => text.replace(/\x1b\[[0-9;]*m/g, "");
@@ -165,4 +165,25 @@ test("extension: jest gets a reporter file whose lines feed the monitor", async 
 	assert.equal(existsSync(script), false, "helper removed");
 	handlers.get("session_shutdown")!({}, ctx);
 	assert.deepEqual(readdirSync(tmpdir()).filter((name) => name === `pi-test-monitor-${process.pid}`), []);
+});
+
+test("playwright list reporter (real output): pass, fail, skipped ignored; the command gets --reporter=list", () => {
+	const text = "\nRunning 4 tests using 1 worker\n\n  ✓  1 a.spec.js:2:1 › uno (12ms)\n  ✓  2 [chromium] › a.spec.js:3:1 › due (3ms)\n  ✘  3 a.spec.js:4:1 › rotto (7ms)\n  -  4 a.spec.js:5:6 › saltato\n";
+	const progress = playwrightParse(text);
+	assert.deepEqual(progress.results, ["p", "p", "f"]);
+	assert.deepEqual(progress.failed, ["a.spec.js:4:1 › rotto"]);
+	const runner = detectRunner("npx playwright test a.spec.js | tail -5");
+	assert.equal(runner?.name, "playwright");
+	assert.equal(runner?.prepare?.("npx playwright test a.spec.js | tail -5", { log: "", helper: "", cwd: tmpdir() })?.command, "npx playwright test --reporter=list a.spec.js | tail -5");
+	assert.equal(runner?.prepare?.("npx playwright test --reporter=dot", { log: "", helper: "", cwd: tmpdir() }), undefined);
+});
+
+test("cypress spec reporter: a failure is numbered twice (run and detail list) but counted once; the closing banner is not a test", () => {
+	const text = "    ✓ adds an item (120ms)\n    1) removes an item\n    ✓ lists items (30ms)\n\n  2 passing (1s)\n  1 failing\n\n  1) cart\n       removes an item:\n     AssertionError: x\n\n✖  1 of 1 failed (100%)\n";
+	const progress = cypressParse(text);
+	assert.deepEqual(progress.results, ["p", "f", "p"]);
+	assert.deepEqual(progress.failed, ["removes an item"]);
+	assert.equal(cypressParse("✔  All specs passed!").results.length, 0);
+	assert.equal(detectRunner("npx cypress run --spec a.cy.ts")?.name, "cypress");
+	assert.equal(detectRunner("npm run e2e | tail")?.name, "script");
 });

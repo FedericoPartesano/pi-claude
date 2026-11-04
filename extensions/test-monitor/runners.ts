@@ -70,8 +70,31 @@ export const jestParse = (text: string) =>
 		else if (line.startsWith("@@ko ")) ko(line.slice(5));
 	});
 
+/** Playwright `--reporter=list`: "✓  1 [chromium] › a.spec.ts:3:5 › title (12ms)", failures "✘  2 …", skipped "-  3 …" ignored. */
+export const playwrightParse = (text: string) =>
+	collect(text, (line, ok, ko) => {
+		let match: RegExpExecArray | null;
+		if ((match = /^(?:✓|✔)\s+\d+\s+(.+)$/.exec(line))) ok(stripDuration(match[1]));
+		else if ((match = /^(?:✘|✗|×|✖)\s+\d+\s+(.+)$/.exec(line))) ko(stripDuration(match[1]));
+	});
+
+/** Cypress spec reporter: "✓ name (12ms)" per passed test, "1) name" per failure (numbered again in the detail list: counted once). */
+export const cypressParse = (text: string) => {
+	const failedNumbers = new Set<string>();
+	return collect(text, (line, ok, ko) => {
+		let match: RegExpExecArray | null;
+		// The closing banner ("✔  All specs passed!", "✖  1 of 2 failed") is not a test.
+		if (/^(?:✔|✖)\s+(?:All specs|\d+ of \d+)/.test(line)) return;
+		if ((match = /^(?:✓|✔)\s+(.+)$/.exec(line))) ok(stripDuration(match[1]));
+		else if ((match = /^(\d+)\)\s+(.+)$/.exec(line)) && !failedNumbers.has(match[1])) {
+			failedNumbers.add(match[1]);
+			ko(match[2]);
+		}
+	});
+};
+
 /** The parser that finds most results: for commands like `npm test` where the runner is behind a script. */
-const bestOf = (text: string) => [nodeParse(text), vitestParse(text), pytestParse(text)].reduce((a, b) => (b.results.length > a.results.length ? b : a));
+const bestOf = (text: string) => [nodeParse(text), vitestParse(text), pytestParse(text), playwrightParse(text), cypressParse(text)].reduce((a, b) => (b.results.length > a.results.length ? b : a));
 
 const hasFlag = (command: string, pattern: RegExp) => pattern.test(command);
 
@@ -142,10 +165,26 @@ export const RUNNERS: Runner[] = [
 		estimate: estimateTotal,
 	},
 	{
+		name: "playwright",
+		source: "output",
+		matches: (command) => /\bplaywright\s+test\b/.test(command),
+		// The default reporter is `dot` on CI and without a terminal: `list` prints one line per test.
+		prepare: (command) => (hasFlag(command, /--reporter\b/) ? undefined : { command: command.replace(/\bplaywright\s+test\b/, (match) => `${match} --reporter=list`) }),
+		parse: playwrightParse,
+		estimate: estimateTotal,
+	},
+	{
+		name: "cypress",
+		source: "output",
+		matches: (command) => /\bcypress\s+run\b/.test(command),
+		parse: cypressParse,
+		estimate: estimateTotal,
+	},
+	{
 		// `npm test`, `pnpm test`, `yarn test`, `bun test`: the runner is behind the script, so read whatever format shows up.
 		name: "script",
 		source: "output",
-		matches: (command) => /\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test\b/.test(command),
+		matches: (command) => /\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:test|e2e|test:e2e)\b/.test(command),
 		parse: bestOf,
 		estimate: estimateTotal,
 	},
