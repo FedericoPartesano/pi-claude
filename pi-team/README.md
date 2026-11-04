@@ -132,3 +132,6 @@ penalità per richieste brevi e per le domande.
 - `/advise <lavoro>` mostra la valutazione senza eseguire nulla.
 
 Taratura prudente: i 6 lavori compositi della valutazione (dove il team non ha reso) risultano "Pi da solo" (test).
+
+## Log dal vivo (colonna del team)
+Quando un agente parte si apre da sola una colonna a destra (sul terminale largo, in fullscreen; altrimenti una striscia sopra l'editor) con un blocco per agente: stato, tempo, token e le ultime righe di log (ragionamento, strumenti, risultati). Chi non dà segni da 45 s è segnato «fermo da …». Resta aperta 15 s dopo l'ultimo agente. `/team-log` la nasconde e la rimostra; `ctrl+alt+a` apre la vista completa. Provata con test e render, non nel TUI vero.

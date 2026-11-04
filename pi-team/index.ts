@@ -35,6 +35,7 @@ import { boardStatus, renderBoard, type TeamBoard } from "./src/board.ts";
 import { deriveLessons, formatLessons, loadLessons, saveLessons } from "./src/lessons.ts";
 import { createNotes } from "./src/notes.ts";
 import { AgentFeed } from "./src/feed.ts";
+import { TeamLog } from "./src/view/side-log.ts";
 import { snapshotFiles } from "./src/scope.ts";
 import { runVerifyCommands } from "./src/verify.ts";
 
@@ -111,11 +112,18 @@ export default function (pi: ExtensionAPI) {
 	feed.subscribe(() => {
 		for (const agent of feed.agents) {
 			const key = `team:${agent.key}`;
-			if (agent.state === "running") pi.events.emit("timeout-bar:set", { key, label: `${agent.id} ${agent.role}`, startedAt: agent.startedAt, timeoutMs: AGENT_TIMEOUT_MS });
-			else pi.events.emit("timeout-bar:clear", { key });
+			if (agent.state === "running") pi.events?.emit("timeout-bar:set", { key, label: `${agent.id} ${agent.role}`, startedAt: agent.startedAt, timeoutMs: AGENT_TIMEOUT_MS });
+			else pi.events?.emit("timeout-bar:clear", { key });
 		}
-		if (feed.agents.length === 0) pi.events.emit("timeout-bar:clear", { prefix: "team:" });
+		if (feed.agents.length === 0) pi.events?.emit("timeout-bar:clear", { prefix: "team:" });
 	});
+	// Live log of every agent, in a column (or a strip above the editor) that opens itself while the team works.
+	const teamLog = new TeamLog(feed);
+	pi.registerCommand("team-log", {
+		description: "Mostra o nasconde la colonna con il log dei membri del team",
+		handler: async (_args, ctx) => ctx.ui.notify(teamLog.toggle() ? "Log del team visibile." : "Log del team nascosto.", "info"),
+	});
+	pi.on("session_shutdown", () => teamLog.dispose());
 	const AGENTS_KEY = "ctrl+alt+a";
 	const withViewHint = (status: string) => `${status} · ${AGENTS_KEY} agenti`;
 	const openAgents = async (ctx: ExtensionContext) => {
@@ -245,6 +253,7 @@ export default function (pi: ExtensionAPI) {
 				if (ctx.hasUI) ctx.ui.setStatus("team", withViewHint(boardStatus(board)));
 			};
 			let report: Awaited<ReturnType<typeof runTeamPlan>>;
+			if (ctx.hasUI) teamLog.attach(ctx.ui as never);
 			if (feed.running === 0) feed.reset();
 			try {
 				report = await runTeamPlan(plan, {
@@ -361,6 +370,7 @@ export default function (pi: ExtensionAPI) {
 				if (ctx.hasUI) ctx.ui.setStatus("team", withViewHint(boardStatus(board)));
 			};
 			let report: Awaited<ReturnType<typeof runTeamPlan>>;
+			if (ctx.hasUI) teamLog.attach(ctx.ui as never);
 			if (feed.running === 0) feed.reset();
 			try {
 				report = await runTeamPlan(plan, {
