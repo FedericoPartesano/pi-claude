@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.15.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.14.0...pi-claude-v0.15.0) (2026-11-04)
+
+
+### Features
+
+* barra di avanzamento per i timeout di bash, di timeout N e degli agenti del team ([4d87200](https://github.com/FedericoPartesano/pi-claude/commit/4d87200ffdb4c2eda5637e13d14cbadb1f4ce540))
+* colonna con il log dal vivo dei membri del team; fix: i test di pi-team senza pi.events ([7e2650b](https://github.com/FedericoPartesano/pi-claude/commit/7e2650b2069dc53a27f9c06a47004adf4e08f859))
+
 ## [0.14.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.13.0...pi-claude-v0.14.0) (2026-11-04)
 
 
