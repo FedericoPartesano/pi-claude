@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.14.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.13.0...pi-claude-v0.14.0) (2026-11-04)
+
+
+### Features
+
+* archivio della storia compattata con tool richiama e recupero automatico ([864de71](https://github.com/FedericoPartesano/pi-claude/commit/864de713f0d8a68df4fb07b6a4cbb30ae0b266e3))
+* il monitor dei test segue anche Playwright e Cypress (e2e) ([a19807d](https://github.com/FedericoPartesano/pi-claude/commit/a19807d99ebba0033957e9cc21a4a3b37061a87c))
+
 ## [0.13.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.12.0...pi-claude-v0.13.0) (2026-11-03)
 
 
