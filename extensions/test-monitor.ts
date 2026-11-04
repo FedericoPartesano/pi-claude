@@ -9,7 +9,7 @@ import { closeSync, mkdirSync, openSync, readSync, rmSync, statSync, writeFileSy
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { teeBeforeFilter } from "./test-monitor/progress.ts";
+import { redirectedLog, teeBeforeFilter } from "./test-monitor/progress.ts";
 import { newTestRun, renderTestMonitor, useColors, type Colors, type TestRun } from "./test-monitor/render.ts";
 import { detectMonitor, type Monitor } from "./test-monitor/monitors.ts";
 import { detectRunner, type Runner } from "./test-monitor/runners.ts";
@@ -22,6 +22,8 @@ interface Tracked {
 	/** File the progress is read from, if any (tee file or reporter file). */
 	log?: string;
 	helpers: string[];
+	/** The file is the user's own (`> out.log`): read it, never delete it. */
+	external?: boolean;
 }
 
 const resultText = (result: unknown) =>
@@ -69,7 +71,10 @@ export default function (pi: ExtensionAPI) {
 	};
 	const poll = () => {
 		const log = runId ? tracked.get(runId)?.log : undefined;
-		if (run && !run.endedAt && log) apply(readTail(log));
+		const item = runId ? tracked.get(runId) : undefined;
+		// A user's file from an earlier run is stale until the shell truncates it.
+		const stale = item?.external && log && run && (() => { try { return statSync(log).mtimeMs < run.startedAt - 100; } catch { return true; } })();
+		if (run && !run.endedAt && log && !stale) apply(readTail(log));
 		frame++;
 		tui?.requestRender();
 	};
@@ -88,7 +93,7 @@ export default function (pi: ExtensionAPI) {
 		const item = tracked.get(id);
 		tracked.delete(id);
 		if (!item) return;
-		for (const file of [item.log, ...item.helpers]) {
+		for (const file of [item.external ? undefined : item.log, ...item.helpers]) {
 			if (file) rmSync(file, { force: true });
 		}
 	};
@@ -151,16 +156,24 @@ export default function (pi: ExtensionAPI) {
 				}
 			}
 			let source: string | undefined;
+			let external = false;
 			if (found.source === "reporter" && helpers.length) source = log;
 			else if (found.source === "output") {
 				const teed = teeBeforeFilter(command, log);
 				if (teed) {
 					command = teed;
 					source = log;
+				} else {
+					// `… > /tmp/x.log 2>&1; grep …`: the tool prints nothing live, the file the run writes to is the signal.
+					const written = redirectedLog(original, ctx.cwd, (stage) => found.matches(stage));
+					if (written) {
+						source = written;
+						external = true;
+					}
 				}
 			}
 			input.command = command;
-			tracked.set(id, { runner: found, log: source, helpers });
+			tracked.set(id, { runner: found, log: source, helpers, external });
 		} catch {
 			return undefined;
 		}

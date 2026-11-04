@@ -51,6 +51,33 @@ export function teeBeforeFilter(command: string, file: string): string | undefin
 	return undefined;
 }
 
+/**
+ * `cd d; timeout 600 npx vitest run x > /tmp/run.log 2>&1; grep …`: the file the test stage writes to (the tool shows
+ * nothing while it runs, the file is the only live signal). One-line commands only; the working directory follows `cd`
+ * statements; undefined when the stage has no plain redirect, the path needs the shell (`$VAR`, `~`) or is /dev/null.
+ */
+export function redirectedLog(command: string, cwd: string, isRunner: (stage: string) => boolean): string | undefined {
+	if (command.includes("\n")) return undefined;
+	let dir = cwd;
+	for (const stage of command.split(/&&|;/)) {
+		const text = stage.trim();
+		const move = /^cd\s+(?:"([^"]+)"|'([^']+)'|(\S+))$/.exec(text);
+		if (move) {
+			const target = move[1] ?? move[2] ?? move[3]!;
+			if (/[$~`*]/.test(target)) return undefined;
+			dir = resolve(dir, target);
+			continue;
+		}
+		if (!isRunner(text) || /\|(?!\|)/.test(text.replace(/\|\|/g, ""))) continue;
+		const target = /(?:^|\s)(?:&>>?|1?>>?)\s*(?:"([^"]+)"|'([^']+)'|([^\s&|;<>]+))/.exec(text);
+		if (!target) return undefined;
+		const file = target[1] ?? target[2] ?? target[3]!;
+		if (file === "/dev/null" || /[$~`*]/.test(file)) return undefined;
+		return resolve(dir, file);
+	}
+	return undefined;
+}
+
 /** Rows of a `.each([...])` table counted from the literal on the same line; 1 when it cannot be read. */
 function eachRows(table: string): number {
 	const inner = table.trim();

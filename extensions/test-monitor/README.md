@@ -21,5 +21,8 @@ Oltre ai test il pannello segue type check (`tsc`), lint (`eslint`), build (`vit
 - Aggiungere una vista: tipo di stato, renderer, voce in `VIEWS`.
 - `git` senza terminale non stampa avanzamento (aggiungere `--progress` sporcherebbe l'output del modello): barra indeterminata con fase e ultima riga; con le percentuali nel testo diventa determinata.
 
+## Output rediretto su file
+Con `… vitest run x > /tmp/run.log 2>&1; grep …` il tool non stampa nulla mentre il test gira: il monitor legge il file della redirezione (seguendo i `cd`, mai cancellandolo). Non funziona se il percorso usa `$VAR` o `~`, o se il comando è su più righe. Provato con test e col comando vero preso dalla sessione, non nel TUI.
+
 ## Barra dei timeout
 `extensions/timeout-bar.ts`: una barra per ogni timeout in corso, sopra l'editor (cyan, giallo dal 75%, rosso dal 90%): parametro `timeout` del tool bash, `timeout N cmd` dentro il comando, agenti del team (20 minuti, via evento `timeout-bar:set` di pi-team). Il timeout dei tool MCP (24 h) non ha barra. `PI_TIMEOUT_BAR=0` la spegne. Provata con test e render, non nel TUI.

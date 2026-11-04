@@ -187,3 +187,34 @@ test("cypress spec reporter: a failure is numbered twice (run and detail list) b
 	assert.equal(detectRunner("npx cypress run --spec a.cy.ts")?.name, "cypress");
 	assert.equal(detectRunner("npm run e2e | tail")?.name, "script");
 });
+
+test("redirectedLog: follows cd, finds the file the test stage writes to, refuses what needs the shell", async () => {
+	const { redirectedLog } = await import("./test-monitor/progress.ts");
+	const vitest = (stage: string) => /\bvitest\b/.test(stage);
+	assert.equal(redirectedLog("cd /w/p/e2e; export A=1; timeout 600 npx vitest run t.ts > /tmp/em.log 2>&1; grep -E 'Tests ' /tmp/em.log", "/x", vitest), "/tmp/em.log");
+	assert.equal(redirectedLog("cd e2e && npx vitest run >out.log 2>&1", "/w/p", vitest), "/w/p/e2e/out.log");
+	assert.equal(redirectedLog("npx vitest run &> 'a b.log'", "/w", vitest), "/w/a b.log");
+	assert.equal(redirectedLog("npx vitest run > /dev/null", "/w", vitest), undefined);
+	assert.equal(redirectedLog("npx vitest run > $LOG 2>&1", "/w", vitest), undefined);
+	assert.equal(redirectedLog("npx vitest run 2>&1 | tail", "/w", vitest), undefined, "pipes are the tee path");
+	assert.equal(redirectedLog("npx vitest run", "/w", vitest), undefined);
+});
+
+test("extension: a run redirected to a file is followed from that file, which is never deleted", async () => {
+	const handlers = new Map<string, (event: any, ctx: any) => any>();
+	let widget: any;
+	testMonitor({ on: (name: string, handler: any) => handlers.set(name, handler) } as any);
+	const dir = mkdtempSync(join(tmpdir(), "redir-"));
+	const ctx = { hasUI: true, cwd: dir, ui: { theme: { name: "x" }, setWidget: (_k: string, factory: any) => (widget = factory({ requestRender() {} })) } };
+	handlers.get("session_start")!({}, ctx);
+	const log = join(dir, "run.log");
+	const input = { command: `timeout 600 npx vitest run a.e2e.ts > ${log} 2>&1; grep Tests ${log}` };
+	handlers.get("tool_call")!({ toolName: "bash", toolCallId: "r1", input }, ctx);
+	assert.match(input.command, /vitest run --reporter=verbose a\.e2e\.ts > /);
+	writeFileSync(log, " ✓ a.e2e.ts > s > one 3ms\n ✓ a.e2e.ts > s > two 3ms\n × a.e2e.ts > s > three 9ms\n");
+	await new Promise((resolve) => setTimeout(resolve, 600));
+	assert.match(widget.render(100).map(strip).join("\n"), /2 ok · 1 ko/);
+	handlers.get("tool_execution_end")!({ toolCallId: "r1", result: { content: [] } }, ctx);
+	assert.equal(existsSync(log), true, "the user's file stays");
+	handlers.get("session_shutdown")!({}, ctx);
+});
