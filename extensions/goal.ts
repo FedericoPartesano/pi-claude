@@ -402,7 +402,8 @@ export default function (pi: ExtensionAPI) {
 	};
 	const finish = (ctx: ExtensionContext) => {
 		goal = undefined;
-		setTool(false);
+		// goal_done stays active: turning it off changes the tool list mid-session and rewrites the whole prompt cache
+		// (measured: ~5% of session cost). Without a goal it just answers "Nessun goal attivo".
 		footer(ctx);
 	};
 
