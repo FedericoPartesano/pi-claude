@@ -20,3 +20,6 @@ Oltre ai test il pannello segue type check (`tsc`), lint (`eslint`), build (`vit
 - Aggiungere un monitor: una voce in `MONITORS` (`monitors.ts`) con `matches(command)` (un solo comando semplice), `init` (stato vuoto di una vista) e `update(state, text)` (rilegge tutto il testo: deve essere idempotente). Test in `extensions/test-monitor-monitors.test.ts` con output reale.
 - Aggiungere una vista: tipo di stato, renderer, voce in `VIEWS`.
 - `git` senza terminale non stampa avanzamento (aggiungere `--progress` sporcherebbe l'output del modello): barra indeterminata con fase e ultima riga; con le percentuali nel testo diventa determinata.
+
+## Barra dei timeout
+`extensions/timeout-bar.ts`: una barra per ogni timeout in corso, sopra l'editor (cyan, giallo dal 75%, rosso dal 90%): parametro `timeout` del tool bash, `timeout N cmd` dentro il comando, agenti del team (20 minuti, via evento `timeout-bar:set` di pi-team). Il timeout dei tool MCP (24 h) non ha barra. `PI_TIMEOUT_BAR=0` la spegne. Provata con test e render, non nel TUI.

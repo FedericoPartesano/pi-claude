@@ -31,7 +31,10 @@ export type RunAgent = (request: AgentRequest) => Promise<AgentRun>;
 /** Set in child processes so a team agent never loads the team tool itself. */
 export const CHILD_ENVIRONMENT_FLAG = "PI_TEAM_CHILD";
 
-export const runAgent: RunAgent = ({ role, prompt, cwd, signal, timeoutMs = 20 * 60_000, onEvent }) => {
+/** How long one team agent may run before it is stopped. */
+export const AGENT_TIMEOUT_MS = 20 * 60_000;
+
+export const runAgent: RunAgent = ({ role, prompt, cwd, signal, timeoutMs = AGENT_TIMEOUT_MS, onEvent }) => {
 	const started = Date.now();
 	const run: AgentRun = { ok: false, text: "", inputTokens: 0, outputTokens: 0, requests: 0, seconds: 0 };
 	const args = [

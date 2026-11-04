@@ -30,7 +30,7 @@ import { renderPlan, validatePlan, type TeamPlan } from "./src/plan.ts";
 import { saveNewRoles, teamGuidance, uncoveredStacks, withNewRoles } from "./src/recruit.ts";
 import { loadRoles, type Role } from "./src/roles.ts";
 import { detectDependencies, detectVersions, formatSpecialists, matchSpecialists } from "./src/stack.ts";
-import { CHILD_ENVIRONMENT_FLAG, runAgent } from "./src/runner.ts";
+import { AGENT_TIMEOUT_MS, CHILD_ENVIRONMENT_FLAG, runAgent } from "./src/runner.ts";
 import { boardStatus, renderBoard, type TeamBoard } from "./src/board.ts";
 import { deriveLessons, formatLessons, loadLessons, saveLessons } from "./src/lessons.ts";
 import { createNotes } from "./src/notes.ts";
@@ -107,6 +107,15 @@ export default function (pi: ExtensionAPI) {
 
 	// Live activity of the agents of the current team/parallel run: the /agents view reads it, the chat does not.
 	const feed = new AgentFeed();
+	// The timeout bar (extensions/timeout-bar.ts) draws one bar per running agent against its time limit.
+	feed.subscribe(() => {
+		for (const agent of feed.agents) {
+			const key = `team:${agent.key}`;
+			if (agent.state === "running") pi.events.emit("timeout-bar:set", { key, label: `${agent.id} ${agent.role}`, startedAt: agent.startedAt, timeoutMs: AGENT_TIMEOUT_MS });
+			else pi.events.emit("timeout-bar:clear", { key });
+		}
+		if (feed.agents.length === 0) pi.events.emit("timeout-bar:clear", { prefix: "team:" });
+	});
 	const AGENTS_KEY = "ctrl+alt+a";
 	const withViewHint = (status: string) => `${status} · ${AGENTS_KEY} agenti`;
 	const openAgents = async (ctx: ExtensionContext) => {
