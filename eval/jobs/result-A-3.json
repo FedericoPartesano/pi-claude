@@ -1,0 +1,28 @@
+{
+ "arm": "A",
+ "rep": "3",
+ "model": "haiku",
+ "code": "27EBDD",
+ "correct": false,
+ "sleeps": 1,
+ "bashCalls": 2,
+ "lancia": 0,
+ "requests": 3,
+ "cost": 16575,
+ "seconds": 20,
+ "settles": 1,
+ "jobDone": false,
+ "calls": [
+  {
+   "tool": "bash",
+   "args": "{\"command\":\"cd /tmp/jobs-A-3 && ls -la && cat slow.sh\"}",
+   "at": 16
+  },
+  {
+   "tool": "bash",
+   "args": "{\"command\":\"cd /tmp/jobs-A-3 && nohup bash slow.sh > slow.out 2>&1 &\\necho started; pid=$!; sleep 1; cat /tmp/jobs-A-3/slow.out\"}",
+   "at": 17
+  }
+ ],
+ "answer": "Avviato in background, log in `/tmp/jobs-A-3/slow.out`. Circa 100 s totali (5 step × 20 s). Quando finisce, leggo il log e ti do il VERIFY-CODE."
+}

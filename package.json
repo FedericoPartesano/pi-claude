@@ -33,6 +33,7 @@
       "./extensions/btw.ts",
       "./extensions/test-monitor.ts",
       "./extensions/timeout-bar.ts",
+      "./extensions/jobs.ts",
       "./extensions/graph.ts",
       "./extensions/vault.ts",
       "./extensions/archivio.ts",

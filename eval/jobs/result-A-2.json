@@ -1,0 +1,33 @@
+{
+ "arm": "A",
+ "rep": "2",
+ "model": "haiku",
+ "code": "7F2FD3",
+ "correct": true,
+ "sleeps": 1,
+ "bashCalls": 3,
+ "lancia": 0,
+ "requests": 4,
+ "cost": 18452,
+ "seconds": 124,
+ "settles": 1,
+ "jobDone": false,
+ "calls": [
+  {
+   "tool": "bash",
+   "args": "{\"command\":\"cd /tmp/jobs-A-2 && ls -la && cat slow.sh\"}",
+   "at": 14
+  },
+  {
+   "tool": "bash",
+   "args": "{\"command\":\"cd /tmp/jobs-A-2 && nohup bash slow.sh > slow.out 2>&1 &\\necho started\"}",
+   "at": 16
+  },
+  {
+   "tool": "bash",
+   "args": "{\"command\":\"sleep 105; cat /tmp/jobs-A-2/slow.out\",\"timeout\":200}",
+   "at": 17
+  }
+ ],
+ "answer": "VERIFY-CODE: `7F2FD3`\n\nOutput completo in `/tmp/jobs-A-2/slow.out`."
+}

@@ -27,3 +27,10 @@ Con `… vitest run x > /tmp/run.log 2>&1; grep …` il tool non stampa nulla me
 ## Barra dei timeout
 Sotto la barra `sleep` compaiono le ultime due righe del file che il comando sta per leggere (`tail`/`cat`) o su cui scrive il processo in background (`> log`), con dimensione e «writing now» / «quiet for»: l'attesa non è più cieca. Sotto, fino a due processi vivi che corrispondono ai nomi di script o runner del comando (`ps`, ogni 2 s: pid, durata, CPU, comando), oppure «no matching process alive»; non su Windows nativo. Aggiornato ogni 500 ms, solo lettura.
 `extensions/timeout-bar.ts`: una barra per ogni timeout in corso, sopra l'editor (cyan, giallo dal 75%, rosso dal 90%): parametro `timeout` del tool bash, `timeout N cmd` dentro il comando, agenti del team (20 minuti, via evento `timeout-bar:set` di pi-team). Il timeout dei tool MCP (24 h) non ha barra. `PI_TIMEOUT_BAR=0` la spegne. Provata con test e render, non nel TUI.
+
+## Job in background: `lancia` (`extensions/jobs.ts`)
+Al posto di `sleep N; tail log`, il tool `lancia` avvia il comando staccato e torna subito (id, percorso del log). Alla fine del processo l'estensione manda al modello un messaggio (`exit`, durata, ultime righe del log) che lo risveglia se è fermo: niente polling, niente attese fisse.
+- Spento di default (tool in più = costo fisso, e accenderlo a metà sessione riscrive la cache): `PI_JOBS=1` all'avvio oppure `/jobs on`.
+- `/jobs` elenca i job in corso, `/jobs kill <id>` ne ferma uno; timeout di default 3600 s (parametro `timeout`), a scadenza si ferma tutto il gruppo di processi.
+- La barra dei timeout mostra ogni job con le ultime righe del log. Non su Windows nativo (su WSL sì).
+- Limiti: i job muoiono con la sessione Pi; un `nohup` lanciato dal modello dentro bash non è visto: il modello deve usare `lancia` (la descrizione del tool lo dice).

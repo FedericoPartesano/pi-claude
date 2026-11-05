@@ -1,0 +1,28 @@
+{
+ "arm": "L",
+ "rep": "2",
+ "model": "haiku",
+ "code": "E6500A",
+ "correct": true,
+ "sleeps": 0,
+ "bashCalls": 1,
+ "lancia": 1,
+ "requests": 4,
+ "cost": 18044,
+ "seconds": 119,
+ "settles": 2,
+ "jobDone": true,
+ "calls": [
+  {
+   "tool": "bash",
+   "args": "{\"command\":\"cd /tmp/jobs-L-2 && ls -la && cat slow.sh\"}",
+   "at": 16
+  },
+  {
+   "tool": "lancia",
+   "args": "{\"command\":\"cd /tmp/jobs-L-2 && bash slow.sh\",\"name\":\"slow.sh\",\"timeout\":900}",
+   "at": 18
+  }
+ ],
+ "answer": "VERIFY-CODE: **E6500A**\n\nJob j1 terminato, exit 0, 100s."
+}

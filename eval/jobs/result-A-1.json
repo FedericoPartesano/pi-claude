@@ -1,0 +1,28 @@
+{
+ "arm": "A",
+ "rep": "1",
+ "model": "haiku",
+ "code": "C65088",
+ "correct": false,
+ "sleeps": 1,
+ "bashCalls": 2,
+ "lancia": 0,
+ "requests": 3,
+ "cost": 16502,
+ "seconds": 20,
+ "settles": 1,
+ "jobDone": false,
+ "calls": [
+  {
+   "tool": "bash",
+   "args": "{\"command\":\"cd /tmp/jobs-A-1 && ls -la && cat slow.sh\"}",
+   "at": 16
+  },
+  {
+   "tool": "bash",
+   "args": "{\"command\":\"cd /tmp/jobs-A-1 && nohup bash slow.sh > slow.out 2>&1 &\\necho started; sleep 2; cat /tmp/jobs-A-1/slow.out\"}",
+   "at": 17
+  }
+ ],
+ "answer": "Avviato in background: `bash slow.sh`, output in `/tmp/jobs-A-1/slow.out`. Dura circa 100 s. Ti dico il VERIFY-CODE quando finisce."
+}

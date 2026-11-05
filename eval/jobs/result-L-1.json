@@ -1,0 +1,28 @@
+{
+ "arm": "L",
+ "rep": "1",
+ "model": "haiku",
+ "code": "D2B914",
+ "correct": true,
+ "sleeps": 0,
+ "bashCalls": 1,
+ "lancia": 1,
+ "requests": 4,
+ "cost": 24147,
+ "seconds": 115,
+ "settles": 2,
+ "jobDone": true,
+ "calls": [
+  {
+   "tool": "bash",
+   "args": "{\"command\":\"cd /tmp/jobs-L-1 && ls -la && cat slow.sh\"}",
+   "at": 12
+  },
+  {
+   "tool": "lancia",
+   "args": "{\"command\":\"cd /tmp/jobs-L-1 && bash slow.sh\",\"name\":\"slow.sh\"}",
+   "at": 14
+  }
+ ],
+ "answer": "VERIFY-CODE: `D2B914` (exit 0, 100s)."
+}

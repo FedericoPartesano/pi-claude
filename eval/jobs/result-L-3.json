@@ -1,0 +1,28 @@
+{
+ "arm": "L",
+ "rep": "3",
+ "model": "haiku",
+ "code": "D29D11",
+ "correct": true,
+ "sleeps": 0,
+ "bashCalls": 1,
+ "lancia": 1,
+ "requests": 4,
+ "cost": 18090,
+ "seconds": 118,
+ "settles": 2,
+ "jobDone": true,
+ "calls": [
+  {
+   "tool": "bash",
+   "args": "{\"command\":\"cd /tmp/jobs-L-3 && ls -la && cat slow.sh\"}",
+   "at": 15
+  },
+  {
+   "tool": "lancia",
+   "args": "{\"command\":\"cd /tmp/jobs-L-3 && bash slow.sh\",\"name\":\"slow.sh\"}",
+   "at": 17
+  }
+ ],
+ "answer": "VERIFY-CODE: D29D11\n\nExit 0, 100s. Log: /tmp/pi-jobs-2843092/j1.log"
+}
