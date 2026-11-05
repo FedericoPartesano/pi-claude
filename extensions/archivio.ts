@@ -20,6 +20,8 @@ export interface Hit extends Chunk {
 	score: number;
 	/** Distinct query terms found in the chunk. */
 	matched: number;
+	/** Semantic only: how many standard deviations above the mean similarity of the whole archive. */
+	z?: number;
 }
 
 const CHUNK_CHARS = Number(process.env.PI_ARCHIVE_CHUNK ?? 900);
@@ -165,7 +167,7 @@ const SEM_FLOOR = 0.8;
  * Semantic auto recall: the chunks closest in meaning to the prompt, with no words in common needed. `vectors` maps a
  * chunk's text to its embedding (built in the background); chunks without one are skipped.
  */
-export function semanticRecall(chunks: readonly Chunk[], vectors: ReadonlyMap<string, Float32Array>, query: Float32Array, prompt: string, minZ = SEM_Z, limit = 1500, skip: ReadonlySet<string> = new Set(), onUsed?: (hit: Chunk) => void): string {
+export function semanticRecall(chunks: readonly Chunk[], vectors: ReadonlyMap<string, Float32Array>, query: Float32Array, prompt: string, minZ = SEM_Z, limit = 1500, skip: ReadonlySet<string> = new Set(), onUsed?: (hit: Hit) => void): string {
 	const scored: Hit[] = [];
 	let sum = 0;
 	for (const chunk of chunks) {
@@ -180,14 +182,65 @@ export function semanticRecall(chunks: readonly Chunk[], vectors: ReadonlyMap<st
 	const mean = sum / scored.length;
 	const sd = Math.sqrt(scored.reduce((acc, hit) => acc + (hit.score - mean) ** 2, 0) / scored.length);
 	if (sd === 0) return "";
+	for (const hit of scored) hit.z = (hit.score - mean) / sd;
 	const hits = scored.filter((hit) => hit.score >= SEM_FLOOR && !skip.has(hit.entryId) && (hit.score - mean) / sd >= minZ).sort((a, b) => b.score - a.score).filter((hit) => !repeatsPrompt(hit, prompt)).slice(0, 3);
 	if (hits.length === 0) return "";
 	for (const hit of hits) onUsed?.(hit);
 	return `Dalla storia compattata (dettagli esatti; apri una voce intera con richiama id):\n${renderHits(hits, limit)}`;
 }
 
+/** Every embedded chunk ranked by similarity, with its z-score (what the /archivio test tab shows; nothing is filtered). */
+export function rankSemantic(chunks: readonly Chunk[], vectors: ReadonlyMap<string, Float32Array>, query: Float32Array, limit = 20): Hit[] {
+	const scored: Hit[] = [];
+	let sum = 0;
+	for (const chunk of chunks) {
+		const vector = vectors.get(chunk.text);
+		if (!vector) continue;
+		let dot = 0;
+		for (let i = 0; i < vector.length; i++) dot += vector[i] * query[i];
+		sum += dot;
+		scored.push({ ...chunk, score: dot, matched: dot });
+	}
+	if (scored.length === 0) return [];
+	const mean = sum / scored.length;
+	const sd = Math.sqrt(scored.reduce((acc, hit) => acc + (hit.score - mean) ** 2, 0) / scored.length) || 1;
+	for (const hit of scored) hit.z = (hit.score - mean) / sd;
+	return scored.sort((a, b) => b.score - a.score).slice(0, limit);
+}
+
+/** What the /archivio view shows: the archived entries and the recalls that rode along with prompts. */
+export interface ArchiveOverview {
+	entries: { id: string; role: string; label: string; chars: number; preview: string; injected: number }[];
+	injections: { at: string; prompt: string; method: string; hits: { id: string; label: string; z?: number }[]; text: string }[];
+	compactions: number;
+}
+
+export function archiveOverview(branch: readonly (Entry & { customType?: string; content?: unknown; details?: unknown; timestamp?: string })[]): ArchiveOverview {
+	const archived = archivedEntries(branch);
+	const injections: ArchiveOverview["injections"] = [];
+	let lastUser = "";
+	for (const entry of branch) {
+		if (entry.type === "message" && entry.message?.role === "user") lastUser = contentText(entry.message.content);
+		if (entry.type !== "custom_message" || entry.customType !== "archive-recall") continue;
+		const details = (entry.details ?? {}) as { prompt?: string; method?: string; hits?: { id: string; label: string; z?: number }[] };
+		injections.push({ at: String(entry.timestamp ?? ""), prompt: details.prompt ?? lastUser, method: details.method ?? "?", hits: details.hits ?? [], text: contentText(entry.content) });
+	}
+	const counts = new Map<string, number>();
+	for (const injection of injections) for (const hit of injection.hits) counts.set(hit.id, (counts.get(hit.id) ?? 0) + 1);
+	return {
+		entries: archived.map((entry) => {
+			const text = contentText(entry.message?.content);
+			const id = String(entry.id ?? "");
+			const label = entry.message?.toolName ? `tool ${entry.message.toolName}` : String(entry.message?.role ?? entry.type ?? "?");
+			return { id, role: String(entry.message?.role ?? entry.type ?? "?"), label, chars: text.length, preview: text.replace(/\s+/g, " ").trim().slice(0, 160), injected: counts.get(id.slice(0, 8)) ?? 0 };
+		}),
+		injections,
+		compactions: branch.filter((entry) => entry.type === "compaction").length,
+	};
+}
+
 /** Excerpts worth adding to a request unasked: several query terms in the same chunk, short output. */
-export function autoRecall(chunks: readonly Chunk[], prompt: string, limit = 1500, onUsed?: (hit: Chunk) => void): string {
+export function autoRecall(chunks: readonly Chunk[], prompt: string, limit = 1500, onUsed?: (hit: Hit) => void): string {
 	const terms = [...new Set(tokens(prompt))];
 	if (terms.length < 3) return "";
 	// Identifiers (a term with a digit: b02, L33, 48213) that exist in the archive decide: a chunk must hold all of them.
@@ -218,6 +271,8 @@ export function renderHits(hits: readonly Hit[], limit = OUTPUT_CHARS): string {
 	}
 	return lines.join("\n");
 }
+
+const searchChunks = search;
 
 export default function (pi: ExtensionAPI) {
 	if (process.env.PI_ARCHIVE === "0") return;
@@ -309,19 +364,52 @@ export default function (pi: ExtensionAPI) {
 		try {
 			const chunks = chunkArchive(archivedEntries(ctx.sessionManager.getBranch() as Entry[]));
 			let text = "";
+			let method = "semantic";
+			const used: { id: string; label: string; z?: number }[] = [];
+			const note = (hit: Hit) => {
+				injected.add(hit.entryId);
+				used.push({ id: hit.entryId.slice(0, 8), label: hit.label, z: hit.z });
+			};
 			if (embedder?.ready && vectors.size > 0) {
 				try {
 					const [query] = await embedder.embed([event.prompt.slice(0, 600)], "query");
-					text = semanticRecall(chunks, vectors, query, event.prompt, SEM_Z, 1500, injected, (hit) => injected.add(hit.entryId));
+					text = semanticRecall(chunks, vectors, query, event.prompt, SEM_Z, 1500, injected, note);
 				} catch {
 					/* fall through to lexical */
 				}
 			}
-			if (!text) text = autoRecall(chunks.filter((chunk) => !injected.has(chunk.entryId)), event.prompt, 1500, (hit) => injected.add(hit.entryId));
-			return text ? { message: { customType: "archive-recall", content: text, display: false } } : undefined;
+			if (!text) {
+				method = "lexical";
+				text = autoRecall(chunks.filter((chunk) => !injected.has(chunk.entryId)), event.prompt, 1500, note);
+			}
+			return text ? { message: { customType: "archive-recall", content: text, display: false, details: { prompt: event.prompt.slice(0, 300), method, hits: used } } } : undefined;
 		} catch {
 			return undefined;
 		}
+	});
+	pi.registerCommand("archivio", {
+		description: "Apri l'archivio della storia compattata: iniezioni, voci e prova di recupero",
+		handler: async (_args, ctx) => {
+			if (ctx.mode !== "tui") return ctx.ui.notify("/archivio serve il terminale interattivo.", "warning");
+			const branch = ctx.sessionManager.getBranch() as Entry[];
+			const overview = archiveOverview(branch);
+			if (overview.entries.length === 0) return ctx.ui.notify("Archivio vuoto: nulla \u00e8 stato ancora compattato in questa sessione.", "info");
+			const chunks = chunkArchive(archivedEntries(branch));
+			const { ArchiveView } = await import("../pi-ui/src/archive-view.ts");
+			const search = async (query: string) => {
+				if (embedder?.ready && vectors.size > 0) {
+					const [vector] = await embedder.embed([query.slice(0, 600)], "query");
+					return { method: "semantic" as const, hits: rankSemantic(chunks, vectors, vector, 12) };
+				}
+				return { method: "lexical" as const, hits: searchChunks(chunks, query, 12) };
+			};
+			const status = { chunks: chunks.length, vectors: vectors.size, semantic: Boolean(embedder?.ready), threshold: SEM_Z };
+			await ctx.ui.custom<void>(
+				(tui, theme, _keybindings, done) =>
+					new ArchiveView({ fg: (role, text) => theme.fg(role, text), bold: (text) => theme.bold(text) }, overview, status, search, (id) => openEntry(archivedEntries(branch), id), done, () => tui.requestRender(), () => tui.terminal.rows),
+				{ overlay: true, overlayOptions: { anchor: "center", width: "100%", maxHeight: "100%" } },
+			);
+		},
 	});
 	pi.on("session_start", (_event, ctx) => { turnOn(ctx); buildIndex(ctx); });
 	pi.on("session_compact", (_event, ctx) => { turnOn(ctx); buildIndex(ctx); });

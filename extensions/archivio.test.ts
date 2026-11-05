@@ -1,7 +1,7 @@
 process.env.PI_ARCHIVE_SEM = "0"; // no model worker in unit tests
 import assert from "node:assert/strict";
 import test from "node:test";
-import archivio, { archivedEntries, autoRecall, chunkArchive, openEntry, renderHits, search, semanticRecall } from "./archivio.ts";
+import archivio, { archiveOverview, archivedEntries, rankSemantic, autoRecall, chunkArchive, openEntry, renderHits, search, semanticRecall } from "./archivio.ts";
 
 const msg = (id: string, role: string, text: string, toolName?: string) => ({ type: "message", id, message: { role, toolName, content: [{ type: "text", text }] } });
 const branch = [
@@ -37,6 +37,7 @@ test("the tool stays off until something is compacted, then turns on", () => {
 	archivio({
 		on: (name: string, handler: never) => void (handlers[name] = handler),
 		registerTool: (tool: { name: string }) => void tools.push(tool.name),
+		registerCommand: () => {},
 		getActiveTools: () => active,
 		setActiveTools: (next: string[]) => void (active = next),
 	} as never);
@@ -96,4 +97,29 @@ test("semanticRecall: a chunk already injected is not sent again", () => {
 	const used = new Set<string>();
 	assert.match(semanticRecall(chunks, vectors, query, "quale porta", 3.5, 1500, used, (hit) => used.add(hit.entryId)), /33077/);
 	assert.equal(semanticRecall(chunks, vectors, query, "quale porta", 3.5, 1500, used), "");
+});
+
+test("rankSemantic gives every chunk a z-score and ranks the closest first", () => {
+	const chunks = Array.from({ length: 30 }, (_, i) => ({ entryId: `e${i}`, role: "tool", label: "tool read", text: `filler ${i}` }));
+	const vectors = new Map<string, Float32Array>();
+	chunks.forEach((chunk) => vectors.set(chunk.text, Float32Array.from([0, 0.6, 0.6, 0])));
+	vectors.set(chunks[3].text, Float32Array.from([1, 0, 0, 0]));
+	const ranked = rankSemantic(chunks, vectors, Float32Array.from([1, 0, 0, 0]), 5);
+	assert.equal(ranked.length, 5);
+	assert.equal(ranked[0].entryId, "e3");
+	assert.ok((ranked[0].z ?? 0) > 4);
+});
+
+test("archiveOverview lists archived entries and the recalls with their hits", () => {
+	const full = [
+		...branch,
+		{ type: "custom_message", id: "r1", customType: "archive-recall", content: "Dalla storia compattata:\n[#a2 bash] x", details: { prompt: "quanto vale il timeout?", method: "semantic", hits: [{ id: "a2", label: "tool bash", z: 5.1 }] }, timestamp: "2026-11-05T10:00:00Z" },
+	];
+	const overview = archiveOverview(full as never);
+	assert.equal(overview.compactions, 1);
+	assert.equal(overview.entries.length, 3);
+	assert.equal(overview.entries[1].label, "tool bash");
+	assert.equal(overview.entries[1].injected, 1);
+	assert.equal(overview.injections.length, 1);
+	assert.equal(overview.injections[0].hits[0].z, 5.1);
 });

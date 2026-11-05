@@ -16,4 +16,5 @@ updated: 2026-11-05
 - Variabili: `PI_ARCHIVE=0`, `PI_ARCHIVE_SEM=0`, `PI_ARCHIVE_AUTO=0`, `PI_ARCHIVE_SEM_Z`.
 - Misure (haiku, banco `noid`: senza identificatori nella domanda, ≥9 compattazioni): corrette 36/36 contro 23/36 del default (64%); iniezioni sbagliate 12,5% (obiettivo ≤10% non raggiunto); latenza nel turno ≈29 ms mediana, ≈50 ms p95.
 - Costo: nessun risparmio sulle sole letture (+1,7%, causa: l'attivazione di `richiama` rompe la cache, ≈8.800 pesati una volta per sessione); con dati non rileggibili −16,5% e 18/18 contro 1/18.
+- Comando `/archivio` (`pi-ui/src/archive-view.ts`): vista a schermo intero con schede Iniezioni, Voci e Prova; le iniezioni salvano `details` (prompt, metodo, voci con z) nel messaggio `archive-recall`.
 - Test: `node --test extensions/archivio.test.ts`.
