@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.16.0...pi-claude-v0.17.0) (2026-11-05)
+
+
+### Features
+
+* la barra sleep mostra i processi vivi del comando (pid, durata, CPU) ([e8f2c3a](https://github.com/FedericoPartesano/pi-claude/commit/e8f2c3ad43182f9a5db6ec686c39e9ffe9213e7c))
+
 ## [0.16.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.15.0...pi-claude-v0.16.0) (2026-11-04)
 
 
