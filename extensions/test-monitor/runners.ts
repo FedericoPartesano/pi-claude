@@ -190,4 +190,50 @@ export const RUNNERS: Runner[] = [
 	},
 ];
 
-export const detectRunner = (command: string): Runner | undefined => (command.includes("\n") ? undefined : RUNNERS.find((runner) => runner.matches(command)));
+/**
+ * A multi-line command seen as one line: heredoc bodies dropped, newlines turned into `;`. Lets a runner started on its
+ * own line (`(setsid nohup npx vitest run x > log 2>&1 &)`) be found after a heredoc that edits a file.
+ */
+export function flattenCommand(command: string): string {
+	const out: string[] = [];
+	let end: string | undefined;
+	for (const line of command.split("\n")) {
+		if (end !== undefined) {
+			if (line.trim() === end) end = undefined;
+			continue;
+		}
+		const here = /<<-?\s*(?:"([^"]+)"|'([^']+)'|\\?(\w+))/.exec(line);
+		if (here) end = here[1] ?? here[2] ?? here[3];
+		if (line.trim()) out.push(line.trim().replace(/;$/, ""));
+	}
+	return out.join("; ");
+}
+
+export const detectRunner = (command: string): Runner | undefined => {
+	const flat = command.includes("\n") ? flattenCommand(command) : command;
+	return RUNNERS.find((runner) => runner.matches(flat));
+};
+
+/**
+ * Rewrites the first line of a multi-line command that starts the runner (outside heredoc bodies) with `prepare`;
+ * a one-line command is passed straight through. Undefined when `prepare` has nothing to change.
+ */
+export function prepareLines(runner: Runner, command: string, ctx: PrepareContext): { command: string; files?: Record<string, string> } | undefined {
+	if (!command.includes("\n")) return runner.prepare?.(command, ctx);
+	const lines = command.split("\n");
+	let end: string | undefined;
+	for (let i = 0; i < lines.length; i++) {
+		if (end !== undefined) {
+			if (lines[i].trim() === end) end = undefined;
+			continue;
+		}
+		const here = /<<-?\s*(?:"([^"]+)"|'([^']+)'|\\?(\w+))/.exec(lines[i]);
+		if (here) end = here[1] ?? here[2] ?? here[3];
+		if (!runner.matches(lines[i])) continue;
+		const prepared = runner.prepare?.(lines[i], ctx);
+		if (!prepared) return undefined;
+		lines[i] = prepared.command;
+		return { ...prepared, command: lines.join("\n") };
+	}
+	return undefined;
+}

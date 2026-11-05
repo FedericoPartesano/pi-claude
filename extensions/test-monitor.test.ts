@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import testMonitor from "./test-monitor.ts";
-import { estimateTotal, teeBeforeFilter } from "./test-monitor/progress.ts";
+import { estimateTotal, redirectedLog, teeBeforeFilter } from "./test-monitor/progress.ts";
 import { newTestRun, renderTestMonitor, shownCommand } from "./test-monitor/render.ts";
-import { cypressParse, detectRunner, jestParse, nodeParse, playwrightParse, pytestParse, vitestParse } from "./test-monitor/runners.ts";
+import { cypressParse, detectRunner, flattenCommand, prepareLines, jestParse, nodeParse, playwrightParse, pytestParse, vitestParse } from "./test-monitor/runners.ts";
 
 const visibleWidth = (text: string) => [...text.replace(/\x1b\[[0-9;]*m/g, "")].length;
 const strip = (text: string) => text.replace(/\x1b\[[0-9;]*m/g, "");
@@ -217,4 +217,16 @@ test("extension: a run redirected to a file is followed from that file, which is
 	handlers.get("tool_execution_end")!({ toolCallId: "r1", result: { content: [] } }, ctx);
 	assert.equal(existsSync(log), true, "the user's file stays");
 	handlers.get("session_shutdown")!({}, ctx);
+});
+
+test("multi-line command: vitest started in a background subshell after a heredoc is found, reporter added, log followed", () => {
+	const command = "cd /tmp/p/tests; python3 - <<'EOF'\nprint('vitest run in a heredoc')\nEOF\ncd ..; npx tsc --noEmit -p . | head -3; export A=$(cat k); (setsid nohup timeout 280 npx vitest run tests/a.e2e.ts > /tmp/i5.log 2>&1 < /dev/null &); sleep 200";
+	const runner = detectRunner(command);
+	assert.equal(runner?.name, "vitest");
+	assert.equal(redirectedLog(flattenCommand(command), "/work", (stage) => runner!.matches(stage)), "/tmp/p/i5.log".replace("/tmp/p/i5.log", "/tmp/i5.log"));
+	const prepared = prepareLines(runner!, command, { log: "/x", helper: "/y", cwd: "/work" });
+	assert.match(prepared!.command, /npx vitest run --reporter=verbose tests\/a\.e2e\.ts/);
+	assert.match(prepared!.command, /print\('vitest run in a heredoc'\)/);
+	assert.equal(prepared!.command.match(/--reporter=verbose/g)?.length, 1);
+	assert.equal(detectRunner("python3 - <<'EOF'\nvitest run\nEOF\nls"), undefined);
 });

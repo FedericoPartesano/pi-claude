@@ -12,7 +12,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { redirectedLog, teeBeforeFilter } from "./test-monitor/progress.ts";
 import { newTestRun, renderTestMonitor, useColors, type Colors, type TestRun } from "./test-monitor/render.ts";
 import { detectMonitor, type Monitor } from "./test-monitor/monitors.ts";
-import { detectRunner, type Runner } from "./test-monitor/runners.ts";
+import { detectRunner, flattenCommand, prepareLines, type Runner } from "./test-monitor/runners.ts";
 import { renderView, type ViewState } from "./test-monitor/views.ts";
 
 interface Tracked {
@@ -146,7 +146,7 @@ export default function (pi: ExtensionAPI) {
 		const helpers: string[] = [];
 		try {
 			mkdirSync(root, { recursive: true });
-			const prepared = found.prepare?.(command, { log, helper: join(root, key), cwd: ctx.cwd });
+			const prepared = prepareLines(found, command, { log, helper: join(root, key), cwd: ctx.cwd });
 			if (prepared) {
 				command = prepared.command;
 				for (const [file, content] of Object.entries(prepared.files ?? {})) {
@@ -165,7 +165,7 @@ export default function (pi: ExtensionAPI) {
 					source = log;
 				} else {
 					// `… > /tmp/x.log 2>&1; grep …`: the tool prints nothing live, the file the run writes to is the signal.
-					const written = redirectedLog(original, ctx.cwd, (stage) => found.matches(stage));
+					const written = redirectedLog(flattenCommand(original), ctx.cwd, (stage) => found.matches(stage));
 					if (written) {
 						source = written;
 						external = true;
