@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.18.0...pi-claude-v0.19.0) (2026-11-05)
+
+
+### Features
+
+* tool lancia per job in background con avviso di fine, spento di default (/jobs, PI_JOBS=1); banco degli sleep ([4bd462b](https://github.com/FedericoPartesano/pi-claude/commit/4bd462b88a7d208b0245d29a236ace28e77c9e6f))
+
 ## [0.18.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.17.0...pi-claude-v0.18.0) (2026-11-05)
 
 
