@@ -5,7 +5,8 @@
  * The bridge's MCP_TOOL_TIMEOUT is 24 h on purpose, so it gets no bar. PI_TIMEOUT_BAR=0 turns it off.
  */
 import { closeSync, existsSync, fstatSync, openSync, readSync } from "node:fs";
-import { resolve } from "node:path";
+import { execFile } from "node:child_process";
+import { basename, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { barCells } from "./test-monitor/views.ts";
 import { C, type Colors, duration, fg, truncateToWidth, useColors } from "./test-monitor/render.ts";
@@ -17,6 +18,8 @@ export interface Deadline {
 	timeoutMs: number;
 	/** File the command is going to read or is writing to while it waits (sleep): its last lines are shown under the bar. */
 	watch?: string;
+	/** Words that identify the process the command waits for (script names, runner names): matched against `ps`. */
+	probe?: string[];
 }
 
 const UNIT: Record<string, number> = { "": 1, s: 1, m: 60, h: 3600, d: 86400 };
@@ -69,6 +72,55 @@ export function watchedFile(command: string, cwd: string): string | undefined {
 	return redirect;
 }
 
+const RUNNER_WORDS = /\b(vitest|jest|pytest|playwright|cypress|mocha|tsc|cargo|gradle|webpack|vite|next)\b/g;
+
+/** Script and runner names of a waiting command (and the `pgrep -f` pattern), used to find its process in `ps`. */
+export function probeTokens(command: string): string[] {
+	const text = command.replace(/<<-?\s*(['"]?)(\w+)\1[\s\S]*?\n\s*\2\b/g, "");
+	const found = new Set<string>();
+	for (const match of text.matchAll(/pgrep\s+(?:-\w+\s+)*['"]?([\w./-]+)['"]?/g)) found.add(basename(match[1]));
+	for (const token of text.split(/[\s;&|()<>'"]+/)) if (/\.(?:[cm]?[jt]sx?|py|sh)$/.test(token) && !/^\/tmp\/.*\.log$/.test(token)) found.add(basename(token));
+	for (const match of text.matchAll(RUNNER_WORDS)) found.add(match[1]);
+	return [...found].slice(0, 6);
+}
+
+export interface Live {
+	pid: number;
+	seconds: number;
+	cpu: number;
+	args: string;
+}
+
+const SHELLS = new Set(["bash", "sh", "zsh", "dash", "sleep", "ps", "pgrep", "tail", "cat", "head", "grep", "cut", "setsid"]);
+const etimeSeconds = (etime: string) => {
+	const [days, rest] = etime.includes("-") ? etime.split("-") : ["0", etime];
+	const parts = rest.split(":").map(Number);
+	while (parts.length < 3) parts.unshift(0);
+	return Number(days) * 86400 + parts[0] * 3600 + parts[1] * 60 + parts[2];
+};
+
+/** Rows of `ps -axo pid=,etime=,pcpu=,args=` whose command line contains one of the tokens; shells and helpers are left out. */
+export function parsePs(text: string, tokens: string[], selfPid: number): Live[] {
+	const out: Live[] = [];
+	for (const line of text.split("\n")) {
+		const match = /^\s*(\d+)\s+(\S+)\s+([\d.,]+)\s+(.+)$/.exec(line);
+		if (!match) continue;
+		const pid = Number(match[1]);
+		const args = match[4].trim();
+		if (pid === selfPid || SHELLS.has(basename(args.split(/\s+/)[0]))) continue;
+		if (!tokens.some((token) => args.includes(token))) continue;
+		out.push({ pid, seconds: etimeSeconds(match[2]), cpu: Number(match[3].replace(",", ".")), args });
+	}
+	return out;
+}
+
+/** Up to two live-process rows for the bar; none alive says so. */
+export function liveLines(live: Live[] | undefined, width: number): string[] {
+	if (!live) return [];
+	if (!live.length) return [truncateToWidth(`${fg(C.dim, "  ⚙")} ${fg(C.warn, "no matching process alive")}`, width)];
+	return live.slice(0, 2).map((item) => truncateToWidth(`${fg(C.dim, "  ⚙")} ${fg(C.dim, `pid ${item.pid} · ${duration(item.seconds * 1000)} · cpu ${Math.round(item.cpu)}% ·`)} ${fg(C.text, item.args)}`, width));
+}
+
 /** Last non-empty lines of a file (at most `count`), its size and age; a missing file says so. */
 export function watchLines(file: string, width: number, now: number, count = 2): string[] {
 	if (!existsSync(file)) return [truncateToWidth(`${fg(C.dim, "  ↳")} ${fg(C.dim, `${file}: not created yet`)}`, width)];
@@ -112,8 +164,33 @@ export default function timeoutBar(pi: ExtensionAPI) {
 	const active = new Map<string, Deadline>();
 	let tui: { requestRender(): void } | undefined;
 	let timer: ReturnType<typeof setInterval> | undefined;
+	const live = new Map<string, Live[]>();
+	let polling = false;
+	// Processes matching the waiting commands, read from `ps` every 2 s (Linux, macOS, WSL; not native Windows).
+	const poll = () => {
+		const probes = [...active.values()].filter((deadline) => deadline.probe?.length);
+		if (polling || !probes.length || process.platform === "win32") return;
+		polling = true;
+		execFile("ps", ["-axo", "pid=,etime=,pcpu=,args="], { maxBuffer: 8_000_000, timeout: 3000 }, (error, stdout) => {
+			polling = false;
+			if (error) return;
+			for (const deadline of probes) live.set(deadline.key, parsePs(stdout, deadline.probe!, process.pid));
+			tui?.requestRender();
+		});
+	};
+	let pollTimer: ReturnType<typeof setInterval> | undefined;
 
 	const sync = () => {
+		const wanted = [...active.values()].some((deadline) => deadline.probe?.length);
+		if (wanted && !pollTimer) {
+			pollTimer = setInterval(poll, 2000);
+			pollTimer.unref?.();
+			poll();
+		} else if (!wanted && pollTimer) {
+			clearInterval(pollTimer);
+			pollTimer = undefined;
+			live.clear();
+		}
 		if (active.size && !timer) {
 			timer = setInterval(() => tui?.requestRender(), 500);
 			timer.unref?.();
@@ -138,7 +215,7 @@ export default function timeoutBar(pi: ExtensionAPI) {
 			"timeout-bar",
 			(widgetTui) => {
 				tui = widgetTui;
-				return { render: (width: number) => [...active.values()].flatMap((deadline) => [renderDeadline(deadline, width, Date.now()), ...(deadline.watch ? watchLines(deadline.watch, width, Date.now()) : [])]), invalidate() {} };
+				return { render: (width: number) => [...active.values()].flatMap((deadline) => [renderDeadline(deadline, width, Date.now()), ...(deadline.watch ? watchLines(deadline.watch, width, Date.now()) : []), ...(deadline.probe ? liveLines(live.get(deadline.key), width) : [])]), invalidate() {} };
 			},
 			{ placement: "aboveEditor" },
 		);
@@ -154,7 +231,7 @@ export default function timeoutBar(pi: ExtensionAPI) {
 		if (Number.isFinite(seconds) && seconds > 0) active.set(`${id}:bash`, { key: `${id}:bash`, label: "bash timeout", startedAt: now, timeoutMs: seconds * 1000 });
 		shellTimeouts(command).forEach((entry, index) => active.set(`${id}:sh${index}`, { key: `${id}:sh${index}`, label: `timeout ${entry.text.split(/\s+/).slice(0, 3).join(" ")}`.trim(), startedAt: now, timeoutMs: entry.ms }));
 		const sleepMs = shellSleepMs(command);
-		if (sleepMs >= 1000) active.set(`${id}:sleep`, { key: `${id}:sleep`, label: "sleep", startedAt: now, timeoutMs: sleepMs, watch: watchedFile(command, ctx.cwd) });
+		if (sleepMs >= 1000) active.set(`${id}:sleep`, { key: `${id}:sleep`, label: "sleep", startedAt: now, timeoutMs: sleepMs, watch: watchedFile(command, ctx.cwd), probe: probeTokens(command) });
 		sync();
 		return undefined;
 	});
@@ -178,7 +255,8 @@ export default function timeoutBar(pi: ExtensionAPI) {
 
 	pi.on("session_shutdown", () => {
 		if (timer) clearInterval(timer);
-		timer = undefined;
+		if (pollTimer) clearInterval(pollTimer);
+		timer = pollTimer = undefined;
 		active.clear();
 	});
 }

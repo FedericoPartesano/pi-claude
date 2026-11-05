@@ -71,3 +71,23 @@ test("watchedFile: the file tail reads after a sleep, or the redirect of a backg
 	const lines = watchLines("/tmp/definitely-missing-file.log", 80, Date.now());
 	assert.match(lines[0], /not created yet/);
 });
+
+test("probeTokens and parsePs: find the process a sleeping command waits for, ignoring shells and helpers", async () => {
+	const { probeTokens, parsePs, liveLines } = await import("./timeout-bar.ts");
+	const tokens = probeTokens("sleep 60; tail -30 /tmp/ui3/studio-check.log | cut -c1-200; pgrep -f studio-check.mjs | head -2");
+	assert.deepEqual(tokens, ["studio-check.mjs"]);
+	assert.ok(probeTokens("(setsid nohup timeout 280 npx vitest run tests/a.e2e.ts > /tmp/i5.log 2>&1 &); sleep 200").includes("vitest"));
+	const ps = [
+		"  101     05:12  87.5 node /p/studio-check.mjs --port 1",
+		"  102     05:13   0.0 bash -c sleep 60; pgrep -f studio-check.mjs",
+		"  103  1-02:00:01  0.0 sleep 60",
+		"  104     00:03   1.0 /usr/bin/other thing",
+	].join("\n");
+	const live = parsePs(ps, tokens, 1);
+	assert.equal(live.length, 1);
+	assert.equal(live[0].pid, 101);
+	assert.equal(live[0].seconds, 312);
+	assert.match(liveLines(live, 100)[0].replace(/\x1b\[[0-9;]*m/g, ""), /pid 101 .*cpu 88%.*studio-check\.mjs/);
+	assert.match(liveLines([], 100)[0].replace(/\x1b\[[0-9;]*m/g, ""), /no matching process alive/);
+	assert.deepEqual(liveLines(undefined, 100), []);
+});
