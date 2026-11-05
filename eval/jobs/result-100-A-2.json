@@ -1,0 +1,35 @@
+{
+ "arm": "A",
+ "rep": "2",
+ "model": "haiku",
+ "duration": 100,
+ "code": "DC1718",
+ "correct": true,
+ "sleeps": 1,
+ "polls": 1,
+ "bashCalls": 3,
+ "lancia": 0,
+ "requests": 4,
+ "cost": 19193,
+ "seconds": 121,
+ "settles": 1,
+ "jobDone": false,
+ "calls": [
+  {
+   "tool": "bash",
+   "args": "{\"command\":\"cd /tmp/jobs-100-A-2 && ls -la && cat slow.sh\"}",
+   "at": 7
+  },
+  {
+   "tool": "bash",
+   "args": "{\"command\":\"cd /tmp/jobs-100-A-2 && nohup bash slow.sh > slow.out 2>&1 &\\necho started $!\"}",
+   "at": 8
+  },
+  {
+   "tool": "bash",
+   "args": "{\"command\":\"cd /tmp/jobs-100-A-2 && sleep 110; cat slow.out; pgrep -f \\\"bash slow.sh\\\" >/dev/null && echo RUNNING || echo DONE\",\"timeout\":200}",
+   "at": 10
+  }
+ ],
+ "answer": "VERIFY-CODE: `DC1718`\n\nLanciato in background (`nohup`, output in `slow.out`). Finito dopo ~100 s, output completo."
+}

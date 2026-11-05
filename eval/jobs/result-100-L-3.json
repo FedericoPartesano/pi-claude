@@ -1,0 +1,25 @@
+{
+ "arm": "L",
+ "rep": "3",
+ "model": "haiku",
+ "duration": 100,
+ "code": "D5C7AD",
+ "correct": true,
+ "sleeps": 0,
+ "polls": 0,
+ "bashCalls": 0,
+ "lancia": 1,
+ "requests": 3,
+ "cost": 16577,
+ "seconds": 109,
+ "settles": 2,
+ "jobDone": true,
+ "calls": [
+  {
+   "tool": "lancia",
+   "args": "{\"command\":\"cd /tmp/jobs-100-L-3 && bash slow.sh\",\"name\":\"slow.sh\",\"timeout\":3600}",
+   "at": 8
+  }
+ ],
+ "answer": "VERIFY-CODE: D5C7AD\n\nJob j1 terminato: exit 0, 100s. Log completo: `/tmp/pi-jobs-3085495/j1.log`."
+}

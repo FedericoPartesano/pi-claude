@@ -1,0 +1,25 @@
+{
+ "arm": "L",
+ "rep": "3",
+ "model": "haiku",
+ "duration": 200,
+ "code": "245985",
+ "correct": true,
+ "sleeps": 0,
+ "polls": 0,
+ "bashCalls": 0,
+ "lancia": 1,
+ "requests": 3,
+ "cost": 16274,
+ "seconds": 207,
+ "settles": 2,
+ "jobDone": true,
+ "calls": [
+  {
+   "tool": "lancia",
+   "args": "{\"command\":\"bash slow.sh\",\"name\":\"slow.sh\"}",
+   "at": 6
+  }
+ ],
+ "answer": "VERIFY-CODE: 245985\n\nJob j1 exit 0, 200s. Log: `/tmp/pi-jobs-3101513/j1.log`."
+}

@@ -1,0 +1,25 @@
+{
+ "arm": "L",
+ "rep": "1",
+ "model": "haiku",
+ "duration": 100,
+ "code": "7A02C3",
+ "correct": true,
+ "sleeps": 0,
+ "polls": 0,
+ "bashCalls": 0,
+ "lancia": 1,
+ "requests": 3,
+ "cost": 16011,
+ "seconds": 108,
+ "settles": 2,
+ "jobDone": true,
+ "calls": [
+  {
+   "tool": "lancia",
+   "args": "{\"command\":\"bash slow.sh\",\"name\":\"slow.sh\"}",
+   "at": 7
+  }
+ ],
+ "answer": "VERIFY-CODE: 7A02C3 (job j1, exit 0, 100s)."
+}

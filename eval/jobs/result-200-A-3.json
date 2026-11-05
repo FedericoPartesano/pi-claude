@@ -1,0 +1,30 @@
+{
+ "arm": "A",
+ "rep": "3",
+ "model": "haiku",
+ "duration": 200,
+ "code": "943EF0",
+ "correct": false,
+ "sleeps": 0,
+ "polls": 0,
+ "bashCalls": 2,
+ "lancia": 0,
+ "requests": 3,
+ "cost": 16583,
+ "seconds": 8,
+ "settles": 1,
+ "jobDone": false,
+ "calls": [
+  {
+   "tool": "bash",
+   "args": "{\"command\":\"cd /tmp/jobs-200-A-3 && ls -la && cat slow.sh\"}",
+   "at": 6
+  },
+  {
+   "tool": "bash",
+   "args": "{\"command\":\"cd /tmp/jobs-200-A-3 && nohup bash slow.sh > slow.out 2>&1 &\\necho started $!\"}",
+   "at": 7
+  }
+ ],
+ "answer": "Avviato in background, PID 3097620, output in `/tmp/jobs-200-A-3/slow.out`. Dura circa 200 s (10 step × 20 s). Quando finisce ti dico il VERIFY-CODE; chiedimi \"è finito?\" o rileggo `slow.out`."
+}

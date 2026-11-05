@@ -1,0 +1,25 @@
+{
+ "arm": "L",
+ "rep": "2",
+ "model": "haiku",
+ "duration": 100,
+ "code": "75F880",
+ "correct": true,
+ "sleeps": 0,
+ "polls": 0,
+ "bashCalls": 0,
+ "lancia": 1,
+ "requests": 3,
+ "cost": 16312,
+ "seconds": 108,
+ "settles": 2,
+ "jobDone": true,
+ "calls": [
+  {
+   "tool": "lancia",
+   "args": "{\"command\":\"bash slow.sh\",\"name\":\"slow.sh\",\"timeout\":7200}",
+   "at": 7
+  }
+ ],
+ "answer": "VERIFY-CODE: 75F880\n\nJob j1 exit 0, 100s. Log: `/tmp/pi-jobs-3082028/j1.log`."
+}

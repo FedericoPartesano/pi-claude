@@ -1,0 +1,25 @@
+{
+ "arm": "L",
+ "rep": "1",
+ "model": "haiku",
+ "duration": 40,
+ "code": "2FB4BB",
+ "correct": true,
+ "sleeps": 0,
+ "polls": 0,
+ "bashCalls": 0,
+ "lancia": 1,
+ "requests": 3,
+ "cost": 22634,
+ "seconds": 50,
+ "settles": 2,
+ "jobDone": true,
+ "calls": [
+  {
+   "tool": "lancia",
+   "args": "{\"command\":\"cd /tmp/jobs-40-L-1 && bash slow.sh\",\"name\":\"slow.sh\",\"timeout\":3600}",
+   "at": 9
+  }
+ ],
+ "answer": "VERIFY-CODE: **2FB4BB**\n\nJob j1 exit 0, 40s. Log: `/tmp/pi-jobs-3073300/j1.log`."
+}

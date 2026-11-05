@@ -1,0 +1,35 @@
+{
+ "arm": "A",
+ "rep": "3",
+ "model": "haiku",
+ "duration": 100,
+ "code": "76042C",
+ "correct": true,
+ "sleeps": 1,
+ "polls": 1,
+ "bashCalls": 3,
+ "lancia": 0,
+ "requests": 4,
+ "cost": 18155,
+ "seconds": 117,
+ "settles": 1,
+ "jobDone": false,
+ "calls": [
+  {
+   "tool": "bash",
+   "args": "{\"command\":\"cat slow.sh; ls -la\"}",
+   "at": 9
+  },
+  {
+   "tool": "bash",
+   "args": "{\"command\":\"nohup bash slow.sh > slow.out 2>&1 &\\necho \\\"pid $!\\\"\"}",
+   "at": 10
+  },
+  {
+   "tool": "bash",
+   "args": "{\"command\":\"sleep 105; cat slow.out\",\"timeout\":200}",
+   "at": 11
+  }
+ ],
+ "answer": "VERIFY-CODE: `76042C`\n\nEseguito in background (pid 3086355), output in `slow.out`. Lo script dura circa 100 s, nel progetto vero più di 5 minuti."
+}

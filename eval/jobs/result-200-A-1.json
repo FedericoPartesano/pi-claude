@@ -1,0 +1,35 @@
+{
+ "arm": "A",
+ "rep": "1",
+ "model": "haiku",
+ "duration": 200,
+ "code": "C82580",
+ "correct": true,
+ "sleeps": 1,
+ "polls": 1,
+ "bashCalls": 3,
+ "lancia": 0,
+ "requests": 3,
+ "cost": 17721,
+ "seconds": 242,
+ "settles": 1,
+ "jobDone": false,
+ "calls": [
+  {
+   "tool": "bash",
+   "args": "{\"command\":\"cat slow.sh; ls -la\"}",
+   "at": 7
+  },
+  {
+   "tool": "bash",
+   "args": "{\"command\":\"nohup bash slow.sh > slow.out 2>&1 &\\necho \\\"pid $!\\\"\"}",
+   "at": 10
+  },
+  {
+   "tool": "bash",
+   "args": "{\"command\":\"sleep 230; cat slow.out\",\"timeout\":300}",
+   "at": 10
+  }
+ ],
+ "answer": "VERIFY-CODE: **C82580**\n\nEseguito in background (`nohup`, output in `slow.out`), finito dopo ~200s, 10/10 step."
+}

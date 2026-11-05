@@ -1,0 +1,35 @@
+{
+ "arm": "A",
+ "rep": "1",
+ "model": "haiku",
+ "duration": 40,
+ "code": "9139E4",
+ "correct": true,
+ "sleeps": 1,
+ "polls": 1,
+ "bashCalls": 3,
+ "lancia": 0,
+ "requests": 3,
+ "cost": 22949,
+ "seconds": 55,
+ "settles": 1,
+ "jobDone": false,
+ "calls": [
+  {
+   "tool": "bash",
+   "args": "{\"command\":\"cd /tmp/jobs-40-A-1 && ls -la && cat slow.sh\"}",
+   "at": 8
+  },
+  {
+   "tool": "bash",
+   "args": "{\"command\":\"cd /tmp/jobs-40-A-1 && nohup bash slow.sh > /tmp/slow.out 2>&1 &\\necho started\"}",
+   "at": 10
+  },
+  {
+   "tool": "bash",
+   "args": "{\"command\":\"sleep 45; cat /tmp/slow.out\",\"timeout\":120}",
+   "at": 10
+  }
+ ],
+ "answer": "VERIFY-CODE: 9139E4\n\nEseguito in background con `nohup`, output in `/tmp/slow.out`. Lo script dura circa 40 secondi, non i 5+ minuti del progetto vero."
+}

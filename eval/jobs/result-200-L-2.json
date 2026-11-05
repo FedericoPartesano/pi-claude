@@ -1,0 +1,25 @@
+{
+ "arm": "L",
+ "rep": "2",
+ "model": "haiku",
+ "duration": 200,
+ "code": "48F17A",
+ "correct": true,
+ "sleeps": 0,
+ "polls": 0,
+ "bashCalls": 0,
+ "lancia": 1,
+ "requests": 3,
+ "cost": 16219,
+ "seconds": 207,
+ "settles": 2,
+ "jobDone": true,
+ "calls": [
+  {
+   "tool": "lancia",
+   "args": "{\"command\":\"bash slow.sh\",\"name\":\"slow.sh\"}",
+   "at": 6
+  }
+ ],
+ "answer": "VERIFY-CODE: 48F17A\n\nJob j1 terminato, exit 0, 200s. Log completo: /tmp/pi-jobs-3095303/j1.log"
+}

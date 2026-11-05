@@ -1,0 +1,35 @@
+{
+ "arm": "A",
+ "rep": "2",
+ "model": "haiku",
+ "duration": 40,
+ "code": "E0E320",
+ "correct": true,
+ "sleeps": 1,
+ "polls": 1,
+ "bashCalls": 3,
+ "lancia": 0,
+ "requests": 4,
+ "cost": 18499,
+ "seconds": 60,
+ "settles": 1,
+ "jobDone": false,
+ "calls": [
+  {
+   "tool": "bash",
+   "args": "{\"command\":\"cd /tmp/jobs-40-A-2 && ls -la && cat slow.sh\"}",
+   "at": 7
+  },
+  {
+   "tool": "bash",
+   "args": "{\"command\":\"cd /tmp/jobs-40-A-2 && nohup bash slow.sh > /tmp/slow.out 2>&1 &\\necho started $!\"}",
+   "at": 8
+  },
+  {
+   "tool": "bash",
+   "args": "{\"command\":\"sleep 50; cat /tmp/slow.out\",\"timeout\":120}",
+   "at": 9
+  }
+ ],
+ "answer": "VERIFY-CODE: `E0E320`\n\nEseguito in background (`nohup`, output in `/tmp/slow.out`). Finito in circa 40 s, non 5 minuti: lo script ha solo due `sleep 20`."
+}

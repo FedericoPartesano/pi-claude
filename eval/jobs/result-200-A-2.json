@@ -1,0 +1,30 @@
+{
+ "arm": "A",
+ "rep": "2",
+ "model": "haiku",
+ "duration": 200,
+ "code": "4A94AC",
+ "correct": false,
+ "sleeps": 1,
+ "polls": 1,
+ "bashCalls": 2,
+ "lancia": 0,
+ "requests": 3,
+ "cost": 16604,
+ "seconds": 10,
+ "settles": 1,
+ "jobDone": false,
+ "calls": [
+  {
+   "tool": "bash",
+   "args": "{\"command\":\"cd /tmp/jobs-200-A-2 && ls -la && cat slow.sh\"}",
+   "at": 6
+  },
+  {
+   "tool": "bash",
+   "args": "{\"command\":\"cd /tmp/jobs-200-A-2 && nohup bash slow.sh > slow.out 2>&1 &\\necho started; sleep 1; cat /tmp/jobs-200-A-2/slow.out\"}",
+   "at": 7
+  }
+ ],
+ "answer": "Avviato in background, log in `/tmp/jobs-200-A-2/slow.out` (~200s). Quando finisce ti do il VERIFY-CODE; per controllare: `cat /tmp/jobs-200-A-2/slow.out`."
+}

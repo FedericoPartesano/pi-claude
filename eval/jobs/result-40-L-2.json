@@ -1,0 +1,25 @@
+{
+ "arm": "L",
+ "rep": "2",
+ "model": "haiku",
+ "duration": 40,
+ "code": "0E6E87",
+ "correct": true,
+ "sleeps": 0,
+ "polls": 0,
+ "bashCalls": 0,
+ "lancia": 1,
+ "requests": 3,
+ "cost": 16304,
+ "seconds": 47,
+ "settles": 2,
+ "jobDone": true,
+ "calls": [
+  {
+   "tool": "lancia",
+   "args": "{\"command\":\"bash slow.sh\",\"name\":\"slow.sh\",\"timeout\":3600}",
+   "at": 6
+  }
+ ],
+ "answer": "VERIFY-CODE: 0E6E87\n\nJob j1 terminato, exit 0, 40s. Log completo: /tmp/pi-jobs-3075176/j1.log"
+}

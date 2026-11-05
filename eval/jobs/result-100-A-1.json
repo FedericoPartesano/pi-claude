@@ -1,0 +1,35 @@
+{
+ "arm": "A",
+ "rep": "1",
+ "model": "haiku",
+ "duration": 100,
+ "code": "E67B0F",
+ "correct": true,
+ "sleeps": 2,
+ "polls": 2,
+ "bashCalls": 3,
+ "lancia": 0,
+ "requests": 4,
+ "cost": 19177,
+ "seconds": 122,
+ "settles": 1,
+ "jobDone": false,
+ "calls": [
+  {
+   "tool": "bash",
+   "args": "{\"command\":\"cd /tmp/jobs-100-A-1 && ls -la && cat slow.sh\"}",
+   "at": 6
+  },
+  {
+   "tool": "bash",
+   "args": "{\"command\":\"cd /tmp/jobs-100-A-1 && nohup bash slow.sh > slow.out 2>&1 &\\necho started; sleep 2; cat /tmp/jobs-100-A-1/slow.out\"}",
+   "at": 7
+  },
+  {
+   "tool": "bash",
+   "args": "{\"command\":\"sleep 110; cat /tmp/jobs-100-A-1/slow.out\",\"timeout\":200}",
+   "at": 11
+  }
+ ],
+ "answer": "VERIFY-CODE: `E67B0F`\n\nEseguito in background con `nohup`, output in `/tmp/jobs-100-A-1/slow.out`. Terminato dopo circa 100 s."
+}

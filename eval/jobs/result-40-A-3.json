@@ -1,0 +1,30 @@
+{
+ "arm": "A",
+ "rep": "3",
+ "model": "haiku",
+ "duration": 40,
+ "code": "484928",
+ "correct": false,
+ "sleeps": 1,
+ "polls": 1,
+ "bashCalls": 2,
+ "lancia": 0,
+ "requests": 3,
+ "cost": 16586,
+ "seconds": 9,
+ "settles": 1,
+ "jobDone": false,
+ "calls": [
+  {
+   "tool": "bash",
+   "args": "{\"command\":\"cd /tmp/jobs-40-A-3 && ls -la && cat slow.sh\"}",
+   "at": 6
+  },
+  {
+   "tool": "bash",
+   "args": "{\"command\":\"cd /tmp/jobs-40-A-3 && nohup bash slow.sh > slow.out 2>&1 &\\necho started; sleep 1; cat /tmp/jobs-40-A-3/slow.out\"}",
+   "at": 7
+  }
+ ],
+ "answer": "Avviato in background: `bash slow.sh`, output in `/tmp/jobs-40-A-3/slow.out`. Termina in circa 40 s. VERIFY-CODE lo dico quando finisce; controllo con `cat /tmp/jobs-40-A-3/slow.out`."
+}
