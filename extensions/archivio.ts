@@ -186,7 +186,7 @@ export function semanticRecall(chunks: readonly Chunk[], vectors: ReadonlyMap<st
 	const hits = scored.filter((hit) => hit.score >= SEM_FLOOR && !skip.has(hit.entryId) && (hit.score - mean) / sd >= minZ).sort((a, b) => b.score - a.score).filter((hit) => !repeatsPrompt(hit, prompt)).slice(0, 3);
 	if (hits.length === 0) return "";
 	for (const hit of hits) onUsed?.(hit);
-	return `Dalla storia compattata (dettagli esatti; apri una voce intera con richiama id):\n${renderHits(hits, limit)}`;
+	return `${HEADER()}\n${renderHits(hits, limit)}`;
 }
 
 /** Every embedded chunk ranked by similarity, with its z-score (what the /archivio test tab shows; nothing is filtered). */
@@ -240,6 +240,9 @@ export function archiveOverview(branch: readonly (Entry & { customType?: string;
 }
 
 /** Excerpts worth adding to a request unasked: several query terms in the same chunk, short output. */
+/** Header of an injection; the tool is only named when it can be called. */
+const HEADER = () => (process.env.PI_ARCHIVE_TOOL !== "1" ? "Dalla storia compattata (dettagli esatti):" : "Dalla storia compattata (dettagli esatti; apri una voce intera con richiama id):");
+
 export function autoRecall(chunks: readonly Chunk[], prompt: string, limit = 1500, onUsed?: (hit: Hit) => void): string {
 	const terms = [...new Set(tokens(prompt))];
 	if (terms.length < 3) return "";
@@ -256,7 +259,7 @@ export function autoRecall(chunks: readonly Chunk[], prompt: string, limit = 150
 	}
 	if (hits.length === 0) return "";
 	for (const hit of hits) onUsed?.(hit);
-	return `Dalla storia compattata (dettagli esatti; apri una voce intera con richiama id):\n${renderHits(hits, limit)}`;
+	return `${HEADER()}\n${renderHits(hits, limit)}`;
 }
 
 export function renderHits(hits: readonly Hit[], limit = OUTPUT_CHARS): string {
@@ -317,6 +320,8 @@ export default function (pi: ExtensionAPI) {
 	// The tool joins the request only once something was compacted (the cache is rewritten then anyway).
 	const turnOn = (ctx: ExtensionContext) =>
 		safely(() => {
+			// No tool unless PI_ARCHIVE_TOOL=1: turning it on rewrites the cached prefix (bench §17) and the model never called it.
+			if (process.env.PI_ARCHIVE_TOOL !== "1") return;
 			// PI_ARCHIVE_EARLY=1 (bench arm D): tool on from the first request, so turning it on never rewrites the cache.
 			if (process.env.PI_ARCHIVE_EARLY !== "1" && archivedEntries(ctx.sessionManager.getBranch() as Entry[]).length === 0) return;
 			register();

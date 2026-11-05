@@ -2,6 +2,7 @@
 // arm C = keepRecentTokens 5000 only (archive off, to tell the two levers apart),
 // arm D = arm B with `richiama` on from the first request (PI_ARCHIVE_EARLY=1),
 // arm E = arm B without automatic recall (PI_ARCHIVE_AUTO=0: tool only, to split the cost of the two parts),
+// arm F = arm B without the `richiama` tool (the default since §17: automatic recall only; arms B, D, E set PI_ARCHIVE_TOOL=1, prefix never changes),
 // arm B = levers (keepRecentTokens 5000 + `richiama` archive with automatic recall). Cost is the weighted usage of every
 // request of the session (compaction summary included) from the session file; quality is five known-answer questions
 // asked after the compaction. Usage: node eval/ab/run.mjs <A|B> <rep> [model]
@@ -15,7 +16,7 @@ const hard = mode === "hard";
 const dump = mode === "dump";
 const noid = mode === "noid";
 const long = mode === "long" || hard || dump || noid;
-if (!["A", "B", "C", "D", "E"].includes(arm)) throw new Error("arm A, B, C, D or E");
+if (!["A", "B", "C", "D", "E", "F"].includes(arm)) throw new Error("arm A, B, C, D, E or F");
 const repo = new URL("../../", import.meta.url).pathname.replace(/\/$/, "");
 const cwd = `/tmp/ab-${mode}-${arm}-${rep}`;
 mkdirSync(`${cwd}/.pi`, { recursive: true });
@@ -24,7 +25,7 @@ writeFileSync(`${cwd}/.pi/settings.json`, JSON.stringify({ compaction: { keepRec
 const W = { input: 1, cacheRead: 0.1, cacheWrite: 1.25, output: 5 };
 const cost = (u) => Object.entries(W).reduce((sum, [key, weight]) => sum + (u?.[key] ?? 0) * weight, 0);
 
-const h = new PiHarness(cwd, model, `${cwd}/debug.log`, { persistSession: true, extraArgs: noid ? ["--approve"] : [], environment: arm === "B" ? {} : arm === "D" ? { PI_ARCHIVE_EARLY: "1" } : arm === "E" ? { PI_ARCHIVE_AUTO: "0" } : { PI_ARCHIVE: "0" } });
+const h = new PiHarness(cwd, model, `${cwd}/debug.log`, { persistSession: true, extraArgs: noid ? ["--approve"] : [], environment: arm === "B" ? { PI_ARCHIVE_TOOL: "1" } : arm === "D" ? { PI_ARCHIVE_TOOL: "1", PI_ARCHIVE_EARLY: "1" } : arm === "E" ? { PI_ARCHIVE_TOOL: "1", PI_ARCHIVE_AUTO: "0" } : arm === "F" ? {} : { PI_ARCHIVE: "0" } });
 const send = (m) => new Promise((res) => { const id = `c${Math.random()}`; const l = (r) => { if (r.id === id) { h.process.listeners.delete(l); res(r); } }; h.process.listeners.add(l); h.process.send({ ...m, id }); });
 const turns = [];
 const ask = async (phase, prompt, expect) => {

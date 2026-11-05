@@ -214,3 +214,18 @@ Per run (media delle 3), messaggi dell'assistente: A pesato 785.503, B 799.430 (
 - **Il modello non chiama mai `richiama`** (0 chiamate in 3 run): il tool costa la rottura di cache senza essere usato.
 - Prima richiesta della run B11: lettura 0 invece di 5.016, effetto della partenza simultanea di 6 run sulla stessa cache di sistema, non del codice (B12 e B13 sono uguali ad A).
 Conseguenza: su sessioni lunghe la penalità si ammortizza (≈ 8.800 pesati una volta per sessione); in questo banco (825.000 pesati) pesa l'1%. Possibili rimedi non provati: non attivare `richiama` (basta l'iniezione automatica, che il modello non chiama comunque), oppure attivarlo con la prima compattazione nel turno in cui il prefisso si rompe comunque. Decisione e prova (banco `long` senza il tool) restano da fare.
+
+### 17. Senza il tool `richiama` (braccio F), stesso carico di §15 (`long`, rep 11–13, haiku)
+Codice: come B, con `PI_ARCHIVE_TOOL` non impostato (nessun tool; iniezione automatica z≥4,2 invariata, intestazione senza il rimando a `richiama`).
+| Braccio | Costo pesato per run | Somma 3 run | Corrette |
+|---|---|---|---|
+| A default Pi | 825.726 / 828.198 / 823.469 | 2.477.393 | 15/15 |
+| B con tool | 836.552 / 846.386 / 837.782 | 2.520.720 (+1,7%) | 15/15 |
+| F senza tool | 856.220 / 826.242 / 824.389 | 2.506.851 (+1,2%) | 15/15 |
+- **F12 e F13 sono allineate ad A** (826.242 e 824.389 contro media A 825.798: +0,05% e −0,2%), dentro il rumore di A (±0,3%). Il tool era quindi la causa del +1,7% di B nelle run pulite, in linea con §16.
+- **F11 (856.220, +3,7%) non è attribuibile al codice:** nella sessione la richiesta 1 legge 0 token dalla cache (F12: 5.016) e la richiesta 34 legge 0 e riscrive 116.260 token; è una perdita di cache, non un effetto del recupero.
+- Contando F11 la media di F resta +1,2% su A; scartandola sono 2 run su 3, troppo poche per dare un intervallo. Il vincolo «costo ≤ default» è plausibilmente rispettato ma non dimostrato con 3 run: servono più ripetizioni (con le run in sequenza e senza scadenza di cache).
+- Qualità invariata: 15/15 come A e B, senza che il modello abbia mai avuto `richiama`.
+- Effetto collaterale: senza tool il modello non può aprire una voce intera durante la sessione; resta `/archivio` per l'utente.
+Decisione di default: tool spento (`PI_ARCHIVE_TOOL=1` lo riaccende; i bracci B, D, E del banco lo impostano).
+

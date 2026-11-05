@@ -1,4 +1,5 @@
 process.env.PI_ARCHIVE_SEM = "0"; // no model worker in unit tests
+process.env.PI_ARCHIVE_TOOL = "1"; // the tool is opt-in; its tests need it on
 import assert from "node:assert/strict";
 import test from "node:test";
 import archivio, { archiveOverview, archivedEntries, rankSemantic, autoRecall, chunkArchive, openEntry, renderHits, search, semanticRecall } from "./archivio.ts";
