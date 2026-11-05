@@ -61,3 +61,13 @@ test("shellSleepMs sums sleep calls with units and ignores look-alikes", () => {
 	assert.equal(shellSleepMs("echo sleep 5"), 0);
 	assert.equal(shellSleepMs("npm test"), 0);
 });
+
+test("watchedFile: the file tail reads after a sleep, or the redirect of a background run, following cd", async () => {
+	const { watchedFile, watchLines } = await import("./timeout-bar.ts");
+	assert.equal(watchedFile("sleep 60; tail -30 /tmp/ui3/studio-check.log | cut -c1-200; pgrep -f x | head -2", "/w"), "/tmp/ui3/studio-check.log");
+	assert.equal(watchedFile("cd /p/e2e; (setsid nohup timeout 280 npx vitest run a > /tmp/i5.log 2>&1 < /dev/null &); sleep 200", "/w"), "/tmp/i5.log");
+	assert.equal(watchedFile("cd /p; (nohup run > out.log 2>&1 &); sleep 5", "/w"), "/p/out.log");
+	assert.equal(watchedFile("sleep 5; echo done", "/w"), undefined);
+	const lines = watchLines("/tmp/definitely-missing-file.log", 80, Date.now());
+	assert.match(lines[0], /not created yet/);
+});

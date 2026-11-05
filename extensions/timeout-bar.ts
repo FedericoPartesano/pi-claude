@@ -4,6 +4,8 @@
  * `timeout-bar:set` / `timeout-bar:clear` events). Nothing is rewritten and nothing is added to the prompt.
  * The bridge's MCP_TOOL_TIMEOUT is 24 h on purpose, so it gets no bar. PI_TIMEOUT_BAR=0 turns it off.
  */
+import { closeSync, existsSync, fstatSync, openSync, readSync } from "node:fs";
+import { resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { barCells } from "./test-monitor/views.ts";
 import { C, type Colors, duration, fg, truncateToWidth, useColors } from "./test-monitor/render.ts";
@@ -13,6 +15,8 @@ export interface Deadline {
 	label: string;
 	startedAt: number;
 	timeoutMs: number;
+	/** File the command is going to read or is writing to while it waits (sleep): its last lines are shown under the bar. */
+	watch?: string;
 }
 
 const UNIT: Record<string, number> = { "": 1, s: 1, m: 60, h: 3600, d: 86400 };
@@ -39,6 +43,57 @@ export function shellSleepMs(command: string): number {
 
 /** Colour by how much of the budget is gone: calm, warning, about to fire. */
 export const levelColor = (fraction: number) => (fraction >= 0.9 ? C.err : fraction >= 0.75 ? C.warn : C.cyan);
+
+/**
+ * The file a waiting command (`sleep 60; tail -30 /tmp/x.log`, `(nohup cmd > /tmp/x.log 2>&1 &); sleep 200`) is about to
+ * look at: the file `tail`/`cat` reads, else the target of a plain redirect. `cd` with a plain path is followed.
+ */
+export function watchedFile(command: string, cwd: string): string | undefined {
+	let dir = cwd;
+	let redirect: string | undefined;
+	for (const raw of command.replace(/<<-?\s*(['"]?)(\w+)\1[\s\S]*?\n\s*\2\b/g, "").split(/&&|;|\n|\|/)) {
+		const stage = raw.trim().replace(/^\(+/, "").replace(/\)+$/, "");
+		const move = /^cd\s+("[^"]+"|'[^']+'|[^\s$~`*]+)$/.exec(stage);
+		if (move) {
+			dir = resolve(dir, move[1].replace(/^["']|["']$/g, ""));
+			continue;
+		}
+		const read = /^(?:tail|cat|head)\s+(.*)$/.exec(stage);
+		if (read) {
+			const file = read[1].split(/\s+/).filter((token) => token && !token.startsWith("-") && !/^\d+$/.test(token)).pop();
+			if (file && !/[$~`*]/.test(file)) return resolve(dir, file.replace(/^["']|["']$/g, ""));
+		}
+		const out = /(?:^|\s)(?:&>>?|1?>>?)\s*([^\s&|;<>()$~`*]+)/.exec(stage);
+		if (out && out[1] !== "/dev/null" && !redirect) redirect = resolve(dir, out[1].replace(/^["']|["']$/g, ""));
+	}
+	return redirect;
+}
+
+/** Last non-empty lines of a file (at most `count`), its size and age; a missing file says so. */
+export function watchLines(file: string, width: number, now: number, count = 2): string[] {
+	if (!existsSync(file)) return [truncateToWidth(`${fg(C.dim, "  ↳")} ${fg(C.dim, `${file}: not created yet`)}`, width)];
+	let text = "";
+	let age = 0;
+	let size = 0;
+	try {
+		const fd = openSync(file, "r");
+		try {
+			const stat = fstatSync(fd);
+			size = stat.size;
+			age = Math.max(0, now - stat.mtimeMs);
+			const bytes = Math.min(size, 4096);
+			const buffer = Buffer.alloc(bytes);
+			readSync(fd, buffer, 0, bytes, size - bytes);
+			text = buffer.toString("utf8");
+		} finally {
+			closeSync(fd);
+		}
+	} catch {}
+	const lines = text.split(/\r?\n/).map((line) => line.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "").trim()).filter(Boolean).slice(-count);
+	const name = file.split("/").pop() ?? file;
+	const head = `${fg(C.dim, "  ↳")} ${fg(C.dim, `${name} · ${(size / 1024).toFixed(1)} KB · ${age < 2000 ? "writing now" : `quiet for ${duration(age)}`}`)}`;
+	return [truncateToWidth(head, width), ...(lines.length ? lines : ["(empty)"]).map((line) => truncateToWidth(`${fg(C.dim, "    ")}${fg(C.text, line)}`, width))];
+}
 
 /** One row: `⏱ label  ████░░░░  12s / 30s`, exactly `width` cells wide at most. */
 export function renderDeadline(deadline: Deadline, width: number, now: number): string {
@@ -83,13 +138,13 @@ export default function timeoutBar(pi: ExtensionAPI) {
 			"timeout-bar",
 			(widgetTui) => {
 				tui = widgetTui;
-				return { render: (width: number) => [...active.values()].map((deadline) => renderDeadline(deadline, width, Date.now())), invalidate() {} };
+				return { render: (width: number) => [...active.values()].flatMap((deadline) => [renderDeadline(deadline, width, Date.now()), ...(deadline.watch ? watchLines(deadline.watch, width, Date.now()) : [])]), invalidate() {} };
 			},
 			{ placement: "aboveEditor" },
 		);
 	});
 
-	pi.on("tool_call", (event) => {
+	pi.on("tool_call", (event, ctx) => {
 		if (event.toolName !== "bash") return undefined;
 		const input = event.input as { command?: unknown; timeout?: unknown };
 		const id = String(event.toolCallId);
@@ -99,7 +154,7 @@ export default function timeoutBar(pi: ExtensionAPI) {
 		if (Number.isFinite(seconds) && seconds > 0) active.set(`${id}:bash`, { key: `${id}:bash`, label: "bash timeout", startedAt: now, timeoutMs: seconds * 1000 });
 		shellTimeouts(command).forEach((entry, index) => active.set(`${id}:sh${index}`, { key: `${id}:sh${index}`, label: `timeout ${entry.text.split(/\s+/).slice(0, 3).join(" ")}`.trim(), startedAt: now, timeoutMs: entry.ms }));
 		const sleepMs = shellSleepMs(command);
-		if (sleepMs >= 1000) active.set(`${id}:sleep`, { key: `${id}:sleep`, label: "sleep", startedAt: now, timeoutMs: sleepMs });
+		if (sleepMs >= 1000) active.set(`${id}:sleep`, { key: `${id}:sleep`, label: "sleep", startedAt: now, timeoutMs: sleepMs, watch: watchedFile(command, ctx.cwd) });
 		sync();
 		return undefined;
 	});
