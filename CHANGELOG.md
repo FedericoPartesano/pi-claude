@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.17.0...pi-claude-v0.18.0) (2026-11-05)
+
+
+### Features
+
+* il tool richiama dell'archivio è spento di default (PI_ARCHIVE_TOOL=1 lo accende); misura del braccio F ([c3dbea0](https://github.com/FedericoPartesano/pi-claude/commit/c3dbea046c7cc0eae39c21743269d0a4566171f1))
+
 ## [0.17.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.16.0...pi-claude-v0.17.0) (2026-11-05)
 
 
