@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import timeoutBar, { levelColor, renderDeadline, shellTimeouts } from "./timeout-bar.ts";
+import timeoutBar, { levelColor, renderDeadline, shellSleepMs, shellTimeouts } from "./timeout-bar.ts";
 import { C } from "./test-monitor/render.ts";
 
 test("shellTimeouts reads timeout N with units, options and several in one line", () => {
@@ -52,4 +52,12 @@ test("the bar follows a bash call and the team events, and goes away at the resu
 		handlers.get("session_shutdown")?.({});
 		resolve();
 	}, 50));
+});
+
+test("shellSleepMs sums sleep calls with units and ignores look-alikes", () => {
+	assert.equal(shellSleepMs("sleep 270; tail x"), 270_000);
+	assert.equal(shellSleepMs("cd x && sleep 1m 30s"), 90_000);
+	assert.equal(shellSleepMs("sleep 5 && echo a; sleep 2.5"), 7_500);
+	assert.equal(shellSleepMs("echo sleep 5"), 0);
+	assert.equal(shellSleepMs("npm test"), 0);
 });

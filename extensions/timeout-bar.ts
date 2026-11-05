@@ -1,6 +1,6 @@
 /**
  * Progress bars for the timeouts running right now, in a panel above the editor: the bash tool's own `timeout`
- * argument, a `timeout N cmd` inside the command, and the team agents (pi-team, which reports them on the
+ * argument, a `timeout N cmd` inside the command, the total of the `sleep N` calls in the command, and the team agents (pi-team, which reports them on the
  * `timeout-bar:set` / `timeout-bar:clear` events). Nothing is rewritten and nothing is added to the prompt.
  * The bridge's MCP_TOOL_TIMEOUT is 24 h on purpose, so it gets no bar. PI_TIMEOUT_BAR=0 turns it off.
  */
@@ -26,6 +26,15 @@ export function shellTimeouts(command: string): { ms: number; text: string }[] {
 		if (ms > 0) found.push({ ms, text: (match[4] ?? "").trim() });
 	}
 	return found;
+}
+
+/** Total of the `sleep DURATION...` calls of a command line, in milliseconds (`sleep 1m 30s` adds both arguments). */
+export function shellSleepMs(command: string): number {
+	let total = 0;
+	for (const match of command.matchAll(/(?:^|[;&|(]\s*|\b(?:sudo|time|nohup|do|then)\s+)sleep\s+((?:\d+(?:\.\d+)?[smhd]?\s*)+)(?=$|[\s;&|)])/g)) {
+		for (const part of match[1].matchAll(/(\d+(?:\.\d+)?)([smhd]?)/g)) total += Number(part[1]) * UNIT[part[2]] * 1000;
+	}
+	return total;
 }
 
 /** Colour by how much of the budget is gone: calm, warning, about to fire. */
@@ -89,6 +98,8 @@ export default function timeoutBar(pi: ExtensionAPI) {
 		const seconds = Number(input.timeout);
 		if (Number.isFinite(seconds) && seconds > 0) active.set(`${id}:bash`, { key: `${id}:bash`, label: "bash timeout", startedAt: now, timeoutMs: seconds * 1000 });
 		shellTimeouts(command).forEach((entry, index) => active.set(`${id}:sh${index}`, { key: `${id}:sh${index}`, label: `timeout ${entry.text.split(/\s+/).slice(0, 3).join(" ")}`.trim(), startedAt: now, timeoutMs: entry.ms }));
+		const sleepMs = shellSleepMs(command);
+		if (sleepMs >= 1000) active.set(`${id}:sleep`, { key: `${id}:sleep`, label: "sleep", startedAt: now, timeoutMs: sleepMs });
 		sync();
 		return undefined;
 	});
