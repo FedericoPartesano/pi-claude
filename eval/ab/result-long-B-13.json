@@ -1,0 +1,540 @@
+{
+ "arm": "B",
+ "rep": "13",
+ "model": "haiku",
+ "total": 837782,
+ "compaction": 43944,
+ "requests": 55,
+ "compactions": 2,
+ "postCost": 54550,
+ "correct": 5,
+ "asked": 5,
+ "turns": [
+  {
+   "phase": "plant",
+   "prompt": "Ricorda: il codice segreto del progetto Zefiro è QX-7741-ALFA e la por",
+   "requests": 1,
+   "tools": [],
+   "usage": {
+    "input": 2,
+    "cacheRead": 5016,
+    "cacheWrite": 8518,
+    "output": 4
+   },
+   "cost": 11171.1,
+   "seconds": 20.7,
+   "errors": [],
+   "answer": "ok"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 26810,
+    "cacheWrite": 7028,
+    "output": 76
+   },
+   "cost": 11852,
+   "seconds": 3.6,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 40725,
+    "cacheWrite": 3143,
+    "output": 81
+   },
+   "cost": 8412.25,
+   "seconds": 2.9,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 46838,
+    "cacheWrite": 22347,
+    "output": 76
+   },
+   "cost": 33003.55,
+   "seconds": 3.4,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 91531,
+    "cacheWrite": 21310,
+    "output": 75
+   },
+   "cost": 36171.6,
+   "seconds": 4.2,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 134153,
+    "cacheWrite": 17185,
+    "output": 77
+   },
+   "cost": 35287.55,
+   "seconds": 3.5,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 168701,
+    "cacheWrite": 17615,
+    "output": 84
+   },
+   "cost": 39314.850000000006,
+   "seconds": 2,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 203751,
+    "cacheWrite": 14380,
+    "output": 75
+   },
+   "cost": 38731.100000000006,
+   "seconds": 1.6,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 121449,
+    "cacheWrite": 24281,
+    "output": 229
+   },
+   "cost": 43647.15,
+   "seconds": 26.8,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 58929,
+    "cacheWrite": 13417,
+    "output": 79
+   },
+   "cost": 23065.15,
+   "seconds": 15.1,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 85619,
+    "cacheWrite": 13711,
+    "output": 82
+   },
+   "cost": 26116.65,
+   "seconds": 7.6,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 112871,
+    "cacheWrite": 11154,
+    "output": 81
+   },
+   "cost": 25640.6,
+   "seconds": 6.1,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 135335,
+    "cacheWrite": 10344,
+    "output": 75
+   },
+   "cost": 26844.5,
+   "seconds": 20.6,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 156035,
+    "cacheWrite": 10200,
+    "output": 81
+   },
+   "cost": 28764.5,
+   "seconds": 22.1,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 176423,
+    "cacheWrite": 9752,
+    "output": 75
+   },
+   "cost": 30213.3,
+   "seconds": 16,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 195768,
+    "cacheWrite": 9406,
+    "output": 78
+   },
+   "cost": 31730.3,
+   "seconds": 17.6,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 214577,
+    "cacheWrite": 8734,
+    "output": 75
+   },
+   "cost": 32756.2,
+   "seconds": 19.4,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 4,
+    "cacheRead": 19076,
+    "cacheWrite": 122725,
+    "output": 222
+   },
+   "cost": 156427.85,
+   "seconds": 86.7,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 50972,
+    "cacheWrite": 8917,
+    "output": 79
+   },
+   "cost": 16644.45,
+   "seconds": 7.1,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 68819,
+    "cacheWrite": 7574,
+    "output": 75
+   },
+   "cost": 16730.4,
+   "seconds": 13.9,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 83805,
+    "cacheWrite": 7204,
+    "output": 75
+   },
+   "cost": 17766.5,
+   "seconds": 12.6,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "work",
+   "prompt": "Leggi /home/fede/documents/projects/pi-claude/pi-ui/src/status-bar.ts ",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 98432,
+    "cacheWrite": 2638,
+    "output": 188
+   },
+   "cost": 14086.7,
+   "seconds": 14.5,
+   "errors": [],
+   "answer": "È la barra di stato a una riga sopra l'editor di pi-ui: mostra lo stato del turno (al lavoro con passo e tempo, in attesa di risposta, fermo, fatto con token e "
+  },
+  {
+   "phase": "work",
+   "prompt": "Leggi /home/fede/documents/projects/pi-claude/extensions/test-monitor.",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 103835,
+    "cacheWrite": 4102,
+    "output": 194
+   },
+   "cost": 16487,
+   "seconds": 12,
+   "errors": [],
+   "answer": "È un'estensione che, mentre gira un comando di test o di controllo nella bash di Pi, mostra sopra l'editor un pannello live con un punto per test (grigio in att"
+  },
+  {
+   "phase": "work",
+   "prompt": "Leggi /home/fede/documents/projects/pi-claude/extensions/lean-tools.ts",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 111977,
+    "cacheWrite": 4923,
+    "output": 213
+   },
+   "cost": 18422.45,
+   "seconds": 12.2,
+   "errors": [],
+   "answer": "È un'estensione che riduce i token usati da Pi: registra gli strumenti opzionali `search` e `outline` (disattivati per default), sostituisce con una breve nota "
+  },
+  {
+   "phase": "post",
+   "prompt": "Che numero di porta ti avevo dato all'inizio per Zefiro? Rispondi solo",
+   "expect": "48213",
+   "ok": true,
+   "requests": 1,
+   "tools": [],
+   "usage": {
+    "input": 4,
+    "cacheRead": 60741,
+    "cacheWrite": 273,
+    "output": 4
+   },
+   "cost": 6439.35,
+   "seconds": 10.2,
+   "errors": [],
+   "answer": "48213"
+  },
+  {
+   "phase": "post",
+   "prompt": "E il codice segreto di Zefiro? Rispondi solo con il codice.",
+   "expect": "QX-7741-ALFA",
+   "ok": true,
+   "requests": 1,
+   "tools": [],
+   "usage": {
+    "input": 4,
+    "cacheRead": 61014,
+    "cacheWrite": 558,
+    "output": 116
+   },
+   "cost": 7382.900000000001,
+   "seconds": 4.2,
+   "errors": [],
+   "answer": "QX-7741-ALFA"
+  },
+  {
+   "phase": "post",
+   "prompt": "In extensions/archivio.ts, qual è il valore di default di PI_ARCHIVE_M",
+   "expect": "4",
+   "ok": true,
+   "requests": 2,
+   "tools": [
+    "bash"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 123405,
+    "cacheWrite": 427,
+    "output": 121
+   },
+   "cost": 13485.25,
+   "seconds": 5.5,
+   "errors": [],
+   "answer": "4"
+  },
+  {
+   "phase": "post",
+   "prompt": "In pi-team/src/view/side-log.ts, quanto vale STALL_SECONDS? Rispondi s",
+   "expect": "45",
+   "ok": true,
+   "requests": 2,
+   "tools": [
+    "bash"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 124507,
+    "cacheWrite": 659,
+    "output": 96
+   },
+   "cost": 13760.45,
+   "seconds": 5.5,
+   "errors": [],
+   "answer": "45"
+  },
+  {
+   "phase": "post",
+   "prompt": "In pi-team/src/view/side-log.ts, quanto vale LINGER_MS? Rispondi solo ",
+   "expect": "15",
+   "ok": true,
+   "requests": 2,
+   "tools": [
+    "bash"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 125526,
+    "cacheWrite": 359,
+    "output": 95
+   },
+   "cost": 13482.35,
+   "seconds": 4.5,
+   "errors": [],
+   "answer": "15000"
+  }
+ ]
+}

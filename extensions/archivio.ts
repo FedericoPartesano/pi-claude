@@ -22,7 +22,7 @@ export interface Hit extends Chunk {
 	matched: number;
 }
 
-const CHUNK_CHARS = 900;
+const CHUNK_CHARS = Number(process.env.PI_ARCHIVE_CHUNK ?? 900);
 const OUTPUT_CHARS = 3500;
 // Auto recall fires only when a chunk shares enough of the request's terms (measured: 2 terms fired on 75% of prompts).
 const MIN_MATCHED = Number(process.env.PI_ARCHIVE_MIN ?? 4);
@@ -32,7 +32,7 @@ interface Entry {
 	type?: string;
 	id?: string;
 	firstKeptEntryId?: string;
-	message?: { role?: string; toolName?: string; content?: unknown };
+	message?: { role?: string; toolName?: string; toolCallId?: string; content?: unknown };
 }
 
 /** Plain text of a message content (string or blocks); tool calls become "name(args)". */
@@ -60,14 +60,24 @@ export function archivedEntries(branch: readonly Entry[]): Entry[] {
 /** Splits the archive into short chunks, each remembering its entry, role and (for tool results) tool. */
 export function chunkArchive(entries: readonly Entry[]): Chunk[] {
 	const chunks: Chunk[] = [];
+	// A tool result alone says nothing about where it came from: every one of its chunks starts with the call's arguments.
+	const calls = new Map<string, string>();
+	for (const entry of entries) {
+		const content = entry.message?.content;
+		if (entry.message?.role !== "assistant" || !Array.isArray(content)) continue;
+		for (const block of content as { type?: string; id?: string; arguments?: unknown }[]) {
+			if (block?.type === "toolCall" && block.id) calls.set(block.id, JSON.stringify(block.arguments ?? {}).slice(0, 200));
+		}
+	}
 	for (const entry of entries) {
 		const message = entry.message;
 		if (entry.type !== "message" || !message?.role || message.role === "system") continue;
 		const text = contentText(message.content).trim();
 		if (!text) continue;
 		const label = message.role === "toolResult" ? `tool ${message.toolName ?? "?"}` : message.role;
+		const origin = message.role === "toolResult" && message.toolCallId && calls.has(message.toolCallId) ? `<${calls.get(message.toolCallId)}> ` : "";
 		for (let at = 0; at < text.length; at += CHUNK_CHARS) {
-			chunks.push({ entryId: entry.id ?? "", role: message.role, label, text: text.slice(at, at + CHUNK_CHARS) });
+			chunks.push({ entryId: entry.id ?? "", role: message.role, label, text: origin + text.slice(at, at + CHUNK_CHARS) });
 		}
 	}
 	return chunks;
@@ -130,12 +140,69 @@ export function openEntry(entries: readonly Entry[], id: string, limit = 6000): 
 	return text.length > limit ? `${text.slice(0, limit)}\n[… tagliato, ${text.length - limit} caratteri]` : text;
 }
 
-/** Excerpts worth adding to a request unasked: several query terms in the same chunk, short output. */
-export function autoRecall(chunks: readonly Chunk[], prompt: string, limit = 1500): string {
-	if (tokens(prompt).length < 3) return "";
-	const need = Math.max(MIN_MATCHED, Math.ceil(new Set(tokens(prompt)).size * MIN_SHARE));
-	const hits = search(chunks, prompt, 3).filter((hit) => hit.matched >= need);
+/**
+ * A short old user message that shares most of the prompt's words is the same command asked again ("read file X and
+ * answer"), not a detail worth recalling: it only adds tokens (measured: 15 of 20 automatic recalls in the long bench).
+ */
+export function repeatsPrompt(hit: Chunk, prompt: string): boolean {
+	if (hit.role !== "user" || hit.text.length > prompt.length * 2 + 200) return false;
+	const terms = new Set(tokens(prompt));
+	const words = new Set(tokens(hit.text));
+	let shared = 0;
+	for (const term of terms) if (words.has(term)) shared++;
+	return shared >= terms.size * 0.5;
+}
+
+/**
+ * e5 scores of unrelated text are all close (0.80-0.88), so a fixed cosine floor cannot tell a recall request from an
+ * ordinary prompt; how far a chunk stands out from the rest of the archive can (z-score; calibrated on a noid bench
+ * session: requests 2.8-6.2, ordinary prompts 2.5-3.3, see eval/ab/REPORT.md).
+ */
+export const SEM_Z = Number(process.env.PI_ARCHIVE_SEM_Z ?? 4.2);
+const SEM_FLOOR = 0.8;
+
+/**
+ * Semantic auto recall: the chunks closest in meaning to the prompt, with no words in common needed. `vectors` maps a
+ * chunk's text to its embedding (built in the background); chunks without one are skipped.
+ */
+export function semanticRecall(chunks: readonly Chunk[], vectors: ReadonlyMap<string, Float32Array>, query: Float32Array, prompt: string, minZ = SEM_Z, limit = 1500, skip: ReadonlySet<string> = new Set(), onUsed?: (hit: Chunk) => void): string {
+	const scored: Hit[] = [];
+	let sum = 0;
+	for (const chunk of chunks) {
+		const vector = vectors.get(chunk.text);
+		if (!vector) continue;
+		let dot = 0;
+		for (let i = 0; i < vector.length; i++) dot += vector[i] * query[i];
+		sum += dot;
+		scored.push({ ...chunk, score: dot, matched: dot });
+	}
+	if (scored.length < 20) return "";
+	const mean = sum / scored.length;
+	const sd = Math.sqrt(scored.reduce((acc, hit) => acc + (hit.score - mean) ** 2, 0) / scored.length);
+	if (sd === 0) return "";
+	const hits = scored.filter((hit) => hit.score >= SEM_FLOOR && !skip.has(hit.entryId) && (hit.score - mean) / sd >= minZ).sort((a, b) => b.score - a.score).filter((hit) => !repeatsPrompt(hit, prompt)).slice(0, 3);
 	if (hits.length === 0) return "";
+	for (const hit of hits) onUsed?.(hit);
+	return `Dalla storia compattata (dettagli esatti; apri una voce intera con richiama id):\n${renderHits(hits, limit)}`;
+}
+
+/** Excerpts worth adding to a request unasked: several query terms in the same chunk, short output. */
+export function autoRecall(chunks: readonly Chunk[], prompt: string, limit = 1500, onUsed?: (hit: Chunk) => void): string {
+	const terms = [...new Set(tokens(prompt))];
+	if (terms.length < 3) return "";
+	// Identifiers (a term with a digit: b02, L33, 48213) that exist in the archive decide: a chunk must hold all of them.
+	// Filler words ("quanto", "solo", "file") match everything and would dilute any share.
+	const own = chunks.map((chunk) => new Set(tokens(chunk.text)));
+	const keys = terms.filter((term) => /\d/.test(term) && own.some((doc) => doc.has(term)));
+	let hits: Hit[];
+	if (keys.length >= 2) {
+		hits = search(chunks, keys.join(" "), 6).filter((hit) => !repeatsPrompt(hit, prompt)).filter((hit) => { const words = new Set(tokens(hit.text)); return keys.every((key) => words.has(key)); }).slice(0, 3);
+	} else {
+		const need = Math.max(MIN_MATCHED, Math.ceil(terms.length * MIN_SHARE));
+		hits = search(chunks, prompt, 3).filter((hit) => hit.matched >= need && !repeatsPrompt(hit, prompt));
+	}
+	if (hits.length === 0) return "";
+	for (const hit of hits) onUsed?.(hit);
 	return `Dalla storia compattata (dettagli esatti; apri una voce intera con richiama id):\n${renderHits(hits, limit)}`;
 }
 
@@ -195,23 +262,67 @@ export default function (pi: ExtensionAPI) {
 	// The tool joins the request only once something was compacted (the cache is rewritten then anyway).
 	const turnOn = (ctx: ExtensionContext) =>
 		safely(() => {
-			if (archivedEntries(ctx.sessionManager.getBranch() as Entry[]).length === 0) return;
+			// PI_ARCHIVE_EARLY=1 (bench arm D): tool on from the first request, so turning it on never rewrites the cache.
+			if (process.env.PI_ARCHIVE_EARLY !== "1" && archivedEntries(ctx.sessionManager.getBranch() as Entry[]).length === 0) return;
 			register();
 			const active = pi.getActiveTools();
 			if (!active.includes("richiama")) pi.setActiveTools([...active, "richiama"]);
 		});
 	// The model should not have to remember the tool: when the request shares several terms with something compacted
 	// away, the best excerpts ride along as a message (appended after the prefix, so the cache is untouched).
-	pi.on("before_agent_start", (event, ctx) => {
+	// Semantic index: embeddings of the archived chunks, built in the background (the local model loads off the main
+	// thread); until it is ready the lexical recall alone applies.
+	type Embedder = import("../pi-memory/src/embed.ts").Embedder & { ready?: boolean; start?: () => Promise<boolean> };
+	let embedder: Embedder | undefined;
+	const vectors = new Map<string, Float32Array>();
+	// Entries already injected: they sit in the live context now, so none of their chunks is sent twice (also keeps one
+	// generic chunk that is close to every prompt from riding along each turn).
+	const injected = new Set<string>();
+	let indexing = false;
+	const buildIndex = (ctx: ExtensionContext) => {
+		if (process.env.PI_ARCHIVE_SEM === "0" || indexing) return;
+		indexing = true;
+		void (async () => {
+			try {
+				const chunks = chunkArchive(archivedEntries(ctx.sessionManager.getBranch() as Entry[]));
+				if (chunks.length === 0) return;
+				if (!embedder) {
+					const { WorkerEmbedder, MODELS } = await import("../pi-memory/src/embed.ts");
+					embedder = new WorkerEmbedder(MODELS.e5);
+				}
+				if (!(await embedder.start?.())) return;
+				const missing = chunks.filter((chunk) => !vectors.has(chunk.text));
+				for (let i = 0; i < missing.length; i += 16) {
+					const batch = missing.slice(i, i + 16);
+					const out = await embedder.embed(batch.map((chunk) => chunk.text.slice(0, 900)), "passage");
+					batch.forEach((chunk, j) => vectors.set(chunk.text, out[j]));
+				}
+			} catch {
+				/* lexical recall keeps working */
+			} finally {
+				indexing = false;
+			}
+		})();
+	};
+	pi.on("before_agent_start", async (event, ctx) => {
 		if (process.env.PI_ARCHIVE_AUTO === "0") return undefined;
 		try {
 			const chunks = chunkArchive(archivedEntries(ctx.sessionManager.getBranch() as Entry[]));
-			const text = autoRecall(chunks, event.prompt);
+			let text = "";
+			if (embedder?.ready && vectors.size > 0) {
+				try {
+					const [query] = await embedder.embed([event.prompt.slice(0, 600)], "query");
+					text = semanticRecall(chunks, vectors, query, event.prompt, SEM_Z, 1500, injected, (hit) => injected.add(hit.entryId));
+				} catch {
+					/* fall through to lexical */
+				}
+			}
+			if (!text) text = autoRecall(chunks.filter((chunk) => !injected.has(chunk.entryId)), event.prompt, 1500, (hit) => injected.add(hit.entryId));
 			return text ? { message: { customType: "archive-recall", content: text, display: false } } : undefined;
 		} catch {
 			return undefined;
 		}
 	});
-	pi.on("session_start", (_event, ctx) => turnOn(ctx));
-	pi.on("session_compact", (_event, ctx) => turnOn(ctx));
+	pi.on("session_start", (_event, ctx) => { turnOn(ctx); buildIndex(ctx); });
+	pi.on("session_compact", (_event, ctx) => { turnOn(ctx); buildIndex(ctx); });
 }

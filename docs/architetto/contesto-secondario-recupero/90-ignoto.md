@@ -1,0 +1,41 @@
+Aggiornato: 2026-11-04 · fase 1
+
+# Ignoto
+- (aperta, origine: intervista) Causa del +3,8% di costo dell'archivio sul carico di sole letture: non dimostrata (ipotesi: `richiama` acceso dopo la prima compattazione cambia l'elenco dei tool e riscrive la cache).
+- (aperta) Haiku non chiama mai `richiama` da solo: non si sa se lo faccia Sonnet o Opus.
+- (aperta) Falsi positivi del recupero automatico per identificatori: non misurati su sessioni vere.
+- (aperta) Banchi short e long non rieseguiti dopo le correzioni di `archivio.ts`.
+- (aperta) Il banco `dump` è sintetico (codici esadecimali casuali): non si sa quanto rappresenti i dati che nelle sessioni vere servono davvero dopo una compattazione.
+- (aperta) Comportamento oltre 2 compattazioni (sessioni da centinaia di giri): non misurato.
+- (aperta) La qualità del riassunto di compattazione di Pi (cacheRead 0, #r104) e il suo ruolo accanto all'archivio.
+- (aperta, origine: intervista) Un'istruzione piantata in un vecchio output viene eseguita dal modello dopo il recupero? Non misurato.
+- (aperta) `/compact` manuale e `/resume`: comportamento dell'archivio non verificato; fork e rami non coperti.
+- (aperta) Latenza del recupero su sessioni da centinaia di giri e con embedder: non misurata (tetto 50 ms deciso, non verificato).
+- (aperta, origine: territorio) Se serve memoria scritta dal modello oltre alla storia registrata.
+- (aperta, origine: territorio) Pesi dei banchi (cacheRead 0,1) non valgono per i modelli 5.5 (0,05, doc Anthropic): il rapporto di costo cambia.
+- (aperta, origine: territorio) Benchmark pubblici (LongMemEval, BEAM, STATE-Bench): non letti, metriche di astensione e aggiornamento non adottate.
+- (aperta, origine: territorio) Paper di poisoning (2606.04329) e OWASP ASI06: letti solo abstract e citazioni di terzi.
+- (aperta, origine: territorio) Cache diagnostics dell'API: non raggiungibile via `claude -p` non verificato.
+- (aggiornata) Causa del +3,8%: la doc conferma che cambiare i tool invalida l'intera cache; resta da provare con `richiama` acceso dall'inizio.
+- (differita, origine: territorio) Memoria scritta dal modello: secondo studio.
+- (differita, origine: territorio) Cache diagnostics dell'API via `claude -p`: inutile se non passa dal bridge.
+- (aperta, origine: ricerca) Testo di OWASP ASI06: la pagina fetchata dà solo l'introduzione.
+- (aperta, origine: ricerca) Difese misurate in MPBench (§4.3) non lette.
+- (aperta, origine: ricerca) `inline-tools-2026-09-15` (tool aggiunti senza invalidare la cache) raggiungibile da `claude -p`? Non verificato.
+- (aperta, origine: ricerca) Numeri di LongMemEval su recupero contro contesto lungo: letto solo l'abstract.
+- (aperta, origine: ricerca) Il caso «istruzione piantata in un vecchio output richiamato» non è studiato in letteratura trovata: va misurato.
+- (aperta, origine: repo) Codice di archival search di `letta-ai/letta-code` non letto.
+- (aperta, origine: repo) Iniezione ad ogni turno può nuocere al compito (claude-mem #4931): non verificato sul nostro auto-recall.
+- (aperta, origine: repo) Lemmatizzazione/stemming per l'italiano nel BM25: effetto non misurato.
+- (aperta, origine: repo) Canali non usati: `gh search code`, awesome list, deps.dev, fork attivi.
+- (aperta, origine: tradeoff) Recall@3 di BM25 / BM25 esteso / ibrido su domande parafrasate senza identificatori: nessuna misura. Controllo: retrieval offline su sessioni vere.
+- (aperta, origine: tradeoff) Costo di A/B con `richiama` acceso dall'inizio sul banco long.
+- (aperta, origine: tradeoff) C: conflitto con `caveman` su `session_before_compact` e crescita della mappa.
+- (chiusa 2026-11-04, tradeoff) Costo con `richiama` dall'inizio: D +3,5% ≈ B +3,8%; non è la cache. Causa del +2,5% del solo tool: aperta.
+- (chiusa) Sonnet chiama `richiama`? No, 0 chiamate su dump.
+- (chiusa) Recall senza identificatori: ~0,54 hit@3 poolato per tutti i metodi; ibrido +12 punti solo su hit@1.
+- (aperta, tradeoff) Perché il solo tool costa +2,5%; chunk più piccoli/per voce migliorano il recupero?
+- (chiusa, tradeoff) Chunk più piccoli migliorano il recupero? No (BM25, metrica rigida); 450 car. dimezza il testo restituito a pari hit@3. Aperta: effetto su e5/ibrido e col giudice poolato.
+- (aperta, tradeoff) Riscrittura LLM: costo reale in token/quota per ricerca, latenza, e se il modello principale (Sonnet) può riscrivere dentro `richiama` senza chiamata extra (le 3 query sono parametri del tool). Verificare su domande vere e con Sonnet come riscrittore.
+- (aperta, tradeoff) Dove far girare la riscrittura (15 s, ~2.000 pesati): asincrona in background dopo il turno, o su richiesta; numero di ricerche per sessione vera.
+- (aperta) Soglia di similarità e5 per l'iniezione automatica: non calibrata; serve un banco con prompt che NON chiedono dati vecchi per misurare le iniezioni sbagliate. Costo di tempo di embedding dell'archivio in background (614 chunk <280 s con PC carico) e peso del modello e5 in memoria.

@@ -1,6 +1,7 @@
+process.env.PI_ARCHIVE_SEM = "0"; // no model worker in unit tests
 import assert from "node:assert/strict";
 import test from "node:test";
-import archivio, { archivedEntries, autoRecall, chunkArchive, openEntry, renderHits, search } from "./archivio.ts";
+import archivio, { archivedEntries, autoRecall, chunkArchive, openEntry, renderHits, search, semanticRecall } from "./archivio.ts";
 
 const msg = (id: string, role: string, text: string, toolName?: string) => ({ type: "message", id, message: { role, toolName, content: [{ type: "text", text }] } });
 const branch = [
@@ -52,4 +53,47 @@ test("auto recall adds excerpts only when the request shares several terms; an e
 	assert.equal(autoRecall(chunks, "ok"), "");
 	assert.match(openEntry(archivedEntries(branch), "#a2"), /provider\.ts:412/);
 	assert.match(openEntry([], "zz"), /non trovata/);
+});
+
+test("chunkArchive: a tool result carries the arguments of the call that produced it, so it can be found by file name", () => {
+	const entries = [
+		{ type: "message", id: "a", message: { role: "assistant", content: [{ type: "toolCall", id: "c1", name: "bash", arguments: { command: "cat /w/logs/b04.txt" } }] } },
+		{ type: "message", id: "b", message: { role: "toolResult", toolName: "bash", toolCallId: "c1", content: [{ type: "text", text: "L1 = AAAA\nL20 = 3F8FE9" }] } },
+	];
+	const hits = search(chunkArchive(entries), "b04 L20", 2);
+	assert.equal(hits[0].entryId, "b");
+	assert.match(hits[0].text, /b04\.txt.*L20 = 3F8FE9/s);
+});
+
+test("autoRecall: an old user message that is the same command as the prompt is not injected", () => {
+	const chunks = chunkArchive([
+		{ type: "message", id: "u1", message: { role: "user", content: "Leggi con il tool read il file /w/extensions/graph/graphify.ts e rispondi solo letto" } },
+		{ type: "message", id: "u2", message: { role: "user", content: "Decisione: la porta del server dei bug resta 7421 e il token sta in bug-token.txt per ogni ambiente di prova" } },
+	]);
+	assert.equal(autoRecall(chunks, "Leggi con il tool read il file /w/pi-ui/src/render.ts e rispondi solo letto"), "");
+	assert.match(autoRecall(chunks, "quale porta del server dei bug e quale file del token avevamo deciso per le prove"), /7421/);
+});
+
+test("semanticRecall: only a chunk that stands out from the archive is injected; a repeated command is not", () => {
+	const chunks = Array.from({ length: 40 }, (_, i) => ({ entryId: `e${i}`, role: "tool", label: "tool read", text: `filler ${i}` }));
+	chunks[7] = { entryId: "e7", role: "assistant", label: "assistant", text: "la porta di staging è 33077" };
+	const vectors = new Map<string, Float32Array>();
+	chunks.forEach((chunk, i) => { const v = new Float32Array(8); v[i % 7 === 0 ? 1 : 2] = 0.6; v[3] = 0.6; vectors.set(chunk.text, v); });
+	const target = new Float32Array(8); target[0] = 1;
+	vectors.set(chunks[7].text, target);
+	const query = new Float32Array(8); query[0] = 1;
+	assert.match(semanticRecall(chunks, vectors, query, "quale porta usavamo", 3.5), /33077/);
+	assert.equal(semanticRecall(chunks, vectors, Float32Array.from([0, 0, 1, 0, 0, 0, 0, 0]), "altro", 3.5), "");
+});
+
+test("semanticRecall: a chunk already injected is not sent again", () => {
+	const chunks = Array.from({ length: 40 }, (_, i) => ({ entryId: `e${i}`, role: "tool", label: "tool read", text: `filler ${i}` }));
+	chunks[7] = { entryId: "e7", role: "assistant", label: "assistant", text: "la porta di staging è 33077" };
+	const vectors = new Map<string, Float32Array>();
+	chunks.forEach((chunk) => vectors.set(chunk.text, Float32Array.from([0, 0.6, 0.6, 0, 0, 0, 0, 0])));
+	vectors.set(chunks[7].text, Float32Array.from([1, 0, 0, 0, 0, 0, 0, 0]));
+	const query = Float32Array.from([1, 0, 0, 0, 0, 0, 0, 0]);
+	const used = new Set<string>();
+	assert.match(semanticRecall(chunks, vectors, query, "quale porta", 3.5, 1500, used, (hit) => used.add(hit.entryId)), /33077/);
+	assert.equal(semanticRecall(chunks, vectors, query, "quale porta", 3.5, 1500, used), "");
 });

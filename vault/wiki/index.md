@@ -10,6 +10,7 @@
 - [[pi-team]] — sub-agenti guidati da un orchestratore
 - [[pi-memory]] — memoria profonda ed embedder locale
 - [[extension-vault]] — indice e ricerca di CLAUDE.md e vault Obsidian
+- [[extension-archivio]] — archivio e recupero semantico della storia compattata
 - [[extension-graph]] — /graph: grafo del progetto con Graphify
 
 ## Concepts

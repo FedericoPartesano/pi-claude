@@ -1,0 +1,227 @@
+{
+ "arm": "A",
+ "rep": "1",
+ "model": "haiku",
+ "total": 211675,
+ "compaction": 16735,
+ "requests": 18,
+ "postCost": 39531,
+ "correct": 4,
+ "asked": 5,
+ "turns": [
+  {
+   "phase": "plant",
+   "prompt": "Ricorda: il codice segreto del progetto Zefiro è QX-7741-ALFA e la por",
+   "requests": 1,
+   "tools": [],
+   "usage": {
+    "input": 2,
+    "cacheRead": 0,
+    "cacheWrite": 13530,
+    "output": 120
+   },
+   "cost": 17514.5,
+   "seconds": 6.6,
+   "errors": [],
+   "answer": "ok"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 27233,
+    "cacheWrite": 14512,
+    "output": 91
+   },
+   "cost": 21324.3,
+   "seconds": 1.9,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 56303,
+    "cacheWrite": 21472,
+    "output": 75
+   },
+   "cost": 32851.3,
+   "seconds": 1.5,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 99247,
+    "cacheWrite": 9752,
+    "output": 75
+   },
+   "cost": 22495.7,
+   "seconds": 1.4,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 118589,
+    "cacheWrite": 8734,
+    "output": 75
+   },
+   "cost": 23157.4,
+   "seconds": 1.3,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 136221,
+    "cacheWrite": 4203,
+    "output": 76
+   },
+   "cost": 19261.85,
+   "seconds": 1.3,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 144637,
+    "cacheWrite": 3143,
+    "output": 81
+   },
+   "cost": 18803.45,
+   "seconds": 1.4,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "post",
+   "prompt": "Che numero di porta ti avevo dato all'inizio per Zefiro? Rispondi solo",
+   "expect": "48213",
+   "ok": true,
+   "requests": 1,
+   "tools": [],
+   "usage": {
+    "input": 2,
+    "cacheRead": 12914,
+    "cacheWrite": 18499,
+    "output": 272
+   },
+   "cost": 25777.15,
+   "seconds": 5.3,
+   "errors": [],
+   "answer": "48213\n\nNel riepilogo salvato è \"door number\" (numero porta), non \"porta\" esplicita. Non trovo altri numeri di porta nel contesto."
+  },
+  {
+   "phase": "post",
+   "prompt": "E il codice segreto di Zefiro? Rispondi solo con il codice.",
+   "expect": "QX-7741-ALFA",
+   "ok": true,
+   "requests": 1,
+   "tools": [],
+   "usage": {
+    "input": 4,
+    "cacheRead": 31413,
+    "cacheWrite": 300,
+    "output": 12
+   },
+   "cost": 3580.3,
+   "seconds": 0.9,
+   "errors": [],
+   "answer": "QX-7741-ALFA"
+  },
+  {
+   "phase": "post",
+   "prompt": "In extensions/archivio.ts, qual è il valore di default di PI_ARCHIVE_M",
+   "expect": "4",
+   "ok": true,
+   "requests": 1,
+   "tools": [],
+   "usage": {
+    "input": 4,
+    "cacheRead": 31713,
+    "cacheWrite": 64,
+    "output": 62
+   },
+   "cost": 3565.3,
+   "seconds": 1.9,
+   "errors": [],
+   "answer": "4"
+  },
+  {
+   "phase": "post",
+   "prompt": "In pi-team/src/view/side-log.ts, quanto vale STALL_SECONDS? Rispondi s",
+   "expect": "45",
+   "ok": true,
+   "requests": 1,
+   "tools": [],
+   "usage": {
+    "input": 4,
+    "cacheRead": 31777,
+    "cacheWrite": 110,
+    "output": 3
+   },
+   "cost": 3334.2000000000003,
+   "seconds": 1.1,
+   "errors": [],
+   "answer": "45"
+  },
+  {
+   "phase": "post",
+   "prompt": "In pi-team/src/view/side-log.ts, quanto vale LINGER_MS? Rispondi solo ",
+   "expect": "15_000",
+   "ok": false,
+   "requests": 1,
+   "tools": [],
+   "usage": {
+    "input": 4,
+    "cacheRead": 31887,
+    "cacheWrite": 49,
+    "output": 4
+   },
+   "cost": 3273.9500000000003,
+   "seconds": 0.9,
+   "errors": [],
+   "answer": "15000"
+  }
+ ]
+}

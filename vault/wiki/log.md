@@ -1,5 +1,8 @@
 # Log
 
+## [2026-11-05] update | archivio della storia compattata
+- Creato [[extension-archivio]]: recupero semantico (e5, z ≥ 4,2), misure del banco `noid` (36/36 corrette contro 23/36, iniezioni sbagliate 12,5%), latenza ≈29 ms, costo sole letture +1,7% con causa nel tool `richiama`.
+
 ## [2026-11-03] update | viste e monitor per tsc, lint, build, install, git, docker
 - Aggiornato [[pi-ui]]: il pannello sopra l'editor segue anche type check, lint, build, install, git e docker con viste dedicate (`extensions/test-monitor/views.ts`, `monitors.ts`); comandi mai riscritti.
 

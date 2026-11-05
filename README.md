@@ -159,6 +159,9 @@ All'avvio una notifica gratuita segnala quando ci sono ≥ 5 sessioni da consoli
 Variabili: `PI_DREAM_SESSIONS_DIR`, `PI_DREAM_AUTO_APPROVE=1`, `PI_DREAM_MODEL` (default `haiku`),
 `PI_MEMORY_GLOBAL_PATH` (vuota = niente memoria globale). Design: `docs/specs/2026-10-06-memory-dream-design.md`.
 
+## Archivio della storia compattata (`extensions/archivio.ts`)
+Dopo la prima compattazione Pi tiene piccolo il contesto vivo e l'estensione rende ricercabile ciò che è stato tolto: tool `richiama` (BM25, acceso solo dopo la prima compattazione, costo fisso zero prima) e recupero automatico. Il recupero automatico è semantico (embedder locale e5, indice costruito in background; senza modello ripiega sul lessicale): inietta al massimo 1500 caratteri come dato citato, una volta sola per voce, solo se il pezzo spicca sul resto dell'archivio (z ≥ 4,2, `PI_ARCHIVE_SEM_Z`). Misure in `eval/ab/REPORT.md` §9–12: risposte corrette senza identificatori ≥90% (36/36 a z ≥ 4,2; A di Pi: 64%), iniezioni sbagliate 12,5% sui prompt ordinari (obiettivo ≤10% non raggiunto, §13). `PI_ARCHIVE=0` spegne tutto, `PI_ARCHIVE_SEM=0` solo la parte semantica, `PI_ARCHIVE_AUTO=0` il recupero automatico.
+
 ## Chat Neon Night (`pi-ui`)
 
 Attiva in `pi` e `pi-full`. Temi: `neon-night` (neon su nero), `lilla` (i pastelli di WezTerm) e `night-city` (cyberpunk: giallo acido, ciano e rosso, con stile HUD: etichette a blocco, angoli tagliati, sezioni numerate, verbi `SCAN`/`PATCH`/`EXEC`); si cambiano da `/settings` → Theme. Icone Nerd Font su WezTerm (le include già), Unicode semplice altrove; `PI_UI_ICONS=nerd|plain` le forza. `install.sh` imposta `neon-night` solo se non hai già scelto un tema.

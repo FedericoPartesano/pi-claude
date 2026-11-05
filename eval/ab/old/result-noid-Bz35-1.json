@@ -1,0 +1,1011 @@
+{
+ "arm": "B",
+ "rep": "1",
+ "model": "haiku",
+ "total": 1204202,
+ "compaction": 362762,
+ "requests": 94,
+ "compactions": 10,
+ "postCost": 138051,
+ "correct": 11,
+ "asked": 12,
+ "turns": [
+  {
+   "phase": "plant",
+   "prompt": "Esegui con bash: cat /tmp/ab-noid-B-1/rapporti/r1.txt e rispondi solo ",
+   "requests": 2,
+   "tools": [
+    "bash"
+   ],
+   "usage": {
+    "input": 4,
+    "cacheRead": 27060,
+    "cacheWrite": 415,
+    "output": 164
+   },
+   "cost": 4048.75,
+   "seconds": 26.9,
+   "errors": [],
+   "answer": "ok"
+  },
+  {
+   "phase": "plant",
+   "prompt": "Esegui con bash: cat /tmp/ab-noid-B-1/rapporti/r2.txt e rispondi solo ",
+   "requests": 2,
+   "tools": [
+    "bash"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 28032,
+    "cacheWrite": 557,
+    "output": 76
+   },
+   "cost": 3885.4500000000003,
+   "seconds": 2.8,
+   "errors": [],
+   "answer": "ok"
+  },
+  {
+   "phase": "plant",
+   "prompt": "Esegui con bash: cat /tmp/ab-noid-B-1/rapporti/r3.txt e rispondi solo ",
+   "requests": 2,
+   "tools": [
+    "bash"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 29058,
+    "cacheWrite": 474,
+    "output": 76
+   },
+   "cost": 3884.3,
+   "seconds": 2.8,
+   "errors": [],
+   "answer": "ok"
+  },
+  {
+   "phase": "plant",
+   "prompt": "Esegui con bash: cat /tmp/ab-noid-B-1/rapporti/r4.txt e rispondi solo ",
+   "requests": 2,
+   "tools": [
+    "bash"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 30006,
+    "cacheWrite": 467,
+    "output": 76
+   },
+   "cost": 3970.3500000000004,
+   "seconds": 2.6,
+   "errors": [],
+   "answer": "ok"
+  },
+  {
+   "phase": "plant",
+   "prompt": "Esegui con bash: cat /tmp/ab-noid-B-1/rapporti/r5.txt e rispondi solo ",
+   "requests": 2,
+   "tools": [
+    "bash"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 30940,
+    "cacheWrite": 468,
+    "output": 76
+   },
+   "cost": 4065,
+   "seconds": 2.3,
+   "errors": [],
+   "answer": "ok"
+  },
+  {
+   "phase": "plant",
+   "prompt": "Esegui con bash: cat /tmp/ab-noid-B-1/rapporti/r6.txt e rispondi solo ",
+   "requests": 2,
+   "tools": [
+    "bash"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 31876,
+    "cacheWrite": 467,
+    "output": 76
+   },
+   "cost": 4157.35,
+   "seconds": 2.1,
+   "errors": [],
+   "answer": "ok"
+  },
+  {
+   "phase": "plant",
+   "prompt": "Esegui con bash: cat /tmp/ab-noid-B-1/rapporti/r7.txt e rispondi solo ",
+   "requests": 2,
+   "tools": [
+    "bash"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 32810,
+    "cacheWrite": 470,
+    "output": 76
+   },
+   "cost": 4254.5,
+   "seconds": 2.1,
+   "errors": [],
+   "answer": "ok"
+  },
+  {
+   "phase": "plant",
+   "prompt": "Esegui con bash: cat /tmp/ab-noid-B-1/rapporti/r8.txt e rispondi solo ",
+   "requests": 2,
+   "tools": [
+    "bash"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 33750,
+    "cacheWrite": 462,
+    "output": 76
+   },
+   "cost": 4338.5,
+   "seconds": 1.9,
+   "errors": [],
+   "answer": "ok"
+  },
+  {
+   "phase": "plant",
+   "prompt": "Esegui con bash: cat /tmp/ab-noid-B-1/rapporti/r9.txt e rispondi solo ",
+   "requests": 2,
+   "tools": [
+    "bash"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 34674,
+    "cacheWrite": 464,
+    "output": 76
+   },
+   "cost": 4433.4,
+   "seconds": 1.9,
+   "errors": [],
+   "answer": "ok"
+  },
+  {
+   "phase": "plant",
+   "prompt": "Esegui con bash: cat /tmp/ab-noid-B-1/rapporti/r10.txt e rispondi solo",
+   "requests": 2,
+   "tools": [
+    "bash"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 35602,
+    "cacheWrite": 467,
+    "output": 76
+   },
+   "cost": 4529.950000000001,
+   "seconds": 2.3,
+   "errors": [],
+   "answer": "ok"
+  },
+  {
+   "phase": "plant",
+   "prompt": "Esegui con bash: cat /tmp/ab-noid-B-1/rapporti/r11.txt e rispondi solo",
+   "requests": 2,
+   "tools": [
+    "bash"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 36536,
+    "cacheWrite": 459,
+    "output": 76
+   },
+   "cost": 4613.35,
+   "seconds": 1.8,
+   "errors": [],
+   "answer": "ok"
+  },
+  {
+   "phase": "plant",
+   "prompt": "Esegui con bash: cat /tmp/ab-noid-B-1/rapporti/r12.txt e rispondi solo",
+   "requests": 2,
+   "tools": [
+    "bash"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 37454,
+    "cacheWrite": 461,
+    "output": 76
+   },
+   "cost": 4707.65,
+   "seconds": 1.7,
+   "errors": [],
+   "answer": "ok"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 38380,
+    "cacheWrite": 22347,
+    "output": 76
+   },
+   "cost": 32157.75,
+   "seconds": 2.6,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 54631,
+    "cacheWrite": 23418,
+    "output": 228
+   },
+   "cost": 35881.6,
+   "seconds": 28,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 73260,
+    "cacheWrite": 17418,
+    "output": 77
+   },
+   "cost": 29489.5,
+   "seconds": 25.6,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 4,
+    "cacheRead": 46239,
+    "cacheWrite": 34314,
+    "output": 75
+   },
+   "cost": 47895.4,
+   "seconds": 27.6,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 60560,
+    "cacheWrite": 13851,
+    "output": 205
+   },
+   "cost": 24400.75,
+   "seconds": 64.5,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 53697,
+    "cacheWrite": 8864,
+    "output": 75
+   },
+   "cost": 16830.7,
+   "seconds": 14.2,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 71475,
+    "cacheWrite": 17615,
+    "output": 84
+   },
+   "cost": 29592.25,
+   "seconds": 51,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 4,
+    "cacheRead": 49195,
+    "cacheWrite": 35987,
+    "output": 79
+   },
+   "cost": 50302.25,
+   "seconds": 24.6,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 62233,
+    "cacheWrite": 19767,
+    "output": 295
+   },
+   "cost": 32413.05,
+   "seconds": 71.1,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 65590,
+    "cacheWrite": 11367,
+    "output": 81
+   },
+   "cost": 21178.75,
+   "seconds": 21.8,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 57147,
+    "cacheWrite": 16615,
+    "output": 205
+   },
+   "cost": 27514.45,
+   "seconds": 79.8,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 59399,
+    "cacheWrite": 10330,
+    "output": 81
+   },
+   "cost": 19263.4,
+   "seconds": 22.5,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 79919,
+    "cacheWrite": 6618,
+    "output": 76
+   },
+   "cost": 16650.4,
+   "seconds": 11.9,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 92994,
+    "cacheWrite": 4642,
+    "output": 78
+   },
+   "cost": 15497.9,
+   "seconds": 47,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 4,
+    "cacheRead": 44780,
+    "cacheWrite": 22231,
+    "output": 78
+   },
+   "cost": 32660.75,
+   "seconds": 51.5,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 70771,
+    "cacheWrite": 2425,
+    "output": 81
+   },
+   "cost": 10519.35,
+   "seconds": 28,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 75785,
+    "cacheWrite": 13594,
+    "output": 79
+   },
+   "cost": 24972,
+   "seconds": 72.4,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 4,
+    "cacheRead": 50804,
+    "cacheWrite": 26289,
+    "output": 78
+   },
+   "cost": 38335.65,
+   "seconds": 26.5,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 78884,
+    "cacheWrite": 2678,
+    "output": 78
+   },
+   "cost": 11631.900000000001,
+   "seconds": 3.8,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 84238,
+    "cacheWrite": 3879,
+    "output": 76
+   },
+   "cost": 13658.550000000001,
+   "seconds": 4.1,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 92159,
+    "cacheWrite": 1031,
+    "output": 76
+   },
+   "cost": 10890.65,
+   "seconds": 4.3,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 94057,
+    "cacheWrite": 4681,
+    "output": 75
+   },
+   "cost": 15637.95,
+   "seconds": 42.3,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 4,
+    "cacheRead": 49867,
+    "cacheWrite": 26705,
+    "output": 75
+   },
+   "cost": 38746.95,
+   "seconds": 25,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "read",
+   "prompt": "Leggi con il tool read il file /home/fede/documents/projects/pi-claude",
+   "requests": 2,
+   "tools": [
+    "read"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 79713,
+    "cacheWrite": 7204,
+    "output": 75
+   },
+   "cost": 17357.3,
+   "seconds": 11.4,
+   "errors": [],
+   "answer": "letto"
+  },
+  {
+   "phase": "post",
+   "prompt": "Quante anomalie ha avuto il trasportatore durante le ore notturne? Ris",
+   "expect": "11",
+   "ok": true,
+   "requests": 1,
+   "tools": [],
+   "usage": {
+    "input": 4,
+    "cacheRead": 47032,
+    "cacheWrite": 467,
+    "output": 63
+   },
+   "cost": 5605.95,
+   "seconds": 8.3,
+   "errors": [],
+   "answer": "11"
+  },
+  {
+   "phase": "post",
+   "prompt": "Quanta potenza assorbiva a regime l'impianto del freddo? Rispondi solo",
+   "expect": "817",
+   "ok": false,
+   "requests": 3,
+   "tools": [
+    "bash",
+    "bash"
+   ],
+   "usage": {
+    "input": 6,
+    "cacheRead": 95107,
+    "cacheWrite": 393,
+    "output": 299
+   },
+   "cost": 11502.95,
+   "seconds": 300,
+   "errors": [
+    "[error] This operation was aborted"
+   ],
+   "answer": ""
+  },
+  {
+   "phase": "post",
+   "prompt": "Quale tecnico aveva ispezionato la caldaia del reparto di verniciatura",
+   "expect": "Brambilla",
+   "ok": true,
+   "requests": 1,
+   "tools": [],
+   "usage": {
+    "input": 2,
+    "cacheRead": 13123,
+    "cacheWrite": 35155,
+    "output": 168
+   },
+   "cost": 46098.05,
+   "seconds": 4.9,
+   "errors": [],
+   "answer": "Brambilla"
+  },
+  {
+   "phase": "post",
+   "prompt": "Quanti litri aveva la vasca di raccolta dell'acqua piovana? Rispondi s",
+   "expect": "7156",
+   "ok": true,
+   "requests": 1,
+   "tools": [],
+   "usage": {
+    "input": 4,
+    "cacheRead": 48278,
+    "cacheWrite": 630,
+    "output": 47
+   },
+   "cost": 5854.3,
+   "seconds": 1.8,
+   "errors": [],
+   "answer": "7156"
+  },
+  {
+   "phase": "post",
+   "prompt": "Quanta strada aveva fatto il carrello elevatore elettrico? Rispondi so",
+   "expect": "7414",
+   "ok": true,
+   "requests": 1,
+   "tools": [],
+   "usage": {
+    "input": 4,
+    "cacheRead": 48908,
+    "cacheWrite": 93,
+    "output": 118
+   },
+   "cost": 5601.05,
+   "seconds": 2.3,
+   "errors": [],
+   "answer": "7414"
+  },
+  {
+   "phase": "post",
+   "prompt": "Ogni quanti giorni arrivava la merce dal fornitore delle lastre di cri",
+   "expect": "14",
+   "ok": true,
+   "requests": 1,
+   "tools": [],
+   "usage": {
+    "input": 4,
+    "cacheRead": 49001,
+    "cacheWrite": 173,
+    "output": 180
+   },
+   "cost": 6020.35,
+   "seconds": 2.7,
+   "errors": [],
+   "answer": "14"
+  },
+  {
+   "phase": "post",
+   "prompt": "Che carico massimo reggeva il montacarichi dell'edificio di stoccaggio",
+   "expect": "618",
+   "ok": true,
+   "requests": 1,
+   "tools": [],
+   "usage": {
+    "input": 4,
+    "cacheRead": 49174,
+    "cacheWrite": 729,
+    "output": 120
+   },
+   "cost": 6432.650000000001,
+   "seconds": 35.1,
+   "errors": [],
+   "answer": "618"
+  },
+  {
+   "phase": "post",
+   "prompt": "Che percentuale di umidità indicava lo strumento nella serra? Rispondi",
+   "expect": "85",
+   "ok": true,
+   "requests": 1,
+   "tools": [],
+   "usage": {
+    "input": 2,
+    "cacheRead": 13123,
+    "cacheWrite": 24223,
+    "output": 3
+   },
+   "cost": 31608.05,
+   "seconds": 10.6,
+   "errors": [],
+   "answer": "85"
+  },
+  {
+   "phase": "post",
+   "prompt": "Di quante persone era fatto il gruppo che fa i lavori di riparazione d",
+   "expect": "18",
+   "ok": true,
+   "requests": 1,
+   "tools": [],
+   "usage": {
+    "input": 4,
+    "cacheRead": 37030,
+    "cacheWrite": 780,
+    "output": 3
+   },
+   "cost": 4697,
+   "seconds": 3.2,
+   "errors": [],
+   "answer": "18"
+  },
+  {
+   "phase": "post",
+   "prompt": "Che marchio riportava la partita di viti scartata? Rispondi solo con i",
+   "expect": "Cobalto",
+   "ok": true,
+   "requests": 1,
+   "tools": [],
+   "usage": {
+    "input": 4,
+    "cacheRead": 37810,
+    "cacheWrite": 42,
+    "output": 222
+   },
+   "cost": 4947.5,
+   "seconds": 2.6,
+   "errors": [],
+   "answer": "Cobalto\n\nFonte: r10 riporta \"lotto di bulloni respinto\", non viti. Valore dal riassunto, file non riletto."
+  },
+  {
+   "phase": "post",
+   "prompt": "A quale pressione operava la macchina per stampare a olio? Rispondi so",
+   "expect": "263",
+   "ok": true,
+   "requests": 1,
+   "tools": [],
+   "usage": {
+    "input": 4,
+    "cacheRead": 37852,
+    "cacheWrite": 263,
+    "output": 108
+   },
+   "cost": 4657.950000000001,
+   "seconds": 2.4,
+   "errors": [],
+   "answer": "263"
+  },
+  {
+   "phase": "post",
+   "prompt": "A che ora serrava il deposito dei pezzi di scorta? Rispondi solo con i",
+   "expect": "16",
+   "ok": true,
+   "requests": 1,
+   "tools": [],
+   "usage": {
+    "input": 4,
+    "cacheRead": 38115,
+    "cacheWrite": 644,
+    "output": 81
+   },
+   "cost": 5025.5,
+   "seconds": 3.2,
+   "errors": [],
+   "answer": "16"
+  },
+  {
+   "phase": "neg",
+   "prompt": "Scrivi in una riga cosa fa un algoritmo di ordinamento a bolle.",
+   "requests": 1,
+   "tools": [],
+   "usage": {
+    "input": 4,
+    "cacheRead": 38759,
+    "cacheWrite": 605,
+    "output": 58
+   },
+   "cost": 4926.15,
+   "seconds": 1.4,
+   "errors": [],
+   "answer": "Scorre la lista più volte, scambiando coppie adiacenti fuori ordine, finché non ce ne sono più: i valori più grandi salgono in fondo."
+  },
+  {
+   "phase": "neg",
+   "prompt": "Dammi tre consigli per scrivere buoni messaggi di commit.",
+   "requests": 1,
+   "tools": [],
+   "usage": {
+    "input": 4,
+    "cacheRead": 39364,
+    "cacheWrite": 803,
+    "output": 169
+   },
+   "cost": 5789.15,
+   "seconds": 1.8,
+   "errors": [],
+   "answer": "1. Prima riga: tipo e ambito, imperativo, breve (ca. 50 caratteri): \"fix(parser): gestisce input vuoto\".\n2. Corpo: perché il cambio serve, non cosa fa il diff, "
+  },
+  {
+   "phase": "neg",
+   "prompt": "Qual è la differenza tra una promise e un callback in JavaScript?",
+   "requests": 1,
+   "tools": [],
+   "usage": {
+    "input": 4,
+    "cacheRead": 40167,
+    "cacheWrite": 686,
+    "output": 102
+   },
+   "cost": 5388.200000000001,
+   "seconds": 1.5,
+   "errors": [],
+   "answer": "Callback: funzione passata come argomento, chiamata al termine dell'operazione asincrona. Promise: oggetto che rappresenta il risultato futuro, con `.then`/`.ca"
+  },
+  {
+   "phase": "neg",
+   "prompt": "Spiegami in una frase cos'è un indice hash.",
+   "requests": 1,
+   "tools": [],
+   "usage": {
+    "input": 4,
+    "cacheRead": 40853,
+    "cacheWrite": 125,
+    "output": 47
+   },
+   "cost": 4480.55,
+   "seconds": 1.6,
+   "errors": [],
+   "answer": "Struttura dati che mappa una chiave a una posizione tramite una funzione hash, per trovare il valore in tempo medio costante."
+  },
+  {
+   "phase": "neg",
+   "prompt": "Elenca due vantaggi dei test automatici.",
+   "requests": 1,
+   "tools": [],
+   "usage": {
+    "input": 4,
+    "cacheRead": 40978,
+    "cacheWrite": 586,
+    "output": 59
+   },
+   "cost": 5129.3,
+   "seconds": 1.3,
+   "errors": [],
+   "answer": "1. Rilevano regressioni dopo ogni modifica, senza verifica manuale.\n2. Documentano il comportamento atteso, leggibile dai test stessi."
+  },
+  {
+   "phase": "neg",
+   "prompt": "Come si inverte una stringa in Python? Una riga.",
+   "requests": 1,
+   "tools": [],
+   "usage": {
+    "input": 4,
+    "cacheRead": 41564,
+    "cacheWrite": 82,
+    "output": 10
+   },
+   "cost": 4312.900000000001,
+   "seconds": 1.1,
+   "errors": [],
+   "answer": "`s[::-1]`"
+  },
+  {
+   "phase": "neg",
+   "prompt": "Che cosa significa l'acronimo REST?",
+   "requests": 1,
+   "tools": [],
+   "usage": {
+    "input": 4,
+    "cacheRead": 41646,
+    "cacheWrite": 30,
+    "output": 50
+   },
+   "cost": 4456.1,
+   "seconds": 1.2,
+   "errors": [],
+   "answer": "REpresentational State Transfer: stile architetturale per API su HTTP, risorse identificate da URI e operazioni tramite metodi standard."
+  },
+  {
+   "phase": "neg",
+   "prompt": "Suggerisci un nome breve per una funzione che somma due numeri.",
+   "requests": 1,
+   "tools": [],
+   "usage": {
+    "input": 4,
+    "cacheRead": 41676,
+    "cacheWrite": 274,
+    "output": 5
+   },
+   "cost": 4539.1,
+   "seconds": 1.1,
+   "errors": [],
+   "answer": "`add`"
+  }
+ ]
+}

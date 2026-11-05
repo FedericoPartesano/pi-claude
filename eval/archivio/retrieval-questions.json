@@ -1,0 +1,352 @@
+[
+ {
+  "session": "2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl",
+  "chunkIndex": 42,
+  "entryId": "10f64c6b",
+  "question": "Come si traducono, su un altro agente di programmazione, le istruzioni scritte per un assistente diverso, quando parlano di richiamare una competenza o di far lavorare un sotto-agente in parallelo?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl"
+ },
+ {
+  "session": "2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl",
+  "chunkIndex": 205,
+  "entryId": "dffac879",
+  "question": "Come si può far puntare l'integrazione a un eseguibile Claude installato in una posizione personalizzata e impedire che il modello riceva promemoria e istruzioni extra, così da mantenere lo stesso contesto dell'altro agente?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl"
+ },
+ {
+  "session": "2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl",
+  "chunkIndex": 153,
+  "entryId": "586f8157",
+  "question": "Come si configura un'estensione che fa consultare a un assistente di programmazione piccolo un modello più esperto, senza strumenti, che risponde con una raccomandazione breve e genera anche un brief di intenti per l'esecuzione?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl"
+ },
+ {
+  "session": "2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl",
+  "chunkIndex": 291,
+  "entryId": "0747c247",
+  "question": "Come si fa a far mostrare un'etichetta personalizzata, calcolata su ogni messaggio, per i blocchi di ragionamento ripiegati di un'interfaccia costruita sopra un altro strumento da riga di comando?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl"
+ },
+ {
+  "session": "2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl",
+  "chunkIndex": 407,
+  "entryId": "ae1a07de",
+  "question": "Come limitare la visualizzazione dei blocchi di ragionamento aperti alle ultime righe, con un comando che li espande per intero, così che un pensiero lungo non faccia scorrere via la chat?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl"
+ },
+ {
+  "session": "2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl",
+  "chunkIndex": 500,
+  "entryId": "3f25e5ef",
+  "question": "Come faccio a far vedere l'avanzamento di un comando di test lanciato dall'agente mentre gira, senza aspettare la fine, reindirizzando il suo output su un file temporaneo?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl"
+ },
+ {
+  "session": "2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl",
+  "chunkIndex": 581,
+  "entryId": "02d970e5",
+  "question": "Come posso testare un'estensione di monitoraggio dei test che intercetta i comandi lanciati dalla shell e ne mostra l'esito in un progetto temporaneo?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl"
+ },
+ {
+  "session": "2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl",
+  "chunkIndex": 659,
+  "entryId": "bbcf5b8e",
+  "question": "Come si fa a rendere compatti i blocchi di ragionamento nell'interfaccia terminale del progetto pi-ui, mostrando solo dimensione e sintesi quando sono chiusi?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl"
+ },
+ {
+  "session": "2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl",
+  "chunkIndex": 751,
+  "entryId": "2ec425d9",
+  "question": "Come era organizzato il codice che interpreta l'output dei test per i diversi runner nel monitor dell'estensione, e cosa avevo controllato sugli strumenti installati sulla macchina?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl"
+ },
+ {
+  "session": "2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl",
+  "chunkIndex": 821,
+  "entryId": "58817fab",
+  "question": "Come si documentano i criteri di una decisione architetturale: risultato atteso, modo di fallimento, vincoli e scenari di qualità con pesi, prima di confrontare le alternative?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl"
+ },
+ {
+  "session": "2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl",
+  "chunkIndex": 869,
+  "entryId": "878cdcd2",
+  "question": "Quali sono le strategie per gestire la memoria di un agente AI quando il contesto si riempie, tipo spostare informazioni in un archivio esterno o ripulire i risultati vecchi degli strumenti, e come questo incide sulla cache dei prompt?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl"
+ },
+ {
+  "session": "2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl",
+  "chunkIndex": 919,
+  "entryId": "dab0e3c7",
+  "question": "Dove parte la conversione dell'audio in testo nel mio progetto, e perché si blocca con un errore legato a una libreria di calcolo numerico?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl"
+ },
+ {
+  "session": "2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl",
+  "chunkIndex": 1027,
+  "entryId": "de805d83",
+  "question": "Come posso usare uno script per contare gli eventi di sistema registrati nei log delle sessioni di un agente di programmazione, per capire quali strumenti vengono aggiunti o rimossi durante una conversazione?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl"
+ },
+ {
+  "session": "2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl",
+  "chunkIndex": 1087,
+  "entryId": "7bdb0a39",
+  "question": "Ti ricordi com'è andata la verifica automatica della parte che gestisce gli obiettivi dell'agente, quella che calcola l'avanzamento dalla lista di cose da fare e decide quali messaggi mostrare in chat senza inviarli al modello?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl"
+ },
+ {
+  "session": "2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl",
+  "chunkIndex": 1150,
+  "entryId": "d27bf02b",
+  "question": "Come viene avviato il processo di valutazione che parla con l'agente via RPC, e come gestisce le richieste di conferma dei permessi?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl"
+ },
+ {
+  "session": "2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl",
+  "chunkIndex": 1230,
+  "entryId": "868f4026",
+  "question": "Come si possono separare le modifiche di un repository in più commit distinti, ciascuno con il suo messaggio, raggruppando i file per funzionalità, come il monitor dei test end-to-end, l'archivio del contesto riassunto e la documentazione della pulizia del contesto?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl"
+ },
+ {
+  "session": "2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl",
+  "chunkIndex": 1308,
+  "entryId": "e99806d0",
+  "question": "Come si fa a far mostrare nel pannello browser di pi-ui il frame PNG, il titolo e a gestire input come click, wheel e tasti, e dove viene usata la colonna browser nel progetto pi-claude?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl"
+ },
+ {
+  "session": "2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl",
+  "chunkIndex": 1362,
+  "entryId": "24c3b60e",
+  "question": "Perché i test sulle guardie del team falliscono quando si azzera il feed degli agenti, nei casi di esecuzione in parallelo o in sequenza?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl"
+ },
+ {
+  "session": "2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl",
+  "chunkIndex": 1461,
+  "entryId": "a6f7cfbc",
+  "question": "Perché un'immagine incollata nella chat non viene letta e nel risultato compare solo una lunga sequenza di caratteri incomprensibili?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl"
+ },
+ {
+  "session": "2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl",
+  "chunkIndex": 1500,
+  "entryId": "4fe26c93",
+  "question": "Perché l'archivio che ho provato non fa risparmiare e quali altre leve servono per arrivare alla riduzione prevista, e perché il monitor dei test non riconosce un comando lanciato con un prefisso di limite di tempo?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl"
+ },
+ {
+  "session": "2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl",
+  "chunkIndex": 1600,
+  "entryId": "d01acc55",
+  "question": "Come si può modificare un test di valutazione di un assistente AI perché i codici segreti compaiano solo nella conversazione e non si possano ritrovare nei file salvati su disco?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl"
+ },
+ {
+  "session": "2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl",
+  "chunkIndex": 1718,
+  "entryId": "20c433a4",
+  "question": "Come si traducono le istruzioni di una skill pensata per Claude Code quando devo usarla con un altro agente di programmazione che ha strumenti diversi?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl"
+ },
+ {
+  "session": "2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl",
+  "chunkIndex": 1766,
+  "entryId": "e0c9edb2",
+  "question": "Come si fa in un agente LLM a recuperare dalla memoria di archivio le parti di una conversazione lunga che sono state compresse, confrontando questo approccio con i benchmark sulla memoria a lungo termine?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl"
+ },
+ {
+  "session": "2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl",
+  "chunkIndex": 1802,
+  "entryId": "cc30ce8c",
+  "question": "Qual è la lunghezza minima che un prompt deve avere perché la cache venga applicata, e cosa succede alle richieste più corte di quella soglia?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl"
+ },
+ {
+  "session": "2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl",
+  "chunkIndex": 1844,
+  "entryId": "06e80539",
+  "question": "Qual è la differenza tra la memoria di un agente che vive solo nella conversazione in corso e quella che persiste tra una sessione e l'altra, e perché quest'ultima è il bersaglio principale di avvelenamento?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-11-03T10-42-28-575Z_01a1a100-d45d-7508-8ede-226300a0c30e.jsonl"
+ },
+ {
+  "session": "2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl",
+  "chunkIndex": 72,
+  "entryId": "3757a5bf",
+  "question": "Quanto costa e conviene davvero far affiancare a un modello piccolo un modello più grande che lo consiglia, e la mia CLI supporta già questa funzione?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl"
+ },
+ {
+  "session": "2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl",
+  "chunkIndex": 18,
+  "entryId": "51b58a31",
+  "question": "Come si fa a far generare automaticamente il nome di una conversazione dopo la prima risposta del modello, con un comando manuale di riserva?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl"
+ },
+ {
+  "session": "2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl",
+  "chunkIndex": 101,
+  "entryId": "2fdab4f2",
+  "question": "Come posso agganciare una logica personalizzata al momento in cui l'assistente di programmazione termina del tutto un ciclo di lavoro, distinguendo il caso in cui l'utente lo ha interrotto?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl"
+ },
+ {
+  "session": "2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl",
+  "chunkIndex": 46,
+  "entryId": "174c4128",
+  "question": "Quando conviene affiancare a un modello economico, che esegue il lavoro, un modello più potente che fa da consulente, e come scegliere quale usare in base a costi e qualità?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl"
+ },
+ {
+  "session": "2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl",
+  "chunkIndex": 171,
+  "entryId": "23d937e8",
+  "question": "Come si scrive una piccola utility in JavaScript per unire intervalli numerici, con test del built-in di Node e senza dipendenze esterne?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl"
+ },
+ {
+  "session": "2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl",
+  "chunkIndex": 143,
+  "entryId": "71f7bc7c",
+  "question": "Come si progetta un confronto che dimostri se un modello più potente, consultato in background, migliora davvero l'affidabilità di un modello piccolo, visto che il modello piccolo da solo supera già tutti i test?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl"
+ },
+ {
+  "session": "2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl",
+  "chunkIndex": 218,
+  "entryId": "7555abfa",
+  "question": "Come si confronta un modello piccolo affiancato da un modello più grande come consulente con il modello grande che lavora da solo, in termini di costo e tempi, su compiti lunghi e difficili?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl"
+ },
+ {
+  "session": "2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl",
+  "chunkIndex": 260,
+  "entryId": "db5be416",
+  "question": "Come si fa a far consultare a un modello più potente un modello più leggero, da riga di comando, per decidere come fondere range che si sovrappongono?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl"
+ },
+ {
+  "session": "2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl",
+  "chunkIndex": 307,
+  "entryId": "12f98181",
+  "question": "Quali risultati hanno dato, su compiti lunghi, il modello più piccolo affiancato da un consigliere rispetto al comando nativo, in termini di tempo e costo, e perché serve ancora un giudice per valutare la qualità?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl"
+ },
+ {
+  "session": "2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl",
+  "chunkIndex": 398,
+  "entryId": "4a3740b7",
+  "question": "Come si comporta il calcolo dei prezzi di un ordine quando riceve quantità negative, importi con decimali oltre i centesimi o un ordine senza righe?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl"
+ },
+ {
+  "session": "2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl",
+  "chunkIndex": 434,
+  "entryId": "4cf6018b",
+  "question": "Come posso scrivere i test per un modulo di un'estensione TypeScript che chiede un suggerimento a un secondo modello e gestisce anche il caso di errore?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl"
+ },
+ {
+  "session": "2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl",
+  "chunkIndex": 474,
+  "entryId": "6d7b9195",
+  "question": "Come avevamo strutturato la valutazione dei modelli su compiti di programmazione da zero, con test tenuti nascosti, per il generatore di differenze tra testi e il motore di espressioni regolari scritto a mano?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl"
+ },
+ {
+  "session": "2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl",
+  "chunkIndex": 558,
+  "entryId": "421a3018",
+  "question": "Qual è il compromesso migliore per creare la mappa delle relazioni del codice, sapendo che la prima generazione è pesante e che poi conviene aggiornarla solo dove il codice cambia o compaiono file nuovi?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl"
+ },
+ {
+  "session": "2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl",
+  "chunkIndex": 595,
+  "entryId": "87f53305",
+  "question": "Come si fa a togliere i commenti dal codice sorgente prima di cercare i nomi citati, in un motore che costruisce un grafo di conoscenza dal progetto, e perché il test su questa funzione fallisce?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl"
+ },
+ {
+  "session": "2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl",
+  "chunkIndex": 651,
+  "entryId": "c19e5179",
+  "question": "Come posso salvare su disco una mappa delle dipendenze di un progetto e rileggerla, con una cache in memoria che si aggiorna quando la mappa cambia?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl"
+ },
+ {
+  "session": "2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl",
+  "chunkIndex": 685,
+  "entryId": "048b0594",
+  "question": "Come fa il grafo del progetto a riconoscere le dipendenze tra i pacchetti interni di un monorepo quando una configurazione del compilatore ne eredita un'altra che si trova in una cartella diversa?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl"
+ },
+ {
+  "session": "2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl",
+  "chunkIndex": 771,
+  "entryId": "7a999396",
+  "question": "Come si reinstalla da zero lo strumento a riga di comando che costruisce i grafi di conoscenza, e quali opzioni ha per unire grafi di più repository?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl"
+ },
+ {
+  "session": "2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl",
+  "chunkIndex": 732,
+  "entryId": "2cc52c31",
+  "question": "Come si definiscono i tipi per sommare consumi e costi di un modello AI, raggruppandoli per modello, in un agente di programmazione?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl"
+ },
+ {
+  "session": "2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl",
+  "chunkIndex": 803,
+  "entryId": "1715088a",
+  "question": "Quali sono i comandi disponibili per estrarre un grafo di conoscenza da un progetto e per gestirne la versione globale?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl"
+ },
+ {
+  "session": "2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl",
+  "chunkIndex": 826,
+  "entryId": "4f3e25d9",
+  "question": "Come si integra un generatore di grafo della conoscenza basato sull'analisi del codice in un'estensione di comando, lasciando che il modello usi i suoi strumenti, e come si evita che i suoi file generati finiscano nel versionamento?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl"
+ },
+ {
+  "session": "2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl",
+  "chunkIndex": 908,
+  "entryId": "7bc2e08e",
+  "question": "Come posso costruire una finestra fissa nel terminale che mostra titolo, barra di avanzamento, conteggio dei token e un log in tempo reale di un'elaborazione in corso, permette di annullarla con Esc e resta aperta con il risultato finché non la chiudo?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl"
+ },
+ {
+  "session": "2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl",
+  "chunkIndex": 867,
+  "entryId": "663a1211",
+  "question": "Come si stima il consumo di token quando si elabora un piccolo campione di documenti, e da cosa dipende il rumore che compare nel grafo del progetto?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl"
+ },
+ {
+  "session": "2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl",
+  "chunkIndex": 960,
+  "entryId": "fb60d1af",
+  "question": "Come fa l'app desktop a decidere da sola se mostrare o nascondere la barra laterale in base alla larghezza della finestra?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl"
+ },
+ {
+  "session": "2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl",
+  "chunkIndex": 1005,
+  "entryId": "7258d5c0",
+  "question": "Perché il test della vista del grafo fallisce, dato che il testo che cerca non compare nell'output del modulo?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl"
+ },
+ {
+  "session": "2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl",
+  "chunkIndex": 1060,
+  "entryId": "23f9f3ae",
+  "question": "Come si gestiscono i tasti nel modulo di segnalazione di un'estensione, e come si mostrano nel pannello di avanzamento i token consumati e il costo del modello?",
+  "path": "/home/fede/.pi/agent/sessions/--home-fede-documents-projects-pi-claude--/2026-10-14T06-54-56-946Z_01a13931-55b1-71f0-839b-0396be4322a7.jsonl"
+ }
+]

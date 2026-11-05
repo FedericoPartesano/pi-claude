@@ -347,3 +347,9 @@ finita; i file cambiati fuori da tutti i `files` dell'ondata sono un avviso nel 
 Il parallelo toglie ~13% di tempo (tempo agenti 95 s / 165 s in 88 s / 129 s reali), ma i piani diventano più
 fini (6 compiti) e costano un po' più token; le catene di dipendenze limitano le ondate. Su tl02 il team arriva
 vicino a Pi da solo sul tempo (129 s contro 120 s) con 1,4× i token. Qualità uguale (tutti riusciti), più test.
+
+## A/B delle leve per il -30% (2026-11-04)
+Esito negativo, 3 ripetizioni: keepRecentTokens 5000 da solo -0,2% (nulla); con archivio +3,8% (stabile), qualita pari 5/5. Vedi `eval/ab/REPORT.md`.
+
+### Contesto secondario: dati non rileggibili (2026-11-04)
+Banco `dump` (`eval/ab/run.mjs <A|B> <rep> haiku dump`, 3 run per braccio): domande su output di comando ormai non recuperabili da disco. Default Pi: 1/18 corrette, costo medio 1.043.280. Con archivio: 18/18 corrette, costo medio 870.680 (-16,5%). Dettagli e limiti in `eval/ab/REPORT.md`.
