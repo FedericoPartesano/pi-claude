@@ -111,3 +111,16 @@ Funzioni nuove attive: tema, riquadri, pannello laterale (git, intent, contesto)
 | Pi `PI_UI=off` | 16,1 / 21,8 / 20,1 | 1,5 / 2 / 2 | 3–9 | 2–3 |
 
 Lettura: le funzioni nuove non hanno alzato il costo del prototipo (prima 9–18 s a 2 run, ora 8,6–12,1 s). Il prototipo sta sotto anche a `PI_UI=off`, perché il carico della CPU di Pi comprende il rendering del suo TUI, che il prototipo non ha. Limiti: n = 3, un pty, carico sintetico senza pensiero né tool, il prototipo ha meno funzioni di `pi-ui` (niente immagini, selezione, `custom()`); i byte scritti nel pty non sono uguali tra le configurazioni (2,5 MB prototipo, 3,5 MB Pi con UI, 2,7 MB off) perché il carico è a tempo e non a byte.
+
+## Immagini nel prototipo (kitty e sixel): peso misurato
+Implementazione: `prototype/rpc-chat/chat.mjs` (`/img percorso testo` e immagini nei risultati dei tool). Kitty: PNG inviato così com'è, una sola volta (id), poi solo `a=p` e cancellazione a=d quando esce dallo schermo. Sixel: PNG decodificato con `node:zlib`, scalato alle celle, palette 3-3-2 fissa, stringa in cache per dimensione. JPEG: solo segnaposto (kitty non lo accetta, il decoder sixel è solo PNG 8 bit non interlacciato). Terminale simulato nel pty (risposte kitty/sixel e 10×20 px per cella): il disegno reale a pixel **non è verificato**, solo le sequenze emesse (`eval/ui/proto-images.py`, `proto-sixel-bench.mjs`). Sessione di 12 s con haiku, n=1 per cella.
+
+| | CPU client (ms, intera sessione) | Byte emessi | Byte per ogni tasto dopo |
+|---|---|---|---|
+| Senza immagine | 148 | 1,6 KB | 46 |
+| Kitty, PNG 82 KB (240×120) | 203 | 117 KB | 46–197 |
+| Sixel, stesso PNG | 412 | 41 KB (4 disegni da ~7,5 KB) | 46–395 |
+| Kitty, PNG 3,4 MB (1600×900, rumore) | 1374 | 4,6 MB una tantum | 197–1528 |
+| Sixel, stesso PNG | 2515 | 1,8 MB (7 disegni da ~254 KB) | 46–1075 |
+
+Encoder sixel da solo (node, 560×315): primo disegno 313 ms con decodifica (74 ms sul PNG piccolo), poi 54 ms senza cache; con la cache di stringa il ridisegno non ricodifica. Lettura: kitty paga una volta il trasferimento del file; sixel ripaga i byte a ogni ridisegno che tocca le righe dell'immagine (scorrimento, streaming sotto), quindi per immagini grosse è molto più pesante. Il costo CPU non l'ho attribuito a una parte (lettura/base64/scrittura nel pty). Limiti: n=1, sessione con LLM reale (rumore nei frame), immagine sintetica, terminale simulato.

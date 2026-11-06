@@ -17,3 +17,6 @@ Carico fisso per le misure: `prototype/replay/index.ts` (provider che ignora il 
 
 ## Rilevamento immagini
 All'avvio il prototipo chiede al terminale una query kitty graphics più DA1; dalla risposta imposta `kitty`, `sixel` o `none` (timeout 1,5 s → `none`), mostrato nel pannello ("immagini: …"). Verificato con risposte simulate nel pty (`/tmp/uiprof/det.py`); non ancora disegna immagini.
+
+## Immagini
+`/img percorso [testo]` allega un PNG/JPEG al prompt; le immagini nei risultati dei tool (es. `read` su un PNG) vengono mostrate. Kitty o sixel secondo il rilevamento; JPEG e terminali senza immagini: riga segnaposto. Pesi misurati in `eval/ui/REPORT.md` (sezione Immagini).
