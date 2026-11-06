@@ -146,3 +146,16 @@ Macchina: Intel Core 2 Duo T5470 1,6 GHz (2 core), Proxmox 9.2.2. Container LXC 
 | `PI_UI=off` | 24,6 (24,5–25,2) | 3–16,5 | 5–7 | 2,7 |
 
 Lettura: le CPU sono ripetibili a ±1% tra i 5 giri (sul PC condiviso erano 8,6–12,1 s per il prototipo, 26–28 per Pi). Rapporto CPU Pi/prototipo ≈ 4,3×, `PI_UI=off`/prototipo ≈ 3,1×, Pi/off ≈ 1,4×. Su questo core lento Pi con `pi-ui` occupa ≈77% della CPU per tutto lo streaming e l'eco a riposo è 17–23 ms, contro 1 ms del prototipo. Il rapporto tra bracci coincide con quello misurato sul PC (Pi ≈ 3× prototipo). Limiti: replay sintetico (senza pensiero, tool, diff, immagini), una macchina, `PI_VAULT_OFF=1`, il costo del terminale vero non è misurato.
+
+### Carico ricco (pensiero, `edit` con diff, link `file:riga`, suggerimenti) sul Proxmox
+Provider replay con `REPLAY_MODE=rich` (`prototype/replay/index.ts`): 5 giri di pensiero (512 car) + Markdown con link `file:riga` + chiamata `edit` vera su `/tmp/rich-target.txt` (diff 40 righe tolte/40 aggiunte), poi testo finale con blocco `<!--suggerimenti-->`; 300 car/s, `PI_YOLO=1`, `PI_VAULT_OFF=1`, stesso LXC `301`, 5 giri alternati. Dati e `pr.sh` in `eval/ui/pve/rich/`. Verificato con un dump che nel prototipo compaiono pensiero ripiegato, diff con «… +N righe», link OSC 8 e suggerimenti 1-3.
+
+| Braccio | CPU in 45 s (s) per giro | Mediana | Eco in streaming (ms, mediane) | Byte (MB) |
+|---|---|---|---|---|
+| Prototipo | 16,0 · 5,3 · 5,4 · 5,4 · 5,6 | 5,4 | 2–3 | 2,2–3,4 |
+| Pi con `pi-ui` | 40,3 · 39,5 · 40,5 · 39,9 · 40,8 | 40,3 | 34,5–76 | 1,6 |
+| `PI_UI=off` | 15,7 · 16,1 · 15,6 · 15,6 · 15,8 | 15,7 | 3–3,5 | 2,5 |
+
+Lettura: Pi/prototipo ≈ 7,5×, `PI_UI=off`/prototipo ≈ 2,9×. Il primo giro del prototipo (16,0 s) è un'anomalia: il processo figlio `pi` ha usato 22,8 s contro 4,2–4,8 degli altri (probabile costo a freddo del file replay appena modificato; non indagato), il client è 3,4 s contro 4,1: lo scarto sta nel figlio, non nel prototipo. Resta incluso nella tabella, la mediana lo ignora. Con l'eco a 2–3 ms le funzioni nuove non costano latenza percepibile. Limiti: replay sintetico, un solo tipo di strumento (`edit`), niente immagini (misurate a parte), una macchina, stato della macchina: durante la prova le VM `rc-hub`, `rc-nodo1`, `rc-nodo2` risultavano accese (non mie), il carico a inizio giro era 0,5–1,2 (un solo giro Pi a 2,3).
+
+Soglia fissata dall'utente: il prototipo deve restare a 1/4 della CPU di Pi. Limiti attuali: 34,6/4 = 8,6 s sul carico di testo (prototipo 8,0 s: margine ≈7%), 40,3/4 = 10,1 s sul carico ricco (5,4 s). Il carico di solo testo è il vincolo più stretto.
