@@ -6,6 +6,8 @@ Cosa fa: prompt (invio), streaming di testo e pensiero, riga per i tool, abort (
 
 Aggiunti per il confronto equo: Markdown (titoli, elenchi, citazioni, blocchi di codice, grassetto/corsivo/codice in linea), a capo consapevole di ANSI, scorrimento (PagUp/PagDown, frecce su/giù, rotellina, End), cursore e modifica nel prompt (frecce, Home/End, Canc, ctrl+a/e/u).
 
+Seconda tappa: caratteri larghi ed emoji (2 colonne), pensiero live (ultime 4 righe, poi una riga «thought · N words»), passi dei tool con ✓/✗ e durata, riga di stato con modello, contesto %, costo e le voci `setStatus` delle estensioni (intent, goal, memoria…), `setWidget` (testo) sopra la riga di stato, `notify` come avviso di 5 s, `setTitle`, incolla tra parentesi (`bracketed paste`, righe multiple), dialog `select`/`confirm`/`input`/`editor` delle estensioni (frecce+invio, y/n, esc). Provato con Pi vero e haiku: `eval/ui/proto-real.py` (tool ✓, stato) e `eval/ui/proto-dialog.py` (il dialog dei comandi pericolosi appare, «No» blocca il comando; serve `PI_YOLO=0`).
+
 Cosa NON fa: caratteri larghi/IME (ogni carattere conta 1 colonna), immagini, selezione/copia dedicata, pannello, barra di stato dei progetti, passi compatti, estensioni UI (`custom`, `setFooter`, `setWidget` con componenti sono no-op in RPC), dialog `extension_ui_request`.
 
 Variabili solo per misura: `PROTO_CPU=<file>` (CPU di client e processo RPC), `PROTO_DUMP=<file>` (ultimo schermo).

@@ -93,3 +93,21 @@ Causa trovata: `clampThinkingLines` (`pi-ui/src/thinking.ts`) era agganciato a *
 Misura senza profiler (CPU albero di processi, stesso carico, 2 run): **24,0 / 28,1 s** contro 36,4 / 40,5 s prima (`PI_UI=off` 16,6 / 18,1 s); eco in streaming mediana ≈ 22 ms (max 61) contro ≈ 80 ms (max 142); eco a riposo 5–28 ms.
 
 Resta: ≈ 11 s di occupato (profilo) o ≈ 8–10 s di CPU rispetto a `PI_UI=off`, quasi tutti in `paintBox`/`compositeTuiLine` (composizione della colonna laterale su tutta la cronologia, codice di Pi non esportato, vedi sopra). `PI_UI_PANEL=float` non l'ha ridotto a carico alto. Limiti: n = 1 nel profilo e 2 nelle misure senza profiler, un solo pty, carico sintetico senza pensiero né tool; un carico con pensiero vero non è stato rimisurato dopo la correzione.
+
+## Prototipo, seconda tappa (funzioni aggiunte) e rimisura
+Aggiunti: caratteri larghi, pensiero live compatto, passi dei tool con esito e durata, barra di stato con modello/contesto/costo/voci delle estensioni, widget, notifiche, bracketed paste, dialog `select`/`confirm`/`input`/`editor`. Verifica reale (Pi vero, haiku, pty): tool `bash ls` mostrato come «⚙ bash … ✓ 37ms», barra di stato con `haiku · ctx 14% · intent/caveman/memoria`; con `PI_YOLO=0` il dialog «Comando pericoloso» appare, giù+invio sceglie «No» e il modello riporta «l'utente ha rifiutato il comando». Nota: l'ambiente di questa sessione ha `PI_YOLO=1`, che spegne il dialog.
+
+Misura a 300 car/s (2 run, stesso banco): CPU albero 9,2 / 17,8 s (prima della tappa 10,9 / 11,3 s), eco in streaming 2–10 ms, riposo 1–2 ms. La differenza tra i due run (9 contro 18 s) è rumore della macchina, non una stima: n = 2, non si conclude nulla sul costo delle funzioni aggiunte.
+
+Ancora fuori dal prototipo: immagini (Kitty) e anteprime, selezione/copia propria, `/`-completamento e `@`-file nel prompt, pannello e colonna laterale, passi compatti raggruppati, tema, `custom()` delle estensioni (no-op in RPC: `/archivio` a schermo intero, picker, `pi-team` sidebar).
+
+## Rimisura del prototipo con le funzioni nuove (3 run intercalati, 300 car/s, 45 s, pty 160×50)
+Funzioni nuove attive: tema, riquadri, pannello laterale (git, intent, contesto), completamento, passi compatti, tabelle, grafici. `eval/ui/fair/p4*.json`, `p4.sh`.
+
+| | CPU albero in 45 s (s) | Eco in streaming, mediana per run (ms) | Eco max (ms) | Eco a riposo (ms) |
+|---|---|---|---|---|
+| Prototipo | 8,6 / 9,3 / 12,1 | 2 / 3 / 3 | 3–6 | 1 |
+| Pi con `pi-ui` | 28,3 / 28,0 / 26,1 | 10,5 / 22 / 14 | 43–59 | 6–8 |
+| Pi `PI_UI=off` | 16,1 / 21,8 / 20,1 | 1,5 / 2 / 2 | 3–9 | 2–3 |
+
+Lettura: le funzioni nuove non hanno alzato il costo del prototipo (prima 9–18 s a 2 run, ora 8,6–12,1 s). Il prototipo sta sotto anche a `PI_UI=off`, perché il carico della CPU di Pi comprende il rendering del suo TUI, che il prototipo non ha. Limiti: n = 3, un pty, carico sintetico senza pensiero né tool, il prototipo ha meno funzioni di `pi-ui` (niente immagini, selezione, `custom()`); i byte scritti nel pty non sono uguali tra le configurazioni (2,5 MB prototipo, 3,5 MB Pi con UI, 2,7 MB off) perché il carico è a tempo e non a byte.
