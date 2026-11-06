@@ -135,3 +135,14 @@ Encoder sixel da solo (node, 560×315): primo disegno 313 ms con decodifica (74 
 | 3 (load 3,0 / 2,7) | 8,9 / 2 / 3 | 16,1 / 1 / 3 |
 
 Lettura: con carico più basso il prototipo scende a 8,9–9,8 s, come prima del lotto (8,6–12,1). Nessun peggioramento visibile dovuto alle funzioni nuove; il rumore da carico della macchina (fino a +40% sul run 1) è più grande di ogni differenza. Eco a riposo 1 ms. Limiti: n=3, macchina condivisa, carico sintetico (senza diff, link, suggerimenti né immagini: non esercitano le funzioni nuove, solo il percorso di streaming).
+
+## Misura su macchina dedicata (Proxmox, LXC isolato)
+Macchina: Intel Core 2 Duo T5470 1,6 GHz (2 core), Proxmox 9.2.2. Container LXC `301` (Debian 13, 1 vCPU fissata col cpuset al core 1, 1,5 GB RAM, nessuno swap), Node 24.15.0 e Pi 1.5.0 come sul PC; gli altri 4 container `rc-test-*` fermati per la prova. Carico: replay 300 car/s, 45 s, pty 160×50, 5 giri alternati prototipo / Pi con `pi-ui` / `PI_UI=off`, `PI_VAULT_OFF=1` (senza, il vault apre un dialog di conferma che blocca i tasti), nessuna quota usata. Script e JSON in `eval/ui/pve/` (`pb.sh`). Load a inizio run: 0,3–1,1.
+
+| Braccio | CPU in 45 s (s), mediana dei 5 | Eco in streaming (ms), mediane per run | Eco a riposo (ms) | Byte (MB) |
+|---|---|---|---|---|
+| Prototipo | 8,0 (7,9–8,0) | 7,0–10,5 | 1 | 2,3–2,4 |
+| Pi con `pi-ui` | 34,6 (34,5–35,0) | 34,5–50 | 17–23 | 2,0–2,1 |
+| `PI_UI=off` | 24,6 (24,5–25,2) | 3–16,5 | 5–7 | 2,7 |
+
+Lettura: le CPU sono ripetibili a ±1% tra i 5 giri (sul PC condiviso erano 8,6–12,1 s per il prototipo, 26–28 per Pi). Rapporto CPU Pi/prototipo ≈ 4,3×, `PI_UI=off`/prototipo ≈ 3,1×, Pi/off ≈ 1,4×. Su questo core lento Pi con `pi-ui` occupa ≈77% della CPU per tutto lo streaming e l'eco a riposo è 17–23 ms, contro 1 ms del prototipo. Il rapporto tra bracci coincide con quello misurato sul PC (Pi ≈ 3× prototipo). Limiti: replay sintetico (senza pensiero, tool, diff, immagini), una macchina, `PI_VAULT_OFF=1`, il costo del terminale vero non è misurato.

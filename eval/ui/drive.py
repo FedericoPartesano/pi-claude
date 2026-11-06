@@ -44,7 +44,7 @@ def drain(dur):
             except OSError: return False
             total += len(d); log.append((time.time() - t0, len(d)))
     return True
-drain(8)                      # startup
+drain(float(os.environ.get("STARTUP", 8)))   # startup (STARTUP env for slow machines)
 # typing latency: send chars one by one, time until any output
 lat = []
 for ch in "ciao come stai ":
