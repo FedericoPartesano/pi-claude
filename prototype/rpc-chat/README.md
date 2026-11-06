@@ -14,3 +14,6 @@ Variabili solo per misura: `PROTO_CPU=<file>` (CPU di client e processo RPC), `P
 Misure: `eval/ui/REPORT.md`.
 
 Carico fisso per le misure: `prototype/replay/index.ts` (provider che ignora il prompt e trasmette un documento Markdown deterministico, `REPLAY_CPS`/`REPLAY_CHUNK`/`REPLAY_KB`). Uso identico per Pi: `pi -e prototype/replay/index.ts --provider replay --model fixed`.
+
+## Rilevamento immagini
+All'avvio il prototipo chiede al terminale una query kitty graphics più DA1; dalla risposta imposta `kitty`, `sixel` o `none` (timeout 1,5 s → `none`), mostrato nel pannello ("immagini: …"). Verificato con risposte simulate nel pty (`/tmp/uiprof/det.py`); non ancora disegna immagini.

@@ -36,6 +36,7 @@ let commands = [{ name: "quit", description: "esci" }, { name: "clear", descript
 let projectFiles = [];
 const hist = []; let hIdx = 0, draft = "";
 let popSel = 0, popDismissed = "";
+let imageProto = "?"; // "?" asking, then "kitty" | "sixel" | "none" (detected from the terminal's own replies)
 
 const append = (kind, delta) => {
 	if (!open || open.kind !== kind) {
@@ -346,6 +347,7 @@ const sideLines = (w) => {
 	const pct = Math.max(0, Math.min(100, ctxPct ?? 0)), filled = Math.round((pct / 100) * (w - 6));
 	L.push(`${pct > 80 ? S.err : pct > 60 ? S.warn : S.ok}${"▰".repeat(filled)}${S.faint}${"▱".repeat(w - 6 - filled)}${R} ${S.dim}${Math.round(pct)}%${R}`);
 	if (cost != null) L.push(`${S.dim}$${cost.toFixed(2)}${R}`);
+	L.push(`${S.dim}immagini: ${imageProto === "?" ? "…" : imageProto}${R}`);
 	const others = [...statuses].filter(([k]) => k !== "intent");
 	if (others.length) { L.push(""); head("ESTENSIONI"); for (const [k, v] of others) L.push(...wrap(`${S.dim}${v}${R}`, w)); }
 	for (const lines of widgets.values()) { L.push(""); for (const l of lines) L.push(cut(`${S.text}${l}${R}`, w)); }
@@ -550,19 +552,28 @@ const histMove = (dir) => {
 process.stdin.setRawMode(true);
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (data) => {
-	const re = /\x1b\[200~([\s\S]*?)\x1b\[201~|\x1b\[<(\d+);\d+;\d+[Mm]|\x1b\[([0-9;]*)([A-Za-z~])|(\x1b[\r\n])|([\s\S])/gu;
+	const re = /\x1b_G([^\x1b]*)\x1b\\|\x1b\[\?([0-9;]*)c|\x1b\[200~([\s\S]*?)\x1b\[201~|\x1b\[<(\d+);\d+;\d+[Mm]|\x1b\[([0-9;]*)([A-Za-z~])|(\x1b[\r\n])|([\s\S])/gu;
 	let m;
 	while ((m = re.exec(data))) {
-		if (m[1] !== undefined) { // bracketed paste: literal text, newlines kept
-			const t = m[1].replace(/\r\n?/g, "\n");
+		if (m[1] !== undefined) { // kitty graphics reply to our query: it understands the protocol
+			if (/^i=31;OK/.test(m[1])) imageProto = "kitty";
+			continue;
+		}
+		if (m[2] !== undefined) { // device attributes reply (always the last answer): attribute 4 = sixel
+			if (imageProto === "?") imageProto = m[2].split(";").includes("4") ? "sixel" : "none";
+			sideVer++;
+			continue;
+		}
+		if (m[3] !== undefined) { // bracketed paste: literal text, newlines kept
+			const t = m[3].replace(/\r\n?/g, "\n");
 			if (dialog?.text !== undefined) dialog.text += t.replace(/\n/g, " ");
 			else if (!dialog) insert(t);
-		} else if (m[2] !== undefined) { // SGR mouse: 64 wheel up, 65 wheel down
-			if (m[2] === "64") scroll += 3;
-			else if (m[2] === "65") scroll = Math.max(0, scroll - 3);
-		} else if (m[4] !== undefined) {
-			if (dialogKey(undefined, m[3] + m[4])) continue;
-			const k = m[3] + m[4];
+		} else if (m[4] !== undefined) { // SGR mouse: 64 wheel up, 65 wheel down
+			if (m[4] === "64") scroll += 3;
+			else if (m[4] === "65") scroll = Math.max(0, scroll - 3);
+		} else if (m[6] !== undefined) {
+			if (dialogKey(undefined, m[5] + m[6])) continue;
+			const k = m[5] + m[6];
 			const items = popup();
 			if (k === "D") cursor = Math.max(0, cursor - 1);
 			else if (k === "C") cursor = Math.min(input.length, cursor + 1);
@@ -576,9 +587,9 @@ process.stdin.on("data", (data) => {
 			else if (k === "13;2u" || k === "13;3u") insert("\n");
 			else if (k === "A") { if (items) popSel = (popSel + items.length - 1) % items.length; else if (!input.includes("\n")) histMove(-1); else cursor = Math.max(0, input.lastIndexOf("\n", cursor - 1)); }
 			else if (k === "B") { if (items) popSel = (popSel + 1) % items.length; else if (!input.includes("\n")) histMove(1); else { const n = input.indexOf("\n", cursor); cursor = n < 0 ? input.length : n + 1; } }
-		} else if (m[5] !== undefined) insert("\n");
+		} else if (m[7] !== undefined) insert("\n");
 		else {
-			const key = m[6];
+			const key = m[8];
 			if (dialogKey(key)) continue;
 			const items = popup();
 			if (key === "\x03") {
@@ -609,6 +620,9 @@ out.on("resize", () => { previous = []; out.write(`${ESC}2J`); drawNow(); });
 child.on("exit", () => quit());
 out.write(`${ESC}?1049h${ESC}?1000h${ESC}?1006h${ESC}?2004h${ESC}2J`);
 drawNow();
+// Ask the terminal: kitty graphics query (1x1 pixel) then device attributes; the replies set imageProto.
+out.write("\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c");
+setTimeout(() => { if (imageProto === "?") { imageProto = "none"; sideVer++; schedule(); } }, 1500).unref();
 
 send({ id: "state", type: "get_state" });
 send({ id: "cmds", type: "get_commands" });
