@@ -1,0 +1,95 @@
+# Fluidità della UI del terminale
+
+Banco: `eval/ui/drive.py <etichetta> "<prompt>" <secondi> [opzioni pi]` apre Pi in un pty 160×50 (haiku), misura l'eco dei tasti (ms dal tasto al primo byte) a riposo e durante lo streaming, i byte scritti, e salva i profili CPU (`--cpu-prof`, 1 ms). `eval/ui/incl.py <cartella> <nomi…>` somma i tempi inclusivi per funzione. Prompt: 60 curiosità sul mare, 45 s di streaming. Un solo run per configurazione, WSL2: i numeri indicano l'ordine di grandezza, non un confronto fine; il testo generato varia da run a run (byte diversi), quindi il tempo CPU va letto per MB scritto.
+
+| Configurazione | Eco tasti a riposo (ms) | Eco in streaming (ms) | KB/s | CPU occupata (s su 60) | `doRender` (s) | s di `doRender` per MB |
+|---|---|---|---|---|---|---|
+| `PI_UI=off` (Pi di serie) | 1–16, un picco 791 | 0–5 | 18,1 | 7,6 | 1,75 | 2,1 |
+| predefinita (colonna laterale), prima | 7–107, picco 1729 | 8–22 | 7,1 | 12,0 | 5,0 | 15 |
+| `PI_UI_PANEL=float` | 3–9, picco 554 | 12–46 | 18,6 | 11,3 | 3,8 | 4,4 |
+| predefinita, dopo le correzioni | 5–32 | 0–43 | 24,2 | 15,3 | 8,3 | 7,5 |
+
+## Cause trovate (dai profili)
+1. **Picco all'avvio (fino a 1,7 s su un tasto):** `memory.ts` a pochi secondi dall'avvio chiamava `lookbackBatch`, che legge in modo sincrono tutte le sessioni del progetto (35 file, 31 MB), anche se l'auto-dream di oggi era già stato fatto. Ora esce prima se `.pi/memory-autodream` contiene la data di oggi. Dopo: massimo 32 ms in questa prova. Restano ~0,7 s di `spawnSync` all'avvio da `graphify.ts` (`graphifyReady`, `git`) e `ensureTool` di Pi, non toccati.
+2. **`clampThinkingLines` a ogni frame:** toglieva i codici ANSI da tutte le righe di ogni messaggio a ogni frame (2,6 s inclusivi su 45 s). Ora un test su sottostringa prima dello strip: 0,9 s.
+
+## Non risolto
+- La colonna laterale costa più del Pi di serie: `renderLayoutFrame`/`compositeTuiLine` (codice di Pi) compongono ogni riga con il pannello a ogni frame (4,5 s di `paintBox` su 45 s). Per MB scritto: 7,5 s contro 2,1 di serie, 4,4 con pannello fluttuante.
+- Il tetto di frame (`PI_UI_FPS`, 30) non è stato variato: da misurare.
+- Le percezioni «goffo/lento» non sono ancora riprodotte come numero: l'eco dei tasti in streaming resta sotto i 50 ms in tutte le configurazioni. Da verificare dall'utente nel TUI.
+
+## Tetto di frame (`PI_UI_FPS`) e cache della composizione
+Stesso banco, un run per valore, colonna laterale attiva.
+
+| `PI_UI_FPS` | Eco in streaming (ms) | KB/s | CPU occupata (s su 60) | `doRender` (s) | s di `doRender` per MB |
+|---|---|---|---|---|---|
+| 15 | 10–52 | 9,1 | 15,0 | 8,8 | 21 |
+| 20 | 10–22 | 31,9 | 10,9 | 5,1 | 3,6 |
+| 30 (default) | 25–48 | 39,5 | 16,5 | 9,2 | 5,3 |
+
+Inconcludente: il run a 15 fps ha avuto un flusso di testo molto più lento (417 KB contro 1,5–1,8 MB, quindi per MB sembra il peggiore) e il rumore tra run è dello stesso ordine delle differenze. Nessun effetto chiaro del tetto; il default resta 30. Servono più run per ogni valore.
+
+**Cache della composizione: non fattibile dall'estensione.** `compositeTuiLine`, `paintBox` e `renderLayoutFrame` sono funzioni interne del bundle di Pi (`chunk-4EYXVSA5.js`), non esportate: non si possono avvolgere con una cache senza modificare Pi o il suo bundle (che l'aggiornamento di Pi sovrascrive). Le leve rimaste sono lato estensione: meno frame (da misurare con più run), o un pannello che non invalida il layout a ogni frame (oggi si ricostruisce ogni 300 ms in lavoro e 2 s a riposo, `cachedPanel` in `pi-ui/index.ts`).
+
+## Prototipo da zero sopra RPC (`prototype/rpc-chat/`)
+Stesso driver (`PROG="node prototype/rpc-chat/chat.mjs" python3 eval/ui/drive.py <etichetta> "<prompt>" 45 --model haiku`), stesso prompt, 2 run. Il profilo CPU è del solo client; la CPU del processo `pi --mode rpc` (agente, senza TUI) è letta da `/proc` alla chiusura.
+
+| Run | Eco tasti a riposo (ms) | Eco in streaming (ms) | Frame | CPU client nel profilo (ms su 59 s) | CPU processo RPC (ms) |
+|---|---|---|---|---|---|
+| proto | 0–2 | 0 | 472 | 287 | 3.760 |
+| proto2 | 0–1 | 0–7 | 322 | non letto | 4.160 |
+
+Confronto con Pi TUI (stessa macchina, stesso prompt, una prova per riga): eco 8–48 ms in streaming; CPU occupata del solo processo Pi 12–16 s con la colonna laterale (7,6 s con `PI_UI=off`), di cui `doRender` 5–9 s.
+
+Letture e limiti, senza trarne di più:
+- Il costo di disegno del client è ~0,3 s su 59 s (profilo), due ordini di grandezza sotto `doRender` di Pi (5–9 s) e l'eco dei tasti è ≈1 ms.
+- Il confronto **non è a parità di funzioni**: il prototipo non ha Markdown, pannello, passi compatti, cursore, scorrimento, mouse, immagini; con le stesse funzioni il costo salirebbe di un fattore non misurato.
+- I byte scritti differiscono tra run (225–350 KB contro 0,8–1,8 MB in Pi TUI) perché haiku ha speso quasi tutto in pensiero (nel TUI predefinito il pensiero è nascosto/ridotto): per MB scritto i numeri non sono confrontabili. Serve un prompt senza pensiero o un carico fisso (output registrato) per un confronto onesto.
+- `clientMs` in `result-proto*.cpu.json` (≈5,3 s) include l'avvio di Node e il costo del profiler a 1 ms: non è il costo del disegno. Il profilo dice 287 ms occupati.
+- Verifica funzionale: lo schermo finale (`PROTO_DUMP`) mostra pensiero a capo, riga di stato «○ idle · 589 tok out» e il prompt con i caratteri digitati durante lo streaming.
+
+## Confronto equo: stesso carico, stesse funzioni di base
+Sostituisce la sezione precedente sul prototipo (carico e funzioni non erano confrontabili).
+
+**Carico:** provider `prototype/replay/index.ts`, nessun LLM, nessun pensiero: documento Markdown deterministico (titoli, elenchi, codice, grassetto/corsivo) trasmesso a velocità fissa. Stessa estensione per tutti i bracci. **Prototipo:** ora con Markdown, a capo ANSI, scorrimento, cursore, rotellina (verificato con `eval/ui/scroll-check.py`: 2×PagUp + rotellina → «↑55», modifica «acb»). **Misura:** `eval/ui/drive.py` con `NOPROF=1` (nessun profiler); CPU = utime+stime dell'**intero albero di processi** durante i 45 s di streaming (per il prototipo: client + agente `pi --mode rpc`); eco = tempo fino a un output che contiene il carattere digitato (caratteri rari «ΩΣπ¤§µßø», non prodotti dal flusso). Terminale pty 160×50, WSL2. Script: `eval/ui/fair/run.sh`, `run2.sh`; risultati `eval/ui/fair/*.json`.
+
+Carico alto (2000 car/s, blocchi da 20, 3 run per braccio):
+
+| Braccio | CPU in 45 s (s) | Eco in streaming mediana / max (ms) | Eco a riposo (ms) |
+|---|---|---|---|
+| Pi TUI predefinito | 49,0 / 47,1 / 48,7 | 83 / 186 | 7 |
+| Pi `PI_UI_PANEL=float` | 44,8 / 46,7 / 45,5 | 70 / 249 | 3 |
+| Pi `PI_UI=off` | 40,7 / 44,6 / 45,0 | 20 / 38 | 2 |
+| Prototipo RPC | 14,2 / 15,6 / 18,0 | 9,5 / 38 | 0 |
+
+Carico realistico (300 car/s, blocchi da 5 ≈ 60 eventi/s, 2 run):
+
+| Braccio | CPU in 45 s (s) | Eco in streaming mediana / max (ms) | Eco a riposo (ms) |
+|---|---|---|---|
+| Pi TUI predefinito | 40,5 / 36,4 | 80 / 142 | 5 |
+| Pi `PI_UI=off` | 18,1 / 16,6 | 1 / 9 | 2 |
+| Prototipo RPC | 11,3 / 10,9 | 2 / 4 | 1 |
+
+Cosa dicono i numeri (n = 2–3, un solo pty, una macchina):
+- La parte grossa del costo e dell'eco lenta è **la nostra UI**, non il renderer di Pi: a carico realistico `PI_UI=off` dimezza la CPU (≈17 s contro ≈38 s) e porta l'eco da ≈80 ms a ≈1 ms, a livello del prototipo.
+- Resta un divario `PI_UI=off` → prototipo (≈17 s → ≈11 s a 300 car/s; ≈43 s → ≈16 s a 2000 car/s) e il prototipo manda meno byte (0,8 MB contro 2,8 MB a 300 car/s): non è tutto il motore di Pi, il prototipo ha meno funzioni (niente immagini, caratteri larghi/IME, selezione, passi compatti, pannello, estensioni UI), quindi il divario è un limite superiore del vantaggio.
+- A carico realistico la CPU del prototipo include ≈5,5–6,1 s dell'agente RPC (cumulativa dall'avvio) e ≈2,5–2,8 s del client (include l'avvio di Node).
+- `PI_UI_PANEL=float` non cambia nulla di significativo a questo carico (44,8–46,7 contro 47,1–49,0 s): la colonna laterale non è la causa principale qui.
+- Limiti: eco misurata fino al primo output che contiene il carattere (non il frame completo); il prototipo conta 1 colonna per carattere; carico sintetico (testo senza tool né pensiero); CPU dell'albero include i thread di Node.
+
+Conseguenza pratica: prima di ricostruire la UI, trovare perché `pi-ui` costa ≈20 s di CPU in più a carico realistico (profilo di `PI_UI` acceso contro spento, stesso carico replay). È una correzione di giorni, non di settimane.
+
+## Profilo `pi-ui` acceso contro spento (carico replay 300 car/s, 45 s, `--cpu-prof` 1 ms)
+Una prova per configurazione (`eval/ui/fair/pf*.sh`). Tempo occupato del processo Pi (profilo):
+
+| Configurazione | Occupato (s) | `doRender` incl. (s) | `paintBox` / `compositeTuiLine` incl. (s) |
+|---|---|---|---|
+| `PI_UI=off` | 13,6 | — | — |
+| UI accesa, prima | 53,5 | 33,7 | 19,3 / 18,6 |
+| UI accesa, dopo la correzione | 25,2 | 17,1 | 8,9 / 8,6 |
+
+Causa trovata: `clampThinkingLines` (`pi-ui/src/thinking.ts`) era agganciato a **ogni** componente di **ogni** messaggio e scorreva tutte le righe a ogni frame, anche senza pensiero (4,9 s di tempo proprio, 11 s inclusivi con `child.render`; la lunga cronologia Markdown lo moltiplica, in più il costo di composizione cresce con il numero di righe). Correzione: il clamp si aggancia solo ai messaggi che contengono un blocco `thinking` (test aggiunto, `pi-ui/test/thinking.test.ts`).
+
+Misura senza profiler (CPU albero di processi, stesso carico, 2 run): **24,0 / 28,1 s** contro 36,4 / 40,5 s prima (`PI_UI=off` 16,6 / 18,1 s); eco in streaming mediana ≈ 22 ms (max 61) contro ≈ 80 ms (max 142); eco a riposo 5–28 ms.
+
+Resta: ≈ 11 s di occupato (profilo) o ≈ 8–10 s di CPU rispetto a `PI_UI=off`, quasi tutti in `paintBox`/`compositeTuiLine` (composizione della colonna laterale su tutta la cronologia, codice di Pi non esportato, vedi sopra). `PI_UI_PANEL=float` non l'ha ridotto a carico alto. Limiti: n = 1 nel profilo e 2 nelle misure senza profiler, un solo pty, carico sintetico senza pensiero né tool; un carico con pensiero vero non è stato rimisurato dopo la correzione.
