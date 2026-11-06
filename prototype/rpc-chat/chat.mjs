@@ -317,16 +317,18 @@ const toolLabel = (b) => {
 };
 const diffRows = (patch, width) => {
 	const rows = [];
-	let o = 0, n = 0;
+	let o = 0, n = 0, dels = 0, adds = 0, more = 0;
 	for (const l of patch.split("\n")) {
 		const h = /^@@ -(\d+)(?:,\d+)? \+(\d+)/.exec(l);
 		if (h) { o = +h[1]; n = +h[2]; continue; }
 		if (/^(---|\+\+\+|diff |index )/.test(l)) continue;
-		if (l[0] === "+") rows.push(`${bg("#10281d")}${S.ok}${String(n++).padStart(4)} + ${cut(l.slice(1), width - 8).replace(/\t/g, "  ")}${R}`);
+		if (l[0] === "+" && adds++ >= 7) { more++; n++; }
+		else if (l[0] === "-" && dels++ >= 7) { more++; o++; }
+		else if (l[0] === "+") rows.push(`${bg("#10281d")}${S.ok}${String(n++).padStart(4)} + ${cut(l.slice(1), width - 8).replace(/\t/g, "  ")}${R}`);
 		else if (l[0] === "-") rows.push(`${bg("#2a1119")}${S.err}${String(o++).padStart(4)} - ${cut(l.slice(1), width - 8).replace(/\t/g, "  ")}${R}`);
 		else { o++; n++; }
-		if (rows.length >= 14) { rows.push(`${S.dim}   … diff troncato${R}`); break; }
 	}
+	if (more) rows.push(`${S.dim}   … +${more} righe${R}`);
 	return rows;
 };
 const toolLine = (b, width) => {
