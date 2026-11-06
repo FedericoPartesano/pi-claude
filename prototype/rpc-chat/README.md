@@ -20,3 +20,6 @@ All'avvio il prototipo chiede al terminale una query kitty graphics più DA1; da
 
 ## Immagini
 `/img percorso [testo]` allega un PNG/JPEG al prompt; le immagini nei risultati dei tool (es. `read` su un PNG) vengono mostrate. Kitty o sixel secondo il rilevamento; JPEG e terminali senza immagini: riga segnaposto. Pesi misurati in `eval/ui/REPORT.md` (sezione Immagini).
+
+## Lotto 1 di funzioni (goal: tutte le funzioni, prestazioni alte, via ciò che è pesante e poco utile)
+Aggiunti: suggerimenti 1-4 (blocco `<!--suggerimenti-->`, tasto 1-4 a prompt vuoto), diff colorato dei file per `edit`, link `file:riga` cliccabili (OSC 8, `vscode://file`), campanello a fine turno > 30 s, pensiero apribile (`ctrl+t`), send now (`alt+n`, `ctrl+enter`, invia `/now`). Tolto: sixel (decoder PNG + encoder, 2,5 s CPU su un'immagine grossa, ridisegno a ogni scorrimento); restano le immagini kitty.

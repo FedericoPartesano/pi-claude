@@ -4,7 +4,6 @@
 // key presses redraw at once. Usage: node chat.mjs [pi options, e.g. --model haiku]
 import { spawn, execFile } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
-import { inflateSync } from "node:zlib";
 
 const FPS = Number(process.env.PROTO_FPS) || 30;
 const piArgs = ["--mode", "rpc", "--no-session", ...process.argv.slice(2)];
@@ -31,7 +30,8 @@ const tokens = { out: 0 };
 let input = "", cursor = 0, scroll = 0, frames = 0;
 let model = "", ctxPct, cost, toast = "", dialog, title = "pi";
 const statuses = new Map(), widgets = new Map();
-let expandSteps = false;
+let expandSteps = false, showThinking = false, suggestions = [], queued = 0;
+const SUG = "<!--suggerimenti-->";
 const git = { branch: "", files: [] };
 let commands = [{ name: "quit", description: "esci" }, { name: "clear", description: "pulisci la vista" }, { name: "new", description: "nuova sessione" }, { name: "compact", description: "compatta il contesto" }, { name: "img", description: "invia un'immagine: /img percorso testo" }];
 let projectFiles = [];
@@ -180,7 +180,7 @@ const chart = (spec, width) => {
 };
 
 
-// --- Images: kitty graphics (PNG sent as is, placed by id) or sixel (PNG decoded with zlib, scaled, 3-3-2 palette). No dependencies.
+// --- Images: kitty graphics only (PNG sent once, placed by id). Sixel was dropped: heavy (CPU, bytes on every redraw) and rarely useful.
 let cellW = 9, cellH = 18; // pixels per cell, refined by the terminal's reply to CSI 16 t
 const images = new Map(); // id -> {b64, mime, w, h, sent}
 let imageSeq = 0;
@@ -196,77 +196,6 @@ const jpgSize = (b) => {
 	}
 	return undefined;
 };
-// Decode an 8-bit non-interlaced PNG to RGB bytes; undefined when unsupported.
-const decodePng = (b) => {
-	try {
-		const w = b.readUInt32BE(16), h = b.readUInt32BE(20), depth = b[24], type = b[25];
-		if (depth !== 8 || b[28] !== 0 || ![0, 2, 3, 4, 6].includes(type)) return undefined;
-		const ch = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 }[type];
-		const idat = [];
-		let plte;
-		for (let i = 8; i + 8 <= b.length; ) {
-			const len = b.readUInt32BE(i), name = b.toString("latin1", i + 4, i + 8);
-			if (name === "IDAT") idat.push(b.subarray(i + 8, i + 8 + len));
-			else if (name === "PLTE") plte = b.subarray(i + 8, i + 8 + len);
-			i += 12 + len;
-		}
-		const raw = inflateSync(Buffer.concat(idat)), stride = w * ch;
-		const px = Buffer.alloc(stride * h);
-		for (let y = 0; y < h; y++) {
-			const f = raw[y * (stride + 1)], src = y * (stride + 1) + 1, dst = y * stride;
-			for (let x = 0; x < stride; x++) {
-				const a = x >= ch ? px[dst + x - ch] : 0, up = y ? px[dst - stride + x] : 0, c = x >= ch && y ? px[dst - stride + x - ch] : 0;
-				let v = raw[src + x];
-				if (f === 1) v += a; else if (f === 2) v += up; else if (f === 3) v += (a + up) >> 1;
-				else if (f === 4) { const p = a + up - c, pa = Math.abs(p - a), pb = Math.abs(p - up), pc = Math.abs(p - c); v += pa <= pb && pa <= pc ? a : pb <= pc ? up : c; }
-				px[dst + x] = v & 255;
-			}
-		}
-		const rgb = Buffer.alloc(w * h * 3);
-		for (let i = 0; i < w * h; i++) {
-			const o = i * ch;
-			let r, g, bl, al = 255;
-			if (type === 0) r = g = bl = px[o]; else if (type === 4) { r = g = bl = px[o]; al = px[o + 1]; }
-			else if (type === 3) { r = plte[px[o] * 3]; g = plte[px[o] * 3 + 1]; bl = plte[px[o] * 3 + 2]; }
-			else { r = px[o]; g = px[o + 1]; bl = px[o + 2]; if (type === 6) al = px[o + 3]; }
-			rgb[i * 3] = (r * al) / 255; rgb[i * 3 + 1] = (g * al) / 255; rgb[i * 3 + 2] = (bl * al) / 255;
-		}
-		return { w, h, rgb };
-	} catch { return undefined; }
-};
-const sixel = (img, pw, ph) => {
-	const bytes = Buffer.from(img.b64, "base64");
-	const dec = img.dec ?? (img.dec = decodePng(bytes));
-	if (!dec) return undefined;
-	const scale = Math.min(pw / dec.w, ph / dec.h, 1), W = Math.max(1, Math.round(dec.w * scale)), H = Math.max(1, Math.round(dec.h * scale));
-	const idx = new Uint8Array(W * H);
-	for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-		const o = (Math.floor((y / H) * dec.h) * dec.w + Math.floor((x / W) * dec.w)) * 3;
-		idx[y * W + x] = ((dec.rgb[o] >> 5) << 5) | ((dec.rgb[o + 1] >> 5) << 2) | (dec.rgb[o + 2] >> 6);
-	}
-	const used = new Set(idx);
-	let s = `\x1bPq"1;1;${W};${H}`;
-	for (const c of used) s += `#${c};2;${Math.round((((c >> 5) & 7) / 7) * 100)};${Math.round((((c >> 2) & 7) / 7) * 100)};${Math.round(((c & 3) / 3) * 100)}`;
-	for (let y0 = 0; y0 < H; y0 += 6) {
-		const present = new Set();
-		for (let y = y0; y < Math.min(H, y0 + 6); y++) for (let x = 0; x < W; x++) present.add(idx[y * W + x]);
-		let first = true;
-		for (const c of present) {
-			let row = "", run = 0, prev = -1;
-			const flush = () => { if (run) row += run > 3 ? `!${run}${String.fromCharCode(63 + prev)}` : String.fromCharCode(63 + prev).repeat(run); };
-			for (let x = 0; x < W; x++) {
-				let bits = 0;
-				for (let k = 0; k < 6 && y0 + k < H; k++) if (idx[(y0 + k) * W + x] === c) bits |= 1 << k;
-				if (bits === prev) run++; else { flush(); prev = bits; run = 1; }
-			}
-			flush();
-			s += `${first ? "" : "$"}#${c}${row}`;
-			first = false;
-		}
-		s += "-";
-	}
-	return s + "\x1b\\";
-};
 // Add an image block; returns false when the data is not usable.
 const addImage = (data, mime, kind) => {
 	const bytes = Buffer.from(data, "base64");
@@ -278,7 +207,7 @@ const addImage = (data, mime, kind) => {
 };
 const imageLines = (block, width) => {
 	const img = images.get(block.img);
-	const usable = img.w && ((imageProto === "kitty" && img.mime === "image/png") || (imageProto === "sixel" && img.mime === "image/png"));
+	const usable = img.w && (imageProto === "kitty" && img.mime === "image/png");
 	if (!usable) return [`${S.dim}🖼 ${img.mime} ${img.w ? `${img.w}×${img.h} ` : ""}${img.kb} KB${imageProto === "none" || imageProto === "?" ? " (terminale senza immagini)" : img.mime !== "image/png" ? " (solo PNG)" : ""}${R}`];
 	const maxC = Math.max(4, Math.min(width - 2, 56)), maxR = 18;
 	const scale = Math.min((maxC * cellW) / img.w, (maxR * cellH) / img.h, 1);
@@ -305,10 +234,6 @@ const placeImages = (next, prev) => {
 				img.sent = true;
 			}
 			post += `\x1b_Ga=p,i=${id},p=1,c=${cols},r=${rows},C=1,q=2\x1b\\`;
-		} else {
-			const key = `${cols}x${rows}`; // the encoded sixel is cached per size: redraws only re-send it
-			if (img.sxKey !== key) { img.sxKey = key; img.sx = sixel(img, cols * cellW, rows * cellH) ?? ""; }
-			post += img.sx;
 		}
 	}
 	if (imageProto === "kitty") for (const id of shownKitty) if (!seen.has(id)) post += `\x1b_Ga=d,d=i,i=${id},p=1,q=2\x1b\\`;
@@ -317,8 +242,10 @@ const placeImages = (next, prev) => {
 };
 
 // --- Markdown (line based, streaming friendly).
+const link = (p, l) => `\x1b]8;;vscode://file${p.startsWith("/") ? "" : `${process.cwd()}/`}${p}${l ? `:${l}` : ""}\x07`;
 const inline = (t) =>
 	t
+		.replace(/(^|[\s(])((?:\.{0,2}\/)?[\w.-]+(?:\/[\w.-]+)+\.\w{1,5})(?::(\d+))?(?=[\s),.;:]|$)/g, (_, a, p, l) => `${a}${link(p, l)}${S.cyan}${p}${l ? `:${l}` : ""}${S.text}\x1b]8;;\x07`)
 		.replace(/`([^`]+)`/g, `${fg("#ffb86c")}$1${S.text}`)
 		.replace(/\[([^\]]+)\]\(https?:[^)\s]+\)/g, `${S.u}${S.cyan}$1${R}${S.text}`)
 		.replace(/\*\*([^*]+)\*\*/g, `${S.b}$1\x1b[22m`)
@@ -388,31 +315,45 @@ const toolLabel = (b) => {
 	const arg = a.command ?? a.path ?? a.file_path ?? a.pattern ?? a.query ?? a.url ?? (Object.keys(a).length ? JSON.stringify(a) : "");
 	return `${toolName(b)} ${String(arg).replace(/\s+/g, " ")}`;
 };
+const diffRows = (patch, width) => {
+	const rows = [];
+	let o = 0, n = 0;
+	for (const l of patch.split("\n")) {
+		const h = /^@@ -(\d+)(?:,\d+)? \+(\d+)/.exec(l);
+		if (h) { o = +h[1]; n = +h[2]; continue; }
+		if (/^(---|\+\+\+|diff |index )/.test(l)) continue;
+		if (l[0] === "+") rows.push(`${bg("#10281d")}${S.ok}${String(n++).padStart(4)} + ${cut(l.slice(1), width - 8).replace(/\t/g, "  ")}${R}`);
+		else if (l[0] === "-") rows.push(`${bg("#2a1119")}${S.err}${String(o++).padStart(4)} - ${cut(l.slice(1), width - 8).replace(/\t/g, "  ")}${R}`);
+		else { o++; n++; }
+		if (rows.length >= 14) { rows.push(`${S.dim}   … diff troncato${R}`); break; }
+	}
+	return rows;
+};
 const toolLine = (b, width) => {
 	const mark = b.done === undefined ? `${S.yel}⠿` : b.failed ? `${S.err}✗` : `${S.ok}✓`;
 	const time = b.done === undefined ? `${S.dim} …` : b.ms != null ? `${S.dim} ${b.ms}ms` : "";
 	const label = cut(toolLabel(b), Math.max(10, width - 14));
-	return `${mark}${R} ${S.dim}${label}${R}${time}${R}`;
+	return `${mark}${R} ${S.dim}${label}${R}${time}${R}` + (b.patch ? "\n" + diffRows(b.patch, width).join("\n") : "");
 };
 const blockLines = (block, width) => {
 	const done = block !== open && (block.kind !== "tool" || block.done !== undefined);
 	const hit = cache.get(block);
-	if (done && hit && hit.width === width && hit.len === block.text.length) return hit.lines;
+	if (done && hit && hit.width === width && hit.len === block.text.length && hit.sh === showThinking) return hit.lines;
 	let lines;
-	if (block.kind === "assistant") lines = markdown(block.text, width);
+	if (block.kind === "assistant") lines = markdown(block.text.includes(SUG) ? block.text.slice(0, block.text.indexOf(SUG)).trimEnd() : block.text, width);
 	else if (block.kind === "user") {
 		const inner = hardWrap(block.text, width - 3);
 		lines = inner.map((l) => `${bg(P.userBg)}${S.mag}▌${S.text} ${pad(l, width - 2)}${R}`);
 	} else if (block.kind === "thinking") {
 		const all = wrap(block.text.trim(), width - 3);
 		const words = block.text.split(/\s+/).filter(Boolean).length;
-		const shown = done ? [] : all.slice(-4);
-		const head = done ? `◇ thought · ${words} words` : `◇ thinking · ${words} words${all.length > 4 ? ` (+${all.length - 4} above)` : ""}`;
+		const shown = showThinking ? all : done ? [] : all.slice(-4);
+		const head = done && !showThinking ? `◇ thought · ${words} words (ctrl+t)` : done ? `◇ thought · ${words} words` : `◇ thinking · ${words} words${all.length > 4 ? ` (+${all.length - 4} above)` : ""}`;
 		lines = [`${S.dim}${S.i}${head}${R}`, ...shown.map((l) => `${S.faint}┊ ${S.dim}${S.i}${l}${R}`)];
 	} else if (block.kind === "image") lines = imageLines(block, width);
 	else lines = [toolLine(block, width)];
 	lines.push("");
-	if (done && block.kind !== "image") cache.set(block, { width, len: block.text.length, lines });
+	if (done && block.kind !== "image") cache.set(block, { width, len: block.text.length, sh: showThinking, lines });
 	return lines;
 };
 
@@ -429,7 +370,7 @@ const bodyLines = (width) => {
 		if (expandSteps || group.length <= 2 || live) {
 			const shown = !expandSteps && group.length > 4 ? group.slice(-3) : group;
 			if (shown.length < group.length) body.push(`${S.dim}⠿ ${group.length - shown.length} earlier steps · ctrl+o${R}`);
-			for (const b of shown) body.push(toolLine(b, width));
+			for (const b of shown) body.push(...toolLine(b, width).split("\n"));
 		} else {
 			const counts = new Map();
 			for (const b of group) counts.set(toolName(b), (counts.get(toolName(b)) ?? 0) + 1);
@@ -517,6 +458,7 @@ const frame = () => {
 			extra.push(i === popSel ? `${bg(P.userBg)}${S.cyan}▸ ${pad(cut(text, leftW - 2), leftW - 2)}${R}` : cut(`  ${S.text}${text}`, leftW) + R);
 		});
 	}
+	if (!input && suggestions.length && !dialog) suggestions.forEach((x, i) => extra.push(cut(`${S.mag}${i + 1}${R} ${S.dim}${x}${R}`, leftW)));
 	if (!side) for (const lines of widgets.values()) for (const l of lines) extra.push(cut(l, leftW));
 	const elapsed = running ? Math.floor((Date.now() - startedAt) / 1000) : 0;
 	const bits = [running ? `${S.mag}● working ${elapsed}s` : `${S.ok}●${S.dim} idle`, model, !side && ctxPct != null ? `ctx ${Math.round(ctxPct)}%` : "", !side && cost != null ? `$${cost.toFixed(2)}` : "", ...(side ? [] : statuses.values()), toast ? `${S.warn}${toast}${S.dim}` : "", scroll ? `↑${scroll} (End)` : "", `ctrl+c ${running ? "abort" : "quit"}`].filter(Boolean);
@@ -602,7 +544,7 @@ const onRecord = (r) => {
 		case "tool_execution_end": {
 			open = undefined;
 			const t = blocks.findLast((b) => b.id === r.toolCallId);
-			if (t) { t.failed = !!r.isError; t.done = true; t.ms = r.durationMs; }
+			if (t) { t.failed = !!r.isError; t.done = true; t.ms = r.durationMs; if (r.result?.details?.patch) t.patch = r.result.details.patch; }
 			for (const c of r.result?.content ?? []) if (c.type === "image" && c.data) addImage(c.data, c.mimeType ?? "image/png");
 			break;
 		}
@@ -627,8 +569,12 @@ const onRecord = (r) => {
 			if (dialog && dialog.id === r.id && r.timeout) setTimeout(() => { if (dialog?.id === r.id) { dialog = undefined; schedule(); } }, r.timeout).unref();
 			break;
 		}
-		case "agent_settled":
-			running = false; open = undefined;
+		case "agent_settled": {
+			running = false; open = undefined; queued = 0;
+			const last = blocks.findLast((b) => b.kind === "assistant");
+			suggestions = last && last.text.includes(SUG) ? last.text.slice(last.text.indexOf(SUG) + SUG.length).split("\n").map((l) => /^\s*[-*•]\s+(.+?)\s*$/.exec(l)?.[1]).filter(Boolean).slice(0, 4) : [];
+			if (Date.now() - startedAt > 30000) out.write("\x07"); // long turn over: bell
+		}
 			refreshStats(); refreshGit();
 			break;
 		default:
@@ -671,7 +617,7 @@ const submit = () => {
 	if (!text) return;
 	if (hist[hist.length - 1] !== text) hist.push(text);
 	hIdx = hist.length; draft = "";
-	input = ""; cursor = 0; scroll = 0; popDismissed = "";
+	input = ""; cursor = 0; scroll = 0; popDismissed = ""; suggestions = [];
 	if (/^\/(quit|exit)$/.test(text)) return quit();
 	if (text === "/clear") { blocks.length = 0; open = undefined; previous = []; out.write(`${ESC}2J`); return; }
 	if (text === "/new") { send({ type: "new_session" }); blocks.length = 0; open = undefined; previous = []; out.write(`${ESC}2J`); return; }
@@ -704,7 +650,7 @@ const histMove = (dir) => {
 process.stdin.setRawMode(true);
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (data) => {
-	const re = /\x1b_G([^\x1b]*)\x1b\\|\x1b\[\?([0-9;]*)c|\x1b\[200~([\s\S]*?)\x1b\[201~|\x1b\[<(\d+);\d+;\d+[Mm]|\x1b\[([0-9;]*)([A-Za-z~])|(\x1b[\r\n])|([\s\S])/gu;
+	const re = /\x1b_G([^\x1b]*)\x1b\\|\x1b\[\?([0-9;]*)c|\x1b\[200~([\s\S]*?)\x1b\[201~|\x1b\[<(\d+);\d+;\d+[Mm]|\x1b\[([0-9;]*)([A-Za-z~])|(\x1b[\r\nn])|([\s\S])/gu;
 	let m;
 	while ((m = re.exec(data))) {
 		if (m[1] !== undefined) { // kitty graphics reply to our query: it understands the protocol
@@ -712,7 +658,7 @@ process.stdin.on("data", (data) => {
 			continue;
 		}
 		if (m[2] !== undefined) { // device attributes reply (always the last answer): attribute 4 = sixel
-			if (imageProto === "?") imageProto = m[2].split(";").includes("4") ? "sixel" : "none";
+			if (imageProto === "?") imageProto = "none";
 			sideVer++;
 			continue;
 		}
@@ -738,9 +684,10 @@ process.stdin.on("data", (data) => {
 			else if (k === "5~") scroll += page();
 			else if (k === "6~") scroll = Math.max(0, scroll - page());
 			else if (k === "13;2u" || k === "13;3u") insert("\n");
+			else if (k === "13;5u") { send({ type: "prompt", message: "/now" }); toast = "invio subito…"; }
 			else if (k === "A") { if (items) popSel = (popSel + items.length - 1) % items.length; else if (!input.includes("\n")) histMove(-1); else cursor = Math.max(0, input.lastIndexOf("\n", cursor - 1)); }
 			else if (k === "B") { if (items) popSel = (popSel + 1) % items.length; else if (!input.includes("\n")) histMove(1); else { const n = input.indexOf("\n", cursor); cursor = n < 0 ? input.length : n + 1; } }
-		} else if (m[7] !== undefined) insert("\n");
+		} else if (m[7] !== undefined) { if (m[7][1] === "n") { send({ type: "prompt", message: "/now" }); toast = "invio subito…"; } else insert("\n"); }
 		else {
 			const key = m[8];
 			if (dialogKey(key)) continue;
@@ -756,6 +703,7 @@ process.stdin.on("data", (data) => {
 			else if (key === "\t") { if (items) applyPopup(items[popSel]); }
 			else if (key === "\x1b") popDismissed = input;
 			else if (key === "\x0f") expandSteps = !expandSteps;
+			else if (key === "\x14") showThinking = !showThinking;
 			else if (key === "\x7f") { if (cursor > 0) { input = input.slice(0, cursor - 1) + input.slice(cursor); cursor--; popSel = 0; popDismissed = ""; } }
 			else if (key === "\x15") { input = input.slice(cursor); cursor = 0; }
 			else if (key === "\x0b") input = input.slice(0, cursor);
@@ -764,6 +712,7 @@ process.stdin.on("data", (data) => {
 			else if (key === "\x05") cursor = input.length;
 			else if (key === "\x10") histMove(-1);
 			else if (key === "\x0e") histMove(1);
+			else if (key >= "1" && key <= "4" && !input && suggestions[+key - 1]) { input = suggestions[+key - 1]; cursor = input.length; suggestions = []; }
 			else if (key >= " ") { insert(key); popDismissed = ""; }
 		}
 	}
