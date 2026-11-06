@@ -62,8 +62,10 @@ const plain = (text: string) => text.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
  * counted on the real layout (width, sidebar and padding included), unless it is expanded or already short.
  */
 export function clampThinkingLines(lines: string[], full = expanded): string[] {
-	const at = lines.findIndex((line) => plain(line).includes("◇ thinking ▾"));
-	if (at < 0 || full) return lines;
+	if (full) return lines;
+	// Runs for every chat component on every frame: a cheap substring test first, the ANSI strip only on candidates.
+	const at = lines.findIndex((line) => line.includes("thinking") && plain(line).includes("◇ thinking ▾"));
+	if (at < 0) return lines;
 	const body = lines.slice(at + 1).filter((line) => plain(line).replace(/[│▌┃|>\s]/g, "") !== "");
 	if (body.length <= CLAMP_LINES) return lines;
 	const note = `\x1b[2m · last ${CLAMP_LINES} lines (+${body.length - CLAMP_LINES} above, /thinking opens all)\x1b[22m`;
@@ -193,6 +195,9 @@ export function patchClosedLabel(proto: Patchable): boolean {
 		}
 		const result = original.call(this, message);
 		// Clamp the open thinking blocks after Pi lays them out: only then is the real width known.
+		// Only messages that contain thinking: scanning every line of every other message on every frame is pure cost.
+		const hasThinking = Array.isArray(content) && content.some((part) => part.type === "thinking");
+		if (!hasThinking) return result;
 		for (const child of (this as { contentContainer?: { children?: { render?: (width: number) => string[] }[] } }).contentContainer?.children ?? []) {
 			const render = child.render;
 			if (typeof render !== "function") continue;

@@ -88,8 +88,18 @@ test("patchClosedLabel also clamps the rendered children of the message", () => 
 	const long = ["◇ thinking ▾ · 90 words", "", ...Array.from({ length: 9 }, (_, i) => `│ l${i}`)];
 	const child = { render: () => long };
 	const message = Object.assign(Object.create(proto), { hiddenThinkingLabel: "x", contentContainer: { children: [child] } });
-	message.updateContent({ content: [] });
+	message.updateContent({ content: [{ type: "thinking", thinking: "x" }] });
 	assert.equal(child.render().length, 1 + 1 + 5);
+});
+
+test("patchClosedLabel leaves messages without thinking alone (no per-frame scan)", () => {
+	const proto = { updateContent() {} };
+	patchClosedLabel(proto as never);
+	const render = () => ["a"];
+	const child = { render };
+	const message = Object.assign(Object.create(proto), { hiddenThinkingLabel: "x", contentContainer: { children: [child] } });
+	message.updateContent({ content: [{ type: "text", text: "hi" }] });
+	assert.equal(child.render, render);
 });
 
 test("neuralWave: fixed width, moves between steps; sparkline: shape of the sentences", () => {

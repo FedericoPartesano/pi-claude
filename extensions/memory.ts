@@ -454,6 +454,8 @@ export default function (pi: ExtensionAPI) {
 			try {
 				const marker = join(ctx.cwd, ".pi", "memory-autodream");
 				const lastAutoDream = existsSync(marker) ? readFileSync(marker, "utf8").trim() : undefined;
+				// Already dreamed today: skip reading every session file (a synchronous scan that stalled typing at startup).
+				if (lastAutoDream === today()) return;
 				const since = readState(projectFiles(ctx.cwd).state).lastConsolidated ?? "";
 				let exclude: string | undefined;
 				try {
