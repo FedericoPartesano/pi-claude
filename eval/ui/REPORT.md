@@ -124,3 +124,14 @@ Implementazione: `prototype/rpc-chat/chat.mjs` (`/img percorso testo` e immagini
 | Sixel, stesso PNG | 2515 | 1,8 MB (7 disegni da ~254 KB) | 46–1075 |
 
 Encoder sixel da solo (node, 560×315): primo disegno 313 ms con decodifica (74 ms sul PNG piccolo), poi 54 ms senza cache; con la cache di stringa il ridisegno non ricodifica. Lettura: kitty paga una volta il trasferimento del file; sixel ripaga i byte a ogni ridisegno che tocca le righe dell'immagine (scorrimento, streaming sotto), quindi per immagini grosse è molto più pesante. Il costo CPU non l'ho attribuito a una parte (lettura/base64/scrittura nel pty). Limiti: n=1, sessione con LLM reale (rumore nei frame), immagine sintetica, terminale simulato.
+
+## Rimisura dopo il lotto 1 di funzioni (suggerimenti, diff, link, send now; senza sixel)
+3 run intercalati con `PI_UI=off` come controllo, 300 car/s, 45 s, pty 160×50, replay senza quota. Macchina **non libera** (load 1 min a inizio run 2,5–5,8: RabbitMQ, n8n, altri); il carico di ogni run è in `eval/ui/fair/p6-load-*`. `p6.sh`, `p6-*.json`.
+
+| Run | Prototipo: CPU (s) / eco med (ms) / max | `PI_UI=off`: CPU (s) / eco med / max |
+|---|---|---|
+| 1 (load 5,8 / 4,6) | 12,4 / 3,5 / 8 | 20,3 / 2 / 5 |
+| 2 (load 4,3 / 2,5) | 9,8 / 2 / 3 | 16,6 / 2 / 15 |
+| 3 (load 3,0 / 2,7) | 8,9 / 2 / 3 | 16,1 / 1 / 3 |
+
+Lettura: con carico più basso il prototipo scende a 8,9–9,8 s, come prima del lotto (8,6–12,1). Nessun peggioramento visibile dovuto alle funzioni nuove; il rumore da carico della macchina (fino a +40% sul run 1) è più grande di ogni differenza. Eco a riposo 1 ms. Limiti: n=3, macchina condivisa, carico sintetico (senza diff, link, suggerimenti né immagini: non esercitano le funzioni nuove, solo il percorso di streaming).
