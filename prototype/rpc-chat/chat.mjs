@@ -537,12 +537,6 @@ const sideLines = (w) => {
 		for (const f of tests.failing) L.push(...wrap(`${S.err}· ${R}${S.text}${f}${R}`, w));
 		L.push("");
 	}
-	if (widgets.size) {
-		head("ATTIVITÀ");
-		let first = true;
-		for (const lines of widgets.values()) { if (!first) L.push(""); first = false; for (const l of lines) for (const x of wrapAnsi(`${S.text}${l}${R}`, w, 2)) L.push(x); }
-		L.push("");
-	}
 	head(`GIT ${git.branch ? `${S.cyan}${git.branch}` : ""}`);
 	if (!git.files.length) L.push(`${S.dim}pulito${R}`);
 	for (const f of git.files.slice(0, 8)) L.push(`${f.st.includes("?") ? S.warn : S.ok}${f.st.padEnd(2)}${R} ${S.dim}${cut(f.p, w - 4)}${R}`);
@@ -560,14 +554,49 @@ const sideLines = (w) => {
 		if (usage.h5 != null) L.push(bar("5h", usage.h5 * 100));
 		if (usage.d7 != null) L.push(bar("7g", usage.d7 * 100));
 	}
+	if (widgets.size) {
+		L.push(""); head("ATTIVITÀ");
+		let first = true;
+		for (const lines of widgets.values()) { if (!first) L.push(""); first = false; for (const l of lines) for (const x of wrapAnsi(`${S.text}${l}${R}`, w, 2)) L.push(x); }
+	}
 	const others = [...statuses].filter(([k]) => k !== "intent" && k !== "goal" && k !== "memory" && k !== "archivio" && k !== "claude-code");
 	if (others.length) { L.push(""); head("ESTENSIONI"); for (const [k, v] of others) L.push(...wrap(`${S.dim}${new RegExp(k, "i").test(v) ? v : `${k} ${v}`}${R}`, w)); }
 	return L;
 };
 
 // --- Frame.
+// Loading page: shown until Pi answers its first command (extensions, memory and the Claude bridge load before that).
+let booting = true;
+const bootAt = Date.now();
+const bootFile = join(homedir(), ".pi", "agent", "proto-boot.json");
+// Expected duration = the previous start (the bar is an estimate from it, capped at 95%); the label is what Pi really did last.
+const bootExpect = (() => { try { return Math.max(3000, Number(JSON.parse(readFileSync(bootFile, "utf8")).ms) || 0) || 12000; } catch { return 12000; } })();
+let bootStage = "avvio del processo Pi", bootSeen = 0;
+const bootNote = (what) => { bootSeen++; bootStage = what; };
+const bootVersion = (() => { try { return JSON.parse(readFileSync(join(dirname(process.argv[1] ?? "."), "..", "..", "package.json"), "utf8")).version; } catch { return ""; } })();
+const bootFrame = () => {
+	const W = out.columns || 80, H = out.rows || 24, secs = Math.floor((Date.now() - bootAt) / 1000), frac = Math.min(0.95, (Date.now() - bootAt) / bootExpect);
+	const mid = (t) => `${" ".repeat(Math.max(0, Math.floor((W - width_(t)) / 2)))}${t}`;
+	const body = [
+		`${S.b}${S.cyan}pi${R}${S.dim} · claude code${bootVersion ? ` ${bootVersion}` : ""}${R}`,
+		"",
+		`${S.mag}${ANIM ? SPIN[tickNow() % SPIN.length] : "●"}${R} ${S.text}avvio di Pi${R}${S.dim} · ${secs}s${R}`,
+		`${S.mag}${"▰".repeat(Math.round(frac * 30))}${S.faint}${"▱".repeat(30 - Math.round(frac * 30))}${S.dim} ${Math.round(frac * 100)}%${R}`,
+		`${S.dim}${cut(bootStage, Math.max(10, W - 8))}${secs >= bootExpect / 1000 * 1.5 ? " · più lento del solito" : ""}${R}`,
+		"",
+		`${S.faint}ctrl+c esce${R}`,
+	];
+	const top = Math.max(0, Math.floor((H - body.length) / 2) - 1);
+	const next = Array.from({ length: H }, (_, i) => (i >= top && i < top + body.length ? mid(body[i - top]) : ""));
+	let buf = "";
+	for (let i = 0; i < next.length; i++) if (previous[i] !== next[i]) buf += `${ESC}${i + 1};1H${next[i]}${ESC}K`;
+	previous = next;
+	buf += `${ESC}?25l`;
+	if (buf) out.write(buf);
+};
 let previous = [], toastText = "", toastSeen = "", toastT0 = 0, toastOut = 0;
 const frame = () => {
+	if (booting) return bootFrame();
 	frames++;
 	const W = out.columns || 80, H = out.rows || 24;
 	const side = panelOff ? 0 : W >= 140 ? 36 : W >= 120 ? 34 : W >= 100 ? 28 : 0; // narrower on medium terminals, hidden below 100 columns
@@ -589,7 +618,26 @@ const frame = () => {
 			extra.push(`${bar}${S.b}${S.text}${cut(head[0], iw)}${R}`);
 			for (const l of head.slice(1)) for (const w of wrap(l, iw)) extra.push(`${bar}${S.dim}${w}${R}`);
 			extra.push(bar.trimEnd());
-			if (dialog.method === "select") {
+			if (dialog.method === "sessions") {
+				const hits = sessionHits(dialog);
+				dialog.sel = Math.max(0, Math.min(dialog.sel, hits.length - 1));
+				extra.push(`${bar}${bg(P.userBg)}${S.mag}› ${S.text}${pad(`${dialog.query || `${S.faint}scrivi per cercare`}${S.mag}▌`, iw - 2)}${R}`);
+				extra.push(bar.trimEnd());
+				const room = Math.max(2, Math.floor((H - 16) / 3)), n = hits.length;
+				const from = Math.max(0, Math.min(dialog.sel - Math.floor(room / 2), n - room));
+				if (!n) extra.push(`${bar}${S.dim}nessuna sessione corrisponde${R}`);
+				if (from > 0) extra.push(`${bar}${S.faint}↑ ${from} sopra${R}`);
+				hits.slice(from, from + room).forEach((x, k) => {
+					const on = from + k === dialog.sel, mark = on ? `${S.cyan}▸ ` : "  ";
+					const back = on ? bg(P.userBg) : "";
+					extra.push(`${bar}${back}${mark}${on ? S.b : ""}${S.text}${pad(cut(x.title, iw - 3), iw - 2)}${R}`);
+					extra.push(`${bar}${back}  ${S.dim}${pad(cut(x.sub, iw - 3), iw - 2)}${R}`);
+					extra.push(`${bar}${back}  ${S.faint}${pad(x.last && x.last !== x.title ? cut(`ultima: ${x.last}`, iw - 3) : "", iw - 2)}${R}`);
+				});
+				if (from + room < n) extra.push(`${bar}${S.faint}↓ ${n - from - room} sotto${R}`);
+				extra.push(bar.trimEnd());
+				extra.push(hint(["↑↓ PgUp PgDn", "scegli"], ["⏎", "riprendi"], ["esc", dialog.query ? "pulisci" : "annulla"], [`${n ? dialog.sel + 1 : 0}/${n}`, ""]));
+			} else if (dialog.method === "select") {
 				const room = Math.max(3, H - 14), n = dialog.options.length;
 				const from = Math.max(0, Math.min(dialog.sel - Math.floor(room / 2), n - room));
 				if (from > 0) extra.push(`${bar}${S.faint}↑ ${from} sopra${R}`);
@@ -658,7 +706,7 @@ const frame = () => {
 	const elapsed = running ? Math.floor((Date.now() - startedAt) / 1000) : 0;
 	// Items with a priority (low = kept longest): when the line is too wide the least important drop first.
 	const bitem = [
-		[5, `${bg(P.codeBg)}${S.mag}\x1b[1m PROTOTIPO ${R}`],
+		[5, `${bg(P.codeBg)}${S.mag}\x1b[1m ${bootVersion ? `v${bootVersion} · ` : ""}${cut(process.cwd().split(/[\\/]/).filter(Boolean).pop() || "/", 24)}${git.branch && !side ? ` ⎇ ${cut(git.branch, 20)}` : ""} ${R}`],
 		[0, yolo ? `${S.err}\x1b[1mSENZA PERMESSI${R}${S.dim}` : ""],
 		[0, running ? `${S.mag}${ANIM ? SPIN[tickNow() % SPIN.length] : "●"} working ${elapsed}s${S.dim}${sigAt ? ` · ${Math.max(0, Math.floor((Date.now() - sigAt) / 1000))}s since ${sigWhat}` : ""}${queued ? ` · ${S.warn}${queued} in coda${S.dim}` : ""}${S.mag}` : `${S.ok}●${S.dim} idle`],
 		[1, model],
@@ -755,6 +803,7 @@ execFile("git", ["ls-files", "-co", "--exclude-standard"], { maxBuffer: 32 << 20
 let pending = "";
 child.stdout.setEncoding("utf8");
 child.stdout.on("data", (chunk) => {
+	if (booting && !bootSeen) bootNote("Pi attivo, carico le estensioni");
 	pending += chunk;
 	let at;
 	while ((at = pending.indexOf("\n")) >= 0) {
@@ -792,7 +841,7 @@ const onRecord = (r) => {
 		case "response":
 			sideVer++;
 			if (r.id === "stats" && r.success) { ctxPct = r.data?.contextUsage?.percent ?? ctxPct; cost = r.data?.cost ?? cost; }
-			else if (r.id === "state" && r.success) { model = r.data?.model?.id ?? model; sessionFile = r.data?.sessionFile ?? sessionFile; sessionName = r.data?.sessionName ?? ""; }
+			else if (r.id === "state" && r.success) { if (booting) { booting = false; try { writeFileSync(bootFile, JSON.stringify({ ms: Date.now() - bootAt })); } catch {} previous = []; out.write(`${ESC}2J${ESC}?25h`); } model = r.data?.model?.id ?? model; sessionFile = r.data?.sessionFile ?? sessionFile; sessionName = r.data?.sessionName ?? ""; }
 			else if (r.id === "switch" && r.success) { send({ id: "state", type: "get_state" }); send({ id: "msgs", type: "get_messages" }); }
 			else if (r.id === "msgs" && r.success) loadMessages(r.data?.messages ?? []);
 			else if (r.id === "cmds" && r.success) commands = [...commands, ...(r.data?.commands ?? [])].filter((c, i, a) => a.findIndex((x) => x.name === c.name) === i);
@@ -802,6 +851,7 @@ const onRecord = (r) => {
 		case "extension_ui_request": {
 			const m = r.method;
 			sideVer++;
+			if (booting) bootNote(m === "setStatus" || m === "setWidget" ? `estensione: ${r.statusKey ?? r.widgetKey}` : m === "notify" ? "estensioni: avvisi iniziali" : "estensioni in caricamento");
 			if (m === "select") dialog = { id: r.id, method: m, title: r.title, options: r.options ?? [], sel: 0 };
 			else if (m === "confirm") dialog = { id: r.id, method: m, title: r.title, message: r.message };
 			else if (m === "input" || m === "editor") dialog = { id: r.id, method: m, title: r.title, text: r.prefill ?? r.text ?? "" };
@@ -841,6 +891,18 @@ const dialogKey = (key, csi) => {
 		else if (csi === "5~") d.top = Math.max(0, d.top - page);
 		else if (csi === "6~" || key === " ") d.top = Math.min(Math.max(0, d.lines.length - page), d.top + page);
 		else if (key === "\x1b" || key === "q" || key === "\r") dialog = undefined;
+		return true;
+	}
+	if (d.method === "sessions") {
+		const hits = sessionHits(d), page = Math.max(2, Math.floor(((out.rows || 24) - 16) / 3));
+		if (csi === "A") d.sel = Math.max(0, d.sel - 1);
+		else if (csi === "B") d.sel = Math.min(hits.length - 1, d.sel + 1);
+		else if (csi === "5~") d.sel = Math.max(0, d.sel - page);
+		else if (csi === "6~") d.sel = Math.min(hits.length - 1, d.sel + page);
+		else if (key === "\x1b" && !csi) { if (d.query) { d.query = ""; d.sel = 0; } else dialog = undefined; }
+		else if ((key === "\r" || key === "\n") && hits[d.sel]) { dialog = undefined; d.local(hits[d.sel]); }
+		else if (key === "\x7f") { d.query = d.query.slice(0, -1); d.sel = 0; }
+		else if (key && key >= " " && !csi) { d.query += key; d.sel = 0; }
 		return true;
 	}
 	if (csi === "A" && d.method === "select") d.sel = Math.max(0, d.sel - 1);
@@ -895,32 +957,30 @@ const loadMessages = (msgs) => {
 	}
 	scroll = 0; sideVer++;
 };
+const ago = (ms) => { const m = Math.max(0, Math.round((Date.now() - ms) / 60000)); return m < 1 ? "ora" : m < 60 ? `${m} min fa` : m < 1440 ? `${Math.round(m / 60)} h fa` : m < 10080 ? `${Math.round(m / 1440)} g fa` : new Date(ms).toISOString().slice(0, 10); };
 const listSessions = () => {
 	if (!sessionFile) return [];
 	const dir = dirname(sessionFile);
-	return readdirSync(dir).filter((f) => f.endsWith(".jsonl") && join(dir, f) !== sessionFile).map((f) => ({ f: join(dir, f), t: statSync(join(dir, f)).mtimeMs })).sort((a, b) => b.t - a.t).slice(0, 60).map((x) => {
-		let name = "", first = "";
+	return readdirSync(dir).filter((f) => f.endsWith(".jsonl") && join(dir, f) !== sessionFile).map((f) => { const st = statSync(join(dir, f)); return { f: join(dir, f), t: st.mtimeMs, size: st.size }; }).sort((a, b) => b.t - a.t).slice(0, 40).map((x) => {
+		let name = "", first = "", last = "", msgs = 0;
 		for (const l of readFileSync(x.f, "utf8").split("\n")) {
 			if (!l) continue;
 			let o; try { o = JSON.parse(l); } catch { continue; }
 			if (o.type === "session_info" && o.name) name = o.name;
-			else if (!first && o.type === "message" && o.message?.role === "user") first = textOf(o.message.content).replace(/\s+/g, " ").slice(0, 60);
+			else if (o.type === "message" && o.message?.role === "user") { const t = textOf(o.message.content).replace(/\s+/g, " ").trim(); if (t) { msgs++; if (!first) first = t; last = t; } }
 		}
 		if (!name && !first) return undefined;
-		return { ...x, label: `${new Date(x.t).toISOString().slice(5, 16).replace("T", " ")}  ${name || first}` };
-	}).filter(Boolean).slice(0, 30);
+		return { ...x, title: (name || first).slice(0, 120), first: first.slice(0, 120), last: last.slice(0, 120), msgs, sub: `${ago(x.t)} · ${msgs} ${msgs === 1 ? "domanda" : "domande"} · ${x.size < 1048576 ? `${Math.max(1, Math.round(x.size / 1024))} KB` : `${(x.size / 1048576).toFixed(1)} MB`}`, hay: `${name} ${first} ${last}`.toLowerCase() };
+	}).filter(Boolean);
 };
 const resume = () => {
 	let list;
 	try { list = listSessions(); } catch (e) { toast = `resume: ${e.code ?? e.message}`; return; }
 	if (!list.length) { toast = "nessuna sessione"; return; }
-	dialog = { id: "local", method: "select", title: "Riprendi sessione", options: list.map((x) => x.label), sel: 0, local: (v) => {
-		const hit = list.find((x) => x.label === v);
-		if (!hit) return;
-		send({ id: "switch", type: "switch_session", sessionPath: hit.f });
-	} };
+	dialog = { id: "local", method: "sessions", title: "Riprendi sessione", items: list, query: "", sel: 0, local: (hit) => send({ id: "switch", type: "switch_session", sessionPath: hit.f }) };
 	sideVer++;
 };
+const sessionHits = (d) => { const q = d.query.toLowerCase().split(/\s+/).filter(Boolean); return q.length ? d.items.filter((x) => q.every((w) => x.hay.includes(w))) : d.items; };
 
 // --- Keyboard.
 // /custom-reload: relaunch this client on the same session (new Pi process: extensions, settings, bridge reloaded).
@@ -1053,6 +1113,7 @@ process.stdin.on("data", (data) => {
 		else if (m[7][1] === "s") { panelOff = !panelOff; previous = []; out.write(`${ESC}2J`); } else insert("\n"); }
 		else {
 			const key = m[8];
+			if (booting) { if (key === "\x03") return quit(); continue; } // nothing to type into yet
 			if (dialogKey(key)) continue;
 			const items = popup();
 			if (key === "\x03") {
@@ -1099,7 +1160,7 @@ drawNow();
 // Ask the terminal: kitty graphics query (1x1 pixel) then device attributes; the replies set imageProto.
 out.write("\x1b[16t\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c");
 // 1 s heartbeat only while a turn runs: keeps the working timer and the "no output for Ns" line alive when Pi is silent.
-setInterval(() => { if (running) schedule(); }, ANIM ? 125 : 1000).unref();
+setInterval(() => { if (running || booting) schedule(); }, ANIM ? 125 : 1000).unref();
 setTimeout(() => { if (imageProto === "?") { imageProto = "none"; sideVer++; schedule(); } }, 1500).unref();
 
 send({ id: "state", type: "get_state" });
