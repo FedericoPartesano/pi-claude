@@ -29,7 +29,7 @@ Aggiunti: suggerimenti 1-4 (blocco `<!--suggerimenti-->`, tasto 1-4 a prompt vuo
 
 ## Parità con la UI classica (`pi-ui`)
 Fatto:
-- sessioni: `/resume`, `/name`, `/new`, nome nella barra; `/compact`; usage 5h/7g nella barra.
+- sessioni: `/resume`, `/model [nome]` (selettore o nome parziale, via `set_model` RPC), `/name`, `/new`, nome nella barra; `/compact`; usage 5h/7g nella barra.
 - barra di stato (modello, contesto, costo, intent, goal, loop, team, memoria via `setStatus`); monitor dei test e barra timeout/sleep (widget testuali in RPC, `extensions/widget-compat.ts`).
 - pannello laterale (`alt+s` lo nasconde/mostra; sotto 110 colonne si apre sopra la barra): intent con outcome, goal, piano `todo`, test (ok/falliti e test che falliscono), git, contesto, estensioni.
 - passi dei tool con ✓/✗ e durata, diff colorato di `edit`, pensiero (`ctrl+t`), suggerimenti 1-4, link `file:riga`, campanello a fine turno lungo, send now (`alt+n`).

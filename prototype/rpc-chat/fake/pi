@@ -21,3 +21,12 @@ if (process.env.FAKEPI_BUSY) process.stdin.on("data", (d) => {
 		if (m.type === "prompt") console.log(JSON.stringify(m.streamingBehavior ? { type: "response", command: "prompt", id: m.id, success: true } : { type: "response", command: "prompt", id: m.id, success: false, error: "Agent is already processing. Specify streamingBehavior" }));
 	}
 });
+// $FAKEPI_IDLE=1: answer get_state like an idle Pi (isStreaming false), to test recovery from a lost agent_settled.
+if (process.env.FAKEPI_IDLE) process.stdin.on("data", (d) => {
+	for (const l of String(d).split("\n").filter(Boolean)) {
+		const m = JSON.parse(l);
+		if (m.type === "get_available_models") console.log(JSON.stringify({ type: "response", command: "get_available_models", id: m.id, success: true, data: { models: [{ provider: "claude-code", id: "sonnet", name: "Sonnet" }, { provider: "claude-code", id: "opus", name: "Opus" }, { provider: "claude-code", id: "haiku", name: "Haiku" }] } }));
+		if (m.type === "set_model") console.log(JSON.stringify({ type: "response", command: "set_model", id: m.id, success: true, data: { provider: m.provider, id: m.modelId } }));
+		if (m.type === "get_state") console.log(JSON.stringify({ type: "response", command: "get_state", id: m.id, success: true, data: { isStreaming: process.env.FAKEPI_IDLE === "busy", isCompacting: false, pendingMessageCount: 0, model: { id: "sonnet" } } }));
+	}
+});

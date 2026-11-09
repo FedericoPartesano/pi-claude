@@ -37,6 +37,7 @@ const S = { text: fg(P.text), dim: fg(P.dim), faint: fg(P.faint), mag: fg(P.mag)
 const blocks = []; // {kind: user|assistant|thinking|tool, text, ...}
 let open; // block being streamed
 let running = false, startedAt = 0;
+let lastPoll = 0, pollFrom = 0; // while "working", ask Pi every 3 s whether it really is (a lost agent_settled must not leave the bar stuck)
 const tokens = { out: 0 };
 let input = "", cursor = 0, scroll = 0, frames = 0;
 let sessionFile = "", sessionName = "";
@@ -61,7 +62,7 @@ const statuses = new Map(), widgets = new Map();
 let expandSteps = false, showThinking = false, suggestions = [], queued = 0, sigAt = 0, sigWhat = ""; // sigAt/sigWhat = last Pi signal; queued = follow-ups sent while a turn runs (shown in the status bar)
 const SUG = "<!--suggerimenti-->";
 const git = { branch: "", files: [] };
-let commands = [{ name: "resume", description: "riprendi una sessione" }, { name: "name", description: "nome della sessione" }, { name: "quit", description: "esci" }, { name: "clear", description: "pulisci la vista" }, { name: "new", description: "nuova sessione" }, { name: "compact", description: "compatta il contesto" }, { name: "img", description: "invia un'immagine: /img percorso testo" }];
+let commands = [{ name: "resume", description: "riprendi una sessione" }, { name: "model", description: "cambia modello (/model [nome])" }, { name: "name", description: "nome della sessione" }, { name: "quit", description: "esci" }, { name: "clear", description: "pulisci la vista" }, { name: "new", description: "nuova sessione" }, { name: "compact", description: "compatta il contesto" }, { name: "img", description: "invia un'immagine: /img percorso testo" }];
 let projectFiles = [];
 const hist = []; let hIdx = 0, draft = "";
 let popSel = 0, popDismissed = "";
@@ -554,10 +555,11 @@ const sideLines = (w) => {
 		if (usage.h5 != null) L.push(bar("5h", usage.h5 * 100));
 		if (usage.d7 != null) L.push(bar("7g", usage.d7 * 100));
 	}
-	if (widgets.size) {
+	const wk = [...widgets].filter(([k]) => k !== "btw");
+	if (wk.length) {
 		L.push(""); head("ATTIVITÀ");
 		let first = true;
-		for (const lines of widgets.values()) { if (!first) L.push(""); first = false; for (const l of lines) for (const x of wrapAnsi(`${S.text}${l}${R}`, w, 2)) L.push(x); }
+		for (const [, lines] of wk) { if (!first) L.push(""); first = false; for (const l of lines) for (const x of wrapAnsi(`${S.text}${l}${R}`, w, 2)) L.push(x); }
 	}
 	const others = [...statuses].filter(([k]) => k !== "intent" && k !== "goal" && k !== "memory" && k !== "archivio" && k !== "claude-code");
 	if (others.length) { L.push(""); head("ESTENSIONI"); for (const [k, v] of others) L.push(...wrap(`${S.dim}${new RegExp(k, "i").test(v) ? v : `${k} ${v}`}${R}`, w)); }
@@ -757,18 +759,32 @@ const frame = () => {
 		});
 	}
 	if (!input && suggestions.length && !dialog) {
-		// Badges side by side, one equal-width cell each (static text, drawn only while the prompt is empty).
-		const n = Math.min(3, suggestions.length), cell = Math.floor((leftW - (n - 1)) / n);
-		const cells = suggestions.slice(0, n).map((x) => {
-			const rows = wrapAnsi(x, cell - 3);
-			if (rows.length > 2) rows.length = 2, rows[1] = cut(`${rows[1]}…`, cell - 3);
+		// Cards side by side (saves rows): equal width, number chip, text wrapped on up to 3 rows with a closing "…"; the
+		// background fills the whole cell. Static strings, drawn only while the prompt is empty.
+		const n = Math.min(3, suggestions.length), total = leftW - (n - 1), min = Math.min(16, Math.floor(total / n));
+		// Widths follow the text length (long ones get more room), the row always spans the whole width.
+		const lens = suggestions.slice(0, n).map((x) => Math.max(x.length, 8)), sum = lens.reduce((a, b) => a + b, 0);
+		const widths = lens.map((l) => Math.max(min, Math.floor((total * l) / sum)));
+		for (let k = 0; widths.reduce((a, b) => a + b, 0) !== total; k++) widths[k % n] += widths.reduce((a, b) => a + b, 0) < total ? 1 : (widths[k % n] > min ? -1 : 0);
+		const cells = suggestions.slice(0, n).map((x, i) => {
+			const inner = widths[i] - 5, rows = wrapAnsi(x, inner);
+			if (rows.length > 3) { rows.length = 3; rows[2] = `${cut(rows[2], inner - 1)}…`; }
 			return rows;
 		});
-		for (let r = 0; r < Math.max(...cells.map((c) => c.length)); r++)
-			extra.push(cells.map((c, i) => `${bg(P.userBg)}${S.mag}${r ? " " : i + 1} ${S.dim}${pad(c[r] ?? "", cell - 2)}${R}`).join(" "));
+		const height = Math.max(...cells.map((c) => c.length));
+		for (let r = 0; r < height; r++)
+			extra.push(cells.map((c, i) => `${bg(P.userBg)}${r ? "   " : ` ${S.mag}${i + 1}${S.text} `}${S.text}${pad(c[r] ?? "", widths[i] - 3)}${R}`).join(" "));
 	}
 	if (attached.length) extra.push(`${S.mag}📎 ${R}${S.text}${attached.map((a) => `${a.name} ${Math.round(a.data.length * 0.75 / 1024)}KB`).join(" · ")}${R}${S.dim}  (invio le manda · ctrl+u a prompt vuoto le toglie)${R}`);
 	// Narrow terminals: only the timeout bar stays above the prompt; other widgets (memory progress…) live in the panel (alt+s).
+	// /btw answer: a card in the chat column (never in the panel, where it was clipped or hidden), shown until /btw or esc on an empty prompt.
+	if (widgets.has("btw")) {
+		const bl = [];
+		for (const l of widgets.get("btw")) bl.push(...wrapAnsi(`${S.text}${l}${R}`, leftW - 2, 2));
+		const room = Math.max(4, Math.floor(H * 0.4)), shown = bl.length > room ? [...bl.slice(0, room - 1), `${S.dim}… (${bl.length - room + 1} righe in più)${R}`] : bl;
+		extra.push(`${S.mag}${"─".repeat(Math.max(0, leftW))}${R}`);
+		for (const l of shown) extra.push(`${S.mag}▍${R} ${pad(l, leftW - 2)}`);
+	}
 	if (!side && widgets.has("timeout-bar")) for (const l of widgets.get("timeout-bar")) extra.push(cut(l, leftW));
 	if (!side && W < 100 && panelOff) { for (const l of sideLines(leftW - 1).slice(0, 14)) extra.push(cut(l, leftW)); }
 	if (running && !side) {
@@ -779,12 +795,13 @@ const frame = () => {
 	// Notices (startup warnings, errors) get their own row above the prompt, never inside the status bar.
 	// Toast slide: enters/leaves in ~180 ms by revealing the card row by row from the bottom; frames are scheduled only while it moves.
 	const nowMs = Date.now();
-	if (toast !== toastSeen) { if (toast) { toastText = toast; toastT0 = nowMs; toastOut = 0; } else if (toastText) toastOut = nowMs; toastSeen = toast; }
+	if (toast !== toastSeen) { if (toast) { toastText = toast; toastT0 = nowMs; toastOut = 0; const shown = toast; setTimeout(() => { if (toast === shown) { toast = ""; schedule(); } }, 8000).unref(); } else if (toastText) toastOut = nowMs; toastSeen = toast; }
 	let toastP = 1;
 	if (toastText) {
 		toastP = ANIM ? Math.min(1, (nowMs - (toastOut || toastT0)) / 180) : 1;
 		if (toastOut) { toastP = ANIM ? 1 - toastP : 0; if (toastP <= 0) toastText = ""; }
-		if (toastP > 0 && toastP < 1 && typeof schedule === "function") schedule();
+		// Keep frames coming until the slide ends, including its first frame (entry p=0, exit p=1).
+		if (toastText && (toastOut ? toastP > 0 : toastP < 1) && typeof schedule === "function") schedule();
 	}
 	const card = toastText && W >= 80;
 	if (toast && !card) extra.push(cut(`${S.warn}⚠ ${toast}${R}`, leftW));
@@ -862,6 +879,22 @@ const frame = () => {
 	if (buf) out.write(buf);
 };
 
+// /model [name]: no argument opens a picker, otherwise the first model whose id/name contains the text is selected.
+let modelCmd = "";
+function modelsReply(r) {
+	const list = r.data?.models ?? [];
+	if (!r.success || !list.length) { toast = "nessun modello disponibile"; return; }
+	const label = (m) => `${m.id}${m.name && m.name !== m.id ? ` · ${m.name}` : ""}${m.id === model ? "  ◂" : ""}`;
+	const set = (m) => send({ id: "setmodel", type: "set_model", provider: m.provider, modelId: m.id });
+	if (modelCmd) {
+		const q = modelCmd.toLowerCase();
+		const hit = list.find((m) => m.id.toLowerCase() === q) ?? list.find((m) => `${m.id} ${m.name ?? ""}`.toLowerCase().includes(q));
+		if (hit) set(hit); else toast = `modello non trovato: ${modelCmd}`;
+		return;
+	}
+	const opts = list.map(label);
+	dialog = { id: "local", method: "select", title: "Modello", options: opts, sel: Math.max(0, list.findIndex((m) => m.id === model)), local: (v) => { const m = list[opts.indexOf(v)]; if (m) set(m); } };
+}
 // Set by /custom-reload: this process only waits for the new client, it must not paint over it any more.
 let restarting = false;
 let timer, lastDraw = 0;
@@ -930,11 +963,14 @@ const onRecord = (r) => {
 		case "response":
 			sideVer++;
 			if (r.id === "stats" && r.success) { ctxPct = r.data?.contextUsage?.percent ?? ctxPct; cost = r.data?.cost ?? cost; }
-			else if (r.id === "state" && r.success) { if (booting) { booting = false; try { writeFileSync(bootFile, JSON.stringify({ ms: Date.now() - bootAt })); } catch {} previous = []; out.write(`${ESC}2J${ESC}?25h`); } model = r.data?.model?.id ?? model; sessionFile = r.data?.sessionFile ?? sessionFile; sessionName = r.data?.sessionName ?? ""; }
+			else if (r.id === "state" && r.success) { if (booting) { booting = false; try { writeFileSync(bootFile, JSON.stringify({ ms: Date.now() - bootAt })); } catch {} previous = []; out.write(`${ESC}2J${ESC}?25h`); } if (running && r.data && r.data.isStreaming === false && !r.data.isCompacting && !r.data.pendingMessageCount && Date.now() - Math.max(startedAt, pollFrom) > 2500) { running = false; queued = 0; open = undefined; } // Pi is idle but we never saw agent_settled: unstick
+				model = r.data?.model?.id ?? model; sessionFile = r.data?.sessionFile ?? sessionFile; sessionName = r.data?.sessionName ?? ""; }
+			else if (r.id === "models") modelsReply(r);
+			else if (r.command === "set_model" || r.id === "setmodel") { if (r.success) { model = r.data?.id ?? model; toast = `modello: ${model}`; } else toast = `errore: ${r.error ?? "modello non cambiato"}`; }
 			else if (r.id === "switch" && r.success) { send({ id: "state", type: "get_state" }); send({ id: "msgs", type: "get_messages" }); }
 			else if (r.id === "msgs" && r.success) loadMessages(r.data?.messages ?? []);
 			else if (r.id === "cmds" && r.success) commands = [...commands, ...(r.data?.commands ?? [])].filter((c, i, a) => a.findIndex((x) => x.name === c.name) === i);
-			else if (r.command === "prompt" && r.success === false && /streamingBehavior/.test(r.error ?? "") && sentPrompts.has(r.id)) { running = true; queued++; send({ ...sentPrompts.get(r.id), id: `${r.id}r`, streamingBehavior: "followUp" }); }
+			else if (r.command === "prompt" && r.success === false && /streamingBehavior/.test(r.error ?? "") && sentPrompts.has(r.id)) { running = true; pollFrom = Date.now(); queued++; send({ ...sentPrompts.get(r.id), id: `${r.id}r`, streamingBehavior: "followUp" }); }
 			else if (r.command === "prompt" && r.success === false) toast = `errore: ${r.error ?? "prompt rifiutato"}`;
 			break;
 		case "extension_ui_request": {
@@ -1122,7 +1158,9 @@ const submit = () => {
 	if (text === "/clear") { blocks.length = 0; open = undefined; previous = []; out.write(`${ESC}2J`); return; }
 	if (text === "/new") { send({ type: "new_session" }); sessionName = ""; send({ id: "state", type: "get_state" }); blocks.length = 0; open = undefined; previous = []; out.write(`${ESC}2J`); return; }
 	if (text === "/resume") { resume(); return; }
-	if (text === "/custom-reload") { restart(); return; }
+	const np0 = /^\/model(?:\s+(.+))?$/.exec(text);
+	if (np0) { modelCmd = np0[1]?.trim() ?? ""; send({ id: "models", type: "get_available_models" }); return; }
+	if (text === "/custom-reload") { if (running) { toast = "reload rifiutato: Pi sta lavorando (ctrl+c per fermarlo, poi riprova)"; schedule(); return; } restart(); return; }
 	let np;
 	if ((np = /^\/no-permissions\s*(on|off)?$/i.exec(text))) {
 		yolo = np[1] ? np[1].toLowerCase() === "on" : !yolo;
@@ -1216,7 +1254,7 @@ process.stdin.on("data", (data) => {
 				else submit();
 			} else if (key === "\n") insert("\n");
 			else if (key === "\t") { if (items) applyPopup(items[popSel]); }
-			else if (key === "\x1b") popDismissed = input;
+			else if (key === "\x1b") { popDismissed = input; if (!input && widgets.has("btw")) { widgets.delete("btw"); sideVer++; } }
 			else if (key === "\x0f") expandSteps = !expandSteps;
 			else if (key === "\x14") showThinking = !showThinking;
 			else if (key === "\x7f") { if (cursor > 0) { input = input.slice(0, cursor - 1) + input.slice(cursor); cursor--; popSel = 0; popDismissed = ""; } }
@@ -1250,7 +1288,7 @@ drawNow();
 // Ask the terminal: kitty graphics query (1x1 pixel) then device attributes; the replies set imageProto.
 out.write("\x1b[16t\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c");
 // 1 s heartbeat only while a turn runs: keeps the working timer and the "no output for Ns" line alive when Pi is silent.
-setInterval(() => { if (running || booting) schedule(); }, ANIM ? 125 : 1000).unref();
+setInterval(() => { if (running && Date.now() - lastPoll > 3000) { lastPoll = Date.now(); send({ id: "state", type: "get_state" }); } if (running || booting) schedule(); }, ANIM ? 125 : 1000).unref();
 setTimeout(() => { if (imageProto === "?") { imageProto = "none"; sideVer++; schedule(); } }, 1500).unref();
 
 send({ id: "state", type: "get_state" });
