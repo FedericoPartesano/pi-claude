@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.25.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.24.0...pi-claude-v0.25.0) (2026-11-09)
+
+
+### Features
+
+* /auto, auto mode con un processo figlio per passo su branch auto/&lt;slug&gt; in una worktree ([d66e0bf](https://github.com/FedericoPartesano/pi-claude/commit/d66e0bf9a8236ee5ff935d6e4593c67b0c0b2d63))
+
+
+### Bug Fixes
+
+* suggerimenti RPC sempre presenti anche con estensioni che riscrivono il system prompt ([f93feda](https://github.com/FedericoPartesano/pi-claude/commit/f93feda4235fe43e604dd1db325b465537fcef9c))
+
 ## [0.24.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.23.0...pi-claude-v0.24.0) (2026-11-09)
 
 
