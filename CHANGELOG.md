@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.21.0...pi-claude-v0.22.0) (2026-11-09)
+
+
+### Features
+
+* prototipo con pagina di caricamento e barra di avanzamento, picker /resume con ricerca, badge versione e cartella, ATTIVITÀ sopra ESTENSIONI ([b801d5c](https://github.com/FedericoPartesano/pi-claude/commit/b801d5c36f10aad140119f9fc30425de9e5f24a3))
+
 ## [0.21.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.20.0...pi-claude-v0.21.0) (2026-11-09)
 
 
