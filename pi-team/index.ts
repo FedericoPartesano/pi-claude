@@ -253,7 +253,7 @@ export default function (pi: ExtensionAPI) {
 				if (ctx.hasUI) ctx.ui.setStatus("team", withViewHint(boardStatus(board)));
 			};
 			let report: Awaited<ReturnType<typeof runTeamPlan>>;
-			if (ctx.hasUI) teamLog.attach(ctx.ui as never);
+			if (ctx.hasUI) teamLog.attach(ctx.ui as never, ctx.mode);
 			if (feed.running === 0) feed.reset();
 			try {
 				report = await runTeamPlan(plan, {
@@ -370,7 +370,7 @@ export default function (pi: ExtensionAPI) {
 				if (ctx.hasUI) ctx.ui.setStatus("team", withViewHint(boardStatus(board)));
 			};
 			let report: Awaited<ReturnType<typeof runTeamPlan>>;
-			if (ctx.hasUI) teamLog.attach(ctx.ui as never);
+			if (ctx.hasUI) teamLog.attach(ctx.ui as never, ctx.mode);
 			if (feed.running === 0) feed.reset();
 			try {
 				report = await runTeamPlan(plan, {

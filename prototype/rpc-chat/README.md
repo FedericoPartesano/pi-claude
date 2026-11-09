@@ -1,6 +1,6 @@
 # Prototipo: chat da zero sopra `pi --mode rpc`
 
-`node prototype/rpc-chat/chat.mjs [--model haiku]` — un file, nessuna dipendenza, niente `pi-tui`. Avvia `pi --mode rpc --no-session` e disegna da sé la chat nel terminale (schermo alternativo).
+`node prototype/rpc-chat/chat.mjs [--model haiku]` — un file, nessuna dipendenza, niente `pi-tui`. Avvia `pi --mode rpc` (sessioni salvate) e disegna da sé la chat nel terminale (schermo alternativo).
 
 Cosa fa: prompt (invio), streaming di testo e pensiero, riga per i tool, abort (ctrl+c durante il lavoro), prompt in coda con `followUp`, uscita (ctrl+c a riposo, ctrl+d). Disegno differenziale per riga, frame in streaming limitati a `PROTO_FPS` (30), tasti ridisegnati subito, righe a capo dei blocchi chiusi in cache.
 
@@ -8,7 +8,7 @@ Aggiunti per il confronto equo: Markdown (titoli, elenchi, citazioni, blocchi di
 
 Seconda tappa: caratteri larghi ed emoji (2 colonne), pensiero live (ultime 4 righe, poi una riga «thought · N words»), passi dei tool con ✓/✗ e durata, riga di stato con modello, contesto %, costo e le voci `setStatus` delle estensioni (intent, goal, memoria…), `setWidget` (testo) sopra la riga di stato, `notify` come avviso di 5 s, `setTitle`, incolla tra parentesi (`bracketed paste`, righe multiple), dialog `select`/`confirm`/`input`/`editor` delle estensioni (frecce+invio, y/n, esc). Provato con Pi vero e haiku: `eval/ui/proto-real.py` (tool ✓, stato) e `eval/ui/proto-dialog.py` (il dialog dei comandi pericolosi appare, «No» blocca il comando; serve `PI_YOLO=0`).
 
-Cosa NON fa: caratteri larghi/IME (ogni carattere conta 1 colonna), immagini, selezione/copia dedicata, pannello, barra di stato dei progetti, passi compatti, estensioni UI (`custom`, `setFooter`, `setWidget` con componenti sono no-op in RPC), dialog `extension_ui_request`.
+Cosa non fa: vedi l'elenco di parità qui sotto.
 
 Variabili solo per misura: `PROTO_CPU=<file>` (CPU di client e processo RPC), `PROTO_DUMP=<file>` (ultimo schermo).
 Misure: `eval/ui/REPORT.md`.
@@ -23,3 +23,27 @@ All'avvio il prototipo chiede al terminale una query kitty graphics più DA1; da
 
 ## Lotto 1 di funzioni (goal: tutte le funzioni, prestazioni alte, via ciò che è pesante e poco utile)
 Aggiunti: suggerimenti 1-4 (blocco `<!--suggerimenti-->`, tasto 1-4 a prompt vuoto), diff colorato dei file per `edit`, link `file:riga` cliccabili (OSC 8, `vscode://file`), campanello a fine turno > 30 s, pensiero apribile (`ctrl+t`), send now (`alt+n`, `ctrl+enter`, invia `/now`). Tolto: sixel (decoder PNG + encoder, 2,5 s CPU su un'immagine grossa, ridisegno a ogni scorrimento); restano le immagini kitty.
+
+## Come si lancia
+È la UI predefinita: `pi` (funzione di shell di `install.sh`; PowerShell su Windows via `scripts/setup.mjs`) esegue `bin/pi.mjs`, che avvia questa chat. `pi --classic` o `PI_UI_CLASSIC=1` danno la UI classica con `pi-ui` (con `/custom-reload`). Restano classici gli usi non interattivi (`-p`, `--mode`, `--version`, sottocomandi come `install`) e gli stream non TTY. `-d` = `PI_YOLO=1`.
+
+## Parità con la UI classica (`pi-ui`)
+Fatto:
+- sessioni: `/resume`, `/name`, `/new`, nome nella barra; `/compact`; usage 5h/7g nella barra.
+- barra di stato (modello, contesto, costo, intent, goal, loop, team, memoria via `setStatus`); monitor dei test e barra timeout/sleep (widget testuali in RPC, `extensions/widget-compat.ts`).
+- pannello laterale (`alt+s` lo nasconde/mostra; sotto 110 colonne si apre sopra la barra): intent con outcome, goal, piano `todo`, test (ok/falliti e test che falliscono), git, contesto, estensioni.
+- passi dei tool con ✓/✗ e durata, diff colorato di `edit`, pensiero (`ctrl+t`), suggerimenti 1-4, link `file:riga`, campanello a fine turno lungo, send now (`alt+n`).
+- immagini (kitty): risultati dei tool, `/img`, incolla di un percorso PNG/JPEG o `alt+v` dagli appunti (anteprima 📎 sopra il prompt, `ctrl+u` a prompt vuoto le toglie).
+- completamento `/comandi` e `@file`, Markdown, tabelle, grafici, incolla multiriga.
+- dialog `select`/`confirm`/`input`/`editor`; `/bugreport` come serie di dialog; `/archivio [id|testo]` come testo in un pager.
+
+Scartato, con motivo:
+- animazioni di intro, effetti, miniature con worker: pesanti, poca utilità (obiettivo CPU ≤ 1/4).
+- sixel: 2,5 s di CPU su un'immagine grossa.
+- `/custom-reload`: serve il `pi` classico; il prototipo si rilancia a mano.
+- `alt+a` (picker modale) e `/pick`: sostituiti dal completamento `@file`.
+- colonna browser, widget voce, log del team nella sidebar: componenti `custom()`, inesistenti in RPC; restano gli stati testuali.
+- `alt+b` per `/bugreport`: usa il comando.
+- notifica toast di Windows: resta il campanello.
+- `/archivio` a schermo intero con ricerca interattiva: `custom()` assente in RPC; sostituito da riepilogo e ricerca testuale.
+- pannello float (`PI_UI_PANEL=float`): il pannello è fisso.

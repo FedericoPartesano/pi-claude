@@ -371,7 +371,7 @@ export default function (pi: ExtensionAPI) {
 			if (parsed.kind === "error") return ctx.ui.notify(`/loop: ${parsed.message}`, "warning");
 			if (parsed.kind === "status") return ctx.ui.notify(state ? `${renderLoopStatus(state)} — ${state.prompt}` : "Nessun loop attivo.", "info");
 			if (parsed.kind === "stop") return state ? stop("richiesto dall'utente") : ctx.ui.notify("Nessun loop attivo.", "info");
-			if (ctx.mode !== "tui") return ctx.ui.notify("/loop funziona solo nella TUI interattiva.", "warning");
+			if (ctx.mode !== "tui" && ctx.mode !== "rpc") return ctx.ui.notify("/loop funziona solo nella TUI interattiva.", "warning");
 			if (state) return ctx.ui.notify("C'è già un loop attivo: /loop stop per fermarlo.", "warning");
 
 			const now = Date.now();

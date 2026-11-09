@@ -73,6 +73,19 @@ const writeJson = (file, value) => {
 	writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
 };
 
+/** Windows: a `pi` function in the PowerShell profile that starts bin/pi.mjs (new frontend; `pi --classic` = classic UI). */
+export function powerShellBlock(repo) {
+	return `# pi-claude: new chat frontend by default (pi --classic for the classic UI)\nfunction pi { node "${join(repo, "bin", "pi.mjs")}" @args }\n`;
+}
+function installPowerShell(repo) {
+	const dir = join(homedir(), "Documents", "PowerShell");
+	const profile = join(dir, "Microsoft.PowerShell_profile.ps1");
+	const text = existsSync(profile) ? readFileSync(profile, "utf8") : "";
+	if (text.includes("bin\\pi.mjs") || text.includes("bin/pi.mjs")) return;
+	mkdirSync(dir, { recursive: true });
+	writeFileSync(profile, `${text}${text && !text.endsWith("\n") ? "\n" : ""}${powerShellBlock(repo)}`);
+}
+
 function main(argv) {
 	const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 	const agentDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
@@ -84,6 +97,7 @@ function main(argv) {
 	writeJson(settingsFile, migrateSettings(applyDefaults(readJson(settingsFile)), { source }));
 	const keysFile = join(agentDir, "keybindings.json");
 	writeJson(keysFile, applyKeybindings(readJson(keysFile)));
+	if (process.platform === "win32") installPowerShell(repo);
 	console.log(`pi-claude: impostazioni pronte (pacchetto: ${source})`);
 }
 

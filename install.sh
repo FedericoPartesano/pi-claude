@@ -141,8 +141,14 @@ if [ -f "$HOME/.bashrc" ] && ! grep -qF "pi-ui/shell/pi-custom-reload.sh" "$HOME
   ok "/custom-reload: funzione pi aggiunta a ~/.bashrc (apri un nuovo terminale)"
 fi
 
+# zsh (macOS): the same function.
+if [ -f "$HOME/.zshrc" ] && ! grep -qF "pi-ui/shell/pi-custom-reload.sh" "$HOME/.zshrc"; then
+  printf '\n%s\n' "$LOOP_LINE" >> "$HOME/.zshrc"
+  ok "funzione pi aggiunta a ~/.zshrc (apri un nuovo terminale)"
+fi
+
 step "Fatto"
-echo "    pi          → Pi minimale su claude-code/sonnet (abbonamento Claude)"
+echo "    pi          → nuova chat (prototype/rpc-chat) su claude-code/sonnet; pi --classic o PI_UI_CLASSIC=1 → UI classica con pi-ui"
 [ "$EXTRAS" = 1 ] && echo "    pi-full     → + web, todo, domande, subagent, team (pi-full --pick: scegli prima il progetto)"
 echo "    Alt+A       → inserisci file o cartelle del progetto nel prompt (anche /pick)"
 echo "    chat        → Neon Night: barra di stato, passi compatti, /img, suggerimenti 1-4, Alt+S o /panel (PI_UI=off per spegnerla)"

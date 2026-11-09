@@ -58,6 +58,23 @@ export default function (pi: ExtensionAPI) {
 	let suggested: string | undefined;
 
 	const openForm = async (ctx: ExtensionContext, start: Partial<BugForm> = {}) => {
+		if (ctx.mode === "rpc") {
+			// No custom modal over RPC: the same form as a sequence of dialogs.
+			const title = await ctx.ui.input("Bug: titolo", start.title ?? "");
+			if (!title) return;
+			const happened = (await ctx.ui.input("Cosa è successo", start.happened ?? "")) ?? "";
+			const expected = (await ctx.ui.input("Cosa ti aspettavi", start.expected ?? "")) ?? "";
+			const severity = (await ctx.ui.select("Gravità", ["fastidio", "blocca", "piccolo"])) as BugForm["severity"] | undefined;
+			if (!severity) return;
+			const redact = await ctx.ui.confirm("Oscurare segreti e percorsi?", "Consigliato prima dell'invio");
+			const send = await ctx.ui.confirm("Inviare al server dei bug?", "No = solo salvataggio in ~/.pi/bugs/");
+			try {
+				await report(ctx, { title, happened, expected, severity, redact, send });
+			} catch (error) {
+				ctx.ui.notify(`Bug non salvato: ${(error as Error).message}`, "error");
+			}
+			return;
+		}
 		if (ctx.mode !== "tui") return ctx.ui.notify("/bugreport serve il terminale interattivo.", "warning");
 		const { BugFormModal } = await import("../pi-ui/src/bug-form.ts");
 		const config = uploadConfig(process.env, homedir());

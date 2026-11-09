@@ -124,3 +124,15 @@ test("archiveOverview lists archived entries and the recalls with their hits", (
 	assert.equal(overview.injections.length, 1);
 	assert.equal(overview.injections[0].hits[0].z, 5.1);
 });
+
+test("archiveText summarises entries and injections for clients without the full-screen view", async () => {
+	const { archiveText } = await import("./archivio.ts");
+	const text = archiveText({
+		entries: [{ id: "abcdef123456", role: "user", label: "user", chars: 40, preview: "ciao mondo", injected: 2 }],
+		injections: [{ at: "", prompt: "dove sta il file?", method: "semantic", hits: [{ id: "abcdef123456", label: "x" }], text: "" }],
+		compactions: 1,
+	});
+	assert.match(text, /1 voci, 1 compattazioni, 1 iniezioni/);
+	assert.match(text, /sem #abcdef123456 ← dove sta il file\?/);
+	assert.match(text, /#abcdef12 user 40c ×2  ciao mondo/);
+});

@@ -1,0 +1,15 @@
+#!/usr/bin/env node
+// Fake `pi --mode rpc` for pty tests: replays JSON lines from $FAKEPI_SCRIPT (one event per line), then exits with $FAKEPI_EXIT.
+import { readFileSync } from "node:fs";
+const file = process.env.FAKEPI_SCRIPT;
+if (file) for (const line of readFileSync(file, "utf8").split("\n").filter(Boolean)) console.log(line);
+if (process.env.FAKEPI_ERR) console.error(process.env.FAKEPI_ERR);
+if (process.env.FAKEPI_EXIT) setTimeout(() => process.exit(Number(process.env.FAKEPI_EXIT)), 800);
+else setInterval(() => {}, 1e6);
+// While $FAKEPI_BUSY=1, reject prompts without streamingBehavior like real Pi, and accept the follow-up retry.
+if (process.env.FAKEPI_BUSY) process.stdin.on("data", (d) => {
+	for (const l of String(d).split("\n").filter(Boolean)) {
+		const m = JSON.parse(l);
+		if (m.type === "prompt") console.log(JSON.stringify(m.streamingBehavior ? { type: "response", command: "prompt", id: m.id, success: true } : { type: "response", command: "prompt", id: m.id, success: false, error: "Agent is already processing. Specify streamingBehavior" }));
+	}
+});

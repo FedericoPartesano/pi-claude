@@ -5,6 +5,7 @@
  * reporter file or the tool's partial output. The model still gets exactly the output it asked for.
  * PI_TEST_MONITOR=0 or PI_UI_LIVE=0 turn it off; it stays off on Windows native (no `tee`, other quoting).
  */
+import { setWidgetCompat } from "./widget-compat.ts";
 import { closeSync, mkdirSync, openSync, readSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -110,13 +111,14 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_start", (_event, ctx) => {
 		if (!ctx.hasUI) return;
 		void loadPalette(ctx.ui.theme?.name);
-		ctx.ui.setWidget(
+		setWidgetCompat(
+			ctx as never,
 			"test-monitor",
+			() => ({ render: (width: number) => (other ? renderView(other.view, width, Date.now(), frame) : run ? renderTestMonitor(run, width, Date.now(), frame) : []), invalidate() {} }),
+			{ placement: "aboveEditor" },
 			(widgetTui) => {
 				tui = widgetTui;
-				return { render: (width: number) => (other ? renderView(other.view, width, Date.now(), frame) : run ? renderTestMonitor(run, width, Date.now(), frame) : []), invalidate() {} };
 			},
-			{ placement: "aboveEditor" },
 		);
 	});
 

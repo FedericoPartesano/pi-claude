@@ -15,6 +15,8 @@ Pi (earendil-works/pi) con i modelli Claude tramite l'abbonamento Claude Code: i
 - `upstream/` — clone di Pi, fuori da git, solo come riferimento.
 
 ## Comandi
+- Test mirati: `node scripts/t.mjs [--watch] [nome…]` lancia solo i test dei file modificati (git) o `extensions/<nome>.test.ts`. Suite completa solo a fine lotto.
+- Prova del prototipo in pty: `python3 -I prototype/rpc-chat/pty.py [--fake eventi.jsonl] [--cols N] PASSO… -- [args chat]` (passi: testo, `key:down|up|enter|esc|tab`, `sleep:S`); stampa lo schermo finale. `prototype/rpc-chat/fake/pi` è il Pi finto.
 - Test di un'estensione: `node --test extensions/<nome>.test.ts` (Node ≥ 22.19, TypeScript eseguito direttamente).
 - Typecheck del bridge: `cd pi-claude-code && npx tsc -p .` (non c'è un tsconfig alla radice).
 - Installazione locale: `./install.sh` (rilanciabile dopo `git pull`).
@@ -31,6 +33,6 @@ Le regole sono in `vault/schema.md` (tipi di pagina, nomi, frontmatter, formati 
 - Lingua: italiano per documenti, intent, messaggi all'utente e commit; commenti nel codice in inglese.
 - Commit in Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`…): solo `feat` e `fix` entrano nel changelog. La versione la gestisce release-please: non modificarla a mano.
 - Nessun commit o push senza richiesta esplicita.
-- Costo fisso in token il più basso possibile: tool extra spenti finché non servono, righe di prompt corte e stabili (cache).
+- Mantra di Pi, in ordine: 1) risparmio di token, al primo posto (prompt fisso corto e stabile per la cache, iniezioni brevi, niente contesto inutile, tool spenti finché non servono; ogni funzione si valuta prima per i token che costa); 2) velocità e leggerezza, sempre. Ogni funzione o rifinitura si progetta prima per CPU, memoria e latenza (niente lavoro per frame, niente timer inutili, stringhe statiche in cache); se costa troppo si ottimizza o si disattiva, e si rimisura (`prototype/rpc-chat/perf.test.mjs`, Proxmox).
 - Le estensioni importate da altre vanno registrate col percorso reale: Pi non segue i symlink negli import relativi.
 - Ogni affermazione su prestazioni o qualità va misurata e riportata in un report (`eval/`), anche se negativa.

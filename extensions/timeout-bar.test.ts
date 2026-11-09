@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import timeoutBar, { levelColor, renderDeadline, shellSleepMs, shellTimeouts } from "./timeout-bar.ts";
+import timeoutBar, { levelColor, renderDeadline, renderDeadlineRows, shellSleepMs, shellTimeouts } from "./timeout-bar.ts";
 import { C } from "./test-monitor/render.ts";
 
 test("shellTimeouts reads timeout N with units, options and several in one line", () => {
@@ -24,6 +24,17 @@ test("renderDeadline shows percent and clock, never past 100%, within the width"
 	assert.match(line, /15s \/ 30s/);
 	assert.ok([...line].length <= 80);
 	assert.match(plain(renderDeadline({ key: "k", label: "x", startedAt: 0, timeoutMs: 1000 }, 60, 99_000)), /100%/);
+});
+
+test("narrow panel: label left and clock right, bar full width under them", () => {
+	const plain = (text: string) => text.replace(/\x1b\[[0-9;]*m/g, "");
+	const rows = renderDeadlineRows({ key: "k", label: "bash timeout", startedAt: 0, timeoutMs: 30_000 }, 33, 15_000).map(plain);
+	assert.equal(rows.length, 2);
+	assert.match(rows[0], /^⏱ bash timeout\s+15s \/ 30s$/);
+	assert.equal([...rows[0]].length, 33);
+	assert.match(rows[1], /^▰+▱+ +50%$/);
+	assert.equal([...rows[1]].length, 33);
+	assert.equal(renderDeadlineRows({ key: "k", label: "x", startedAt: 0, timeoutMs: 1000 }, 80, 0).length, 1);
 });
 
 test("the bar follows a bash call and the team events, and goes away at the result", () => {

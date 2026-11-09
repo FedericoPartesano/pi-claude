@@ -77,3 +77,24 @@ test("TeamLog uses pi-ui's side column when there is one", () => {
 		delete (globalThis as any)[Symbol.for("pi-claude/side-column")];
 	}
 });
+
+test("TeamLog in RPC mode: plain string lines at panel width, sent only when they change, no per-frame timer work", () => {
+	const feed = new AgentFeed();
+	const calls: { key: string; content: unknown }[] = [];
+	const ui = { theme: plain, setWidget: (key: string, content: unknown) => calls.push({ key, content }) };
+	const log = new TeamLog(feed, () => 30);
+	log.attach(ui, "rpc");
+	begin(feed, "t1", Date.now());
+	assert.equal(calls.length, 1);
+	const lines = calls[0].content as string[];
+	assert.ok(Array.isArray(lines));
+	assert.ok(lines.every((line) => visibleWidth(line) <= 33));
+	assert.match(lines.join("\n").replace(/\x1b\[[0-9;]*m/g, ""), /TEAM 1 al lavoro/);
+	log.attach(ui, "rpc"); // no change in the feed: nothing is sent again
+	assert.equal(calls.length, 1);
+	tool(feed, "t1", "src/a.ts");
+	assert.equal(calls.length, 2);
+	assert.match((calls[1].content as string[]).join("\n"), /a\.ts/);
+	log.dispose();
+	assert.equal(calls.at(-1)!.content, undefined);
+});

@@ -4,11 +4,11 @@
  * `timeout-bar:set` / `timeout-bar:clear` events). Nothing is rewritten and nothing is added to the prompt.
  * The bridge's MCP_TOOL_TIMEOUT is 24 h on purpose, so it gets no bar. PI_TIMEOUT_BAR=0 turns it off.
  */
+import { setWidgetCompat } from "./widget-compat.ts";
 import { closeSync, existsSync, fstatSync, openSync, readSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { basename, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { barCells } from "./test-monitor/views.ts";
 import { C, type Colors, duration, fg, truncateToWidth, useColors } from "./test-monitor/render.ts";
 
 export interface Deadline {
@@ -147,17 +147,38 @@ export function watchLines(file: string, width: number, now: number, count = 2):
 	return [truncateToWidth(head, width), ...(lines.length ? lines : ["(empty)"]).map((line) => truncateToWidth(`${fg(C.dim, "    ")}${fg(C.text, line)}`, width))];
 }
 
-/** One row: `⏱ label  ████░░░░  12s / 30s`, exactly `width` cells wide at most. */
-export function renderDeadline(deadline: Deadline, width: number, now: number): string {
+/** `▰▰▰▱▱▱` of `cells` cells, the same glyphs as the usage bars of the side panel. */
+const meter = (cells: number, fraction: number, color: string): string => {
+	const full = Math.round(Math.max(0, Math.min(1, fraction)) * cells);
+	return fg(color, "▰".repeat(full)) + fg(C.faint, "▱".repeat(cells - full));
+};
+
+/**
+ * A deadline as bar rows. Wide (>= 60 cells): one row `⏱ label ▰▰▱▱ 50%  15s / 30s`. Narrow (the side panel): label on the
+ * left and clock on the right, the bar full width under them with the percent at its end.
+ */
+export function renderDeadlineRows(deadline: Deadline, width: number, now: number): string[] {
 	const elapsed = Math.max(0, now - deadline.startedAt);
 	const fraction = Math.min(1, elapsed / deadline.timeoutMs);
 	const color = levelColor(fraction);
 	const clock = `${duration(Math.min(elapsed, deadline.timeoutMs))} / ${duration(deadline.timeoutMs)}`;
-	const label = truncateToWidth(deadline.label, Math.max(8, Math.floor(width / 3)));
-	const used = 2 + [...label].length + 2 + 2 + clock.length + 6;
-	const cells = Math.max(6, Math.min(40, width - used));
-	return truncateToWidth(`${fg(color, "⏱")} ${fg(C.text, label)}  ${barCells(cells, fraction, 0, color)}  ${fg(color, `${Math.round(fraction * 100)}%`)} ${fg(C.dim, clock)}`, width);
+	const percent = `${Math.round(fraction * 100)}%`.padStart(4);
+	if (width >= 60) {
+		const label = truncateToWidth(deadline.label, Math.max(8, Math.floor(width / 3)));
+		const cells = Math.max(6, Math.min(40, width - ([...label].length + 2 + 2 + percent.length + 2 + clock.length + 2)));
+		return [truncateToWidth(`${fg(color, "⏱")} ${fg(C.text, label)}  ${meter(cells, fraction, color)}${fg(color, percent)}  ${fg(C.dim, clock)}`, width)];
+	}
+	const room = Math.max(4, width - clock.length - 3);
+	const label = truncateToWidth(deadline.label, room);
+	const gap = Math.max(1, width - 2 - [...label].length - clock.length);
+	return [
+		`${fg(color, "⏱")} ${fg(C.text, label)}${" ".repeat(gap)}${fg(C.dim, clock)}`,
+		`${meter(Math.max(4, width - percent.length - 1), fraction, color)} ${fg(color, percent)}`,
+	];
 }
+
+/** Single-string form of the wide layout (kept for callers that want one row). */
+export const renderDeadline = (deadline: Deadline, width: number, now: number): string => renderDeadlineRows(deadline, Math.max(60, width), now)[0];
 
 export default function timeoutBar(pi: ExtensionAPI) {
 	if (process.env.PI_TIMEOUT_BAR === "0" || process.env.PI_UI_LIVE === "0") return;
@@ -211,13 +232,14 @@ export default function timeoutBar(pi: ExtensionAPI) {
 			palette.usePalette(ctx.ui.theme?.name);
 			useColors(palette.C);
 		} catch {}
-		ctx.ui.setWidget(
+		setWidgetCompat(
+			ctx as never,
 			"timeout-bar",
+			() => ({ render: (width: number) => [...active.values()].flatMap((deadline) => [...renderDeadlineRows(deadline, width, Date.now()), ...(deadline.watch ? watchLines(deadline.watch, width, Date.now()) : []), ...(deadline.probe ? liveLines(live.get(deadline.key), width) : [])]), invalidate() {} }),
+			{ placement: "aboveEditor" },
 			(widgetTui) => {
 				tui = widgetTui;
-				return { render: (width: number) => [...active.values()].flatMap((deadline) => [renderDeadline(deadline, width, Date.now()), ...(deadline.watch ? watchLines(deadline.watch, width, Date.now()) : []), ...(deadline.probe ? liveLines(live.get(deadline.key), width) : [])]), invalidate() {} };
 			},
-			{ placement: "aboveEditor" },
 		);
 	});
 

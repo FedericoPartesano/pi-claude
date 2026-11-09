@@ -47,3 +47,9 @@ test("an install by https URL is recognised as this package (no second entry, wh
 		assert.deepEqual(after.packages, [form], form);
 	}
 });
+
+test("PowerShell profile block starts bin/pi.mjs", async () => {
+	const { powerShellBlock } = await import("./setup.mjs");
+	const block = powerShellBlock("C:\\repo");
+	assert.match(block, /function pi \{ node ".*pi\.mjs" @args \}/);
+});

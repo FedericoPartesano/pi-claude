@@ -164,6 +164,9 @@ Dopo la prima compattazione Pi tiene piccolo il contesto vivo e l'estensione ren
 
 `/archivio` apre a schermo intero l'archivio della sessione: schede Iniezioni (cosa è rientrato con ogni prompt, metodo e z-score), Voci (tutto ciò che la compattazione ha tolto, testo intero) e Prova (scrivi una domanda e vedi la classifica con la soglia z). Tab cambia scheda, ↑↓ scorre, PgSu/PgGiù il dettaglio, Esc chiude. Costo in token zero.
 
+## Chat predefinita (`prototype/rpc-chat`)
+`pi` avvia la chat nuova, scritta sopra `pi --mode rpc` (zero dipendenze, CPU circa 4× più bassa di `pi-ui` sul carico di solo testo e 7× sul ricco, misure in `eval/ui/REPORT.md`). `pi --classic` o `PI_UI_CLASSIC=1` tornano alla UI classica descritta sotto; `-p`, `--mode`, sottocomandi e stream non TTY restano classici. Elenco di parità, voci scartate e comandi: `prototype/rpc-chat/README.md`. Su Windows lo `setup.mjs` aggiunge la funzione `pi` al profilo PowerShell.
+
 ## Chat Neon Night (`pi-ui`)
 
 Attiva in `pi` e `pi-full`. Temi: `neon-night` (neon su nero), `lilla` (i pastelli di WezTerm) e `night-city` (cyberpunk: giallo acido, ciano e rosso, con stile HUD: etichette a blocco, angoli tagliati, sezioni numerate, verbi `SCAN`/`PATCH`/`EXEC`); si cambiano da `/settings` → Theme. Icone Nerd Font su WezTerm (le include già), Unicode semplice altrove; `PI_UI_ICONS=nerd|plain` le forza. `install.sh` imposta `neon-night` solo se non hai già scelto un tema.

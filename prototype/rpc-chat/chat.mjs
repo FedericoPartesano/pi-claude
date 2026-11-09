@@ -1,16 +1,27 @@
 #!/usr/bin/env node
 // Prototype: a chat UI written from scratch on top of `pi --mode rpc` (no pi-tui, no dependencies).
-// Differential rendering: only the rows that changed are written; streaming redraws are capped (PROTO_FPS, default 30),
+// Differential rendering: only the rows that changed are written; streaming redraws are capped (PROTO_FPS, default 30; 15 while a turn is running),
 // key presses redraw at once. Usage: node chat.mjs [pi options, e.g. --model haiku]
 import { spawn, execFile } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, readdirSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { homedir } from "node:os";
+import { checkOutcome, failingTests } from "../../pi-ui/src/test-output.ts";
 
 const FPS = Number(process.env.PROTO_FPS) || 30;
-const piArgs = ["--mode", "rpc", "--no-session", ...process.argv.slice(2)];
+// Sessions are persisted by default (pass --no-session to opt out).
+const piArgs = ["--mode", "rpc", ...process.argv.slice(2)];
 const env = { ...process.env };
 delete env.NODE_OPTIONS;
-const child = spawn("pi", piArgs, { stdio: ["pipe", "pipe", "inherit"], env });
+const child = spawn("pi", piArgs, { stdio: ["pipe", "pipe", "pipe"], env, shell: process.platform === "win32" });
+let errTail = ""; // last stderr of Pi: shown (and logged) if Pi dies under us, otherwise it would vanish with the alt screen
+child.stderr.on("data", (d) => { errTail = (errTail + d).slice(-4000); });
 
+let yolo = env.PI_YOLO === "1"; // mirrors the permission mode of the Pi child (/no-permissions toggles it)
+// Animation (PROTO_ANIM=0 turns it off): one 8 fps clock, only while a turn runs; frames are static strings, no per-frame allocation beyond one slice.
+const ANIM = process.env.PROTO_ANIM !== "0";
+const SPIN = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const tickNow = () => Math.floor(Date.now() / 125);
 const out = process.stdout;
 const ESC = "\x1b[";
 const R = "\x1b[0m";
@@ -28,12 +39,29 @@ let open; // block being streamed
 let running = false, startedAt = 0;
 const tokens = { out: 0 };
 let input = "", cursor = 0, scroll = 0, frames = 0;
+let sessionFile = "", sessionName = "";
+// Subscription usage (written by pi-claude-code after each answer); re-read when a turn ends.
+// Severity colors/icons for toasts.
+const SEV = { err: { c: S.err, i: "✖" }, warn: { c: S.warn, i: "▲" }, info: { c: S.cyan, i: "●" } };
+const sevOf = (t) => (/error|errore|failed|fail|denied|rifiutat/i.test(t) ? "err" : /warn|attenz|avviso|nessun|non /i.test(t) ? "warn" : "info");
+// One severity scale for every bar and percentage (ctx, 5h, 7g).
+const heat = (pct, low = S.dim) => (pct >= 85 ? S.err : pct >= 65 ? S.warn : low);
+let usageText = "", usage = {};
+const readUsage = () => {
+	try {
+		const u = JSON.parse(readFileSync(join(homedir(), ".pi/agent/claude-code-usage.json"), "utf8"));
+		const pc = (x) => (typeof x === "number" ? `${Math.round(x * 100)}%` : "");
+		const col = (x) => heat(x * 100);
+		usage = { h5: u.fiveHourUtilization, d7: u.sevenDayUtilization };
+		usageText = [["5h", u.fiveHourUtilization], ["7g", u.sevenDayUtilization]].filter(([, x]) => typeof x === "number").map(([l, x]) => `${col(x)}${l} ${pc(x)}${S.dim}`).join(" ");
+	} catch { usageText = ""; usage = {}; }
+};
 let model = "", ctxPct, cost, toast = "", dialog, title = "pi";
 const statuses = new Map(), widgets = new Map();
-let expandSteps = false, showThinking = false, suggestions = [], queued = 0;
+let expandSteps = false, showThinking = false, suggestions = [], queued = 0, sigAt = 0, sigWhat = ""; // sigAt/sigWhat = last Pi signal; queued = follow-ups sent while a turn runs (shown in the status bar)
 const SUG = "<!--suggerimenti-->";
 const git = { branch: "", files: [] };
-let commands = [{ name: "quit", description: "esci" }, { name: "clear", description: "pulisci la vista" }, { name: "new", description: "nuova sessione" }, { name: "compact", description: "compatta il contesto" }, { name: "img", description: "invia un'immagine: /img percorso testo" }];
+let commands = [{ name: "resume", description: "riprendi una sessione" }, { name: "name", description: "nome della sessione" }, { name: "quit", description: "esci" }, { name: "clear", description: "pulisci la vista" }, { name: "new", description: "nuova sessione" }, { name: "compact", description: "compatta il contesto" }, { name: "img", description: "invia un'immagine: /img percorso testo" }];
 let projectFiles = [];
 const hist = []; let hIdx = 0, draft = "";
 let popSel = 0, popDismissed = "";
@@ -57,10 +85,28 @@ const cw = (cp) =>
 		(cp >= 0xfe30 && cp <= 0xfe6f) || (cp >= 0xff00 && cp <= 0xff60) || (cp >= 0xffe0 && cp <= 0xffe6) || (cp >= 0x1f300 && cp <= 0x1f64f) ||
 		(cp >= 0x1f900 && cp <= 0x1f9ff) || (cp >= 0x20000 && cp <= 0x3fffd) ? 2
 	: 1;
-const width_ = (t) => { let w = 0; for (const ch of t.replace(STRIP, "")) w += cw(ch.codePointAt(0)); return w; };
+// Memoized (bounded): the same rows are measured and cut on every frame while only a few change.
+const widthMemo = new Map();
+const width_ = (t) => {
+	if (t.length < 12) return widthRaw(t);
+	let w = widthMemo.get(t);
+	if (w === undefined) { if (widthMemo.size > 3000) widthMemo.clear(); w = widthRaw(t); widthMemo.set(t, w); }
+	return w;
+};
+const widthRaw = (t) => { let w = 0; for (const ch of t.replace(STRIP, "")) w += cw(ch.codePointAt(0)); return w; };
 const pad = (line, w) => line + " ".repeat(Math.max(0, w - width_(line)));
 // Cut a styled line to `w` visible columns (ANSI kept, reset appended when cut).
+const cutMemo = new Map();
 const cut = (line, w) => {
+	if (line.length < 12) return cutRaw(line, w);
+	const hit = cutMemo.get(line);
+	if (hit && hit[0] === w) return hit[1];
+	const res = cutRaw(line, w);
+	if (cutMemo.size > 3000) cutMemo.clear();
+	cutMemo.set(line, [w, res]);
+	return res;
+};
+const cutRaw = (line, w) => {
 	if (line.length <= w && !/[^\x00-\u02ff]/.test(line) && !line.includes("\x1b")) return line;
 	let res = "", vis = 0;
 	for (let i = 0; i < line.length; ) {
@@ -209,7 +255,7 @@ const imageLines = (block, width) => {
 	const img = images.get(block.img);
 	const usable = img.w && (imageProto === "kitty" && img.mime === "image/png");
 	if (!usable) return [`${S.dim}🖼 ${img.mime} ${img.w ? `${img.w}×${img.h} ` : ""}${img.kb} KB${imageProto === "none" || imageProto === "?" ? " (terminale senza immagini)" : img.mime !== "image/png" ? " (solo PNG)" : ""}${R}`];
-	const maxC = Math.max(4, Math.min(width - 2, 56)), maxR = 18;
+	const maxC = Math.max(4, Math.min(width - 6, 56)), maxR = 18; // width - 6 leaves a gap before the side panel
 	const scale = Math.min((maxC * cellW) / img.w, (maxR * cellH) / img.h, 1);
 	const cols = Math.max(1, Math.ceil((img.w * scale) / cellW)), rows = Math.max(1, Math.ceil((img.h * scale) / cellH));
 	return [`\x1b[0;9990;${block.img};${cols};${rows}m`, ...Array(rows - 1).fill("")];
@@ -283,8 +329,8 @@ const markdown = (text, width) => {
 		}
 		if ((m = /^```\s*(\S*)/.exec(raw))) {
 			fence = !fence;
-			if (fence) { lang = m[1]; res.push(`${bg(P.codeBg)}${S.faint}${pad(`╭ ${lang || "code"}`, width)}${R}`); }
-			else res.push(`${bg(P.codeBg)}${S.faint}${pad("╰", width)}${R}`);
+			if (fence) { lang = m[1]; const tag = ` ${lang || "code"} `; res.push(`${bg(P.codeBg)}${S.faint}╭${"─".repeat(Math.max(1, width - 1 - tag.length))}${S.dim}${tag}${R}`); }
+			else res.push(`${bg(P.codeBg)}${S.faint}╰${"─".repeat(Math.max(0, width - 1))}${R}`);
 			continue;
 		}
 		if (fence) {
@@ -333,16 +379,30 @@ const diffRows = (patch, width) => {
 };
 const toolLine = (b, width) => {
 	const mark = b.done === undefined ? `${S.yel}⠿` : b.failed ? `${S.err}✗` : `${S.ok}✓`;
-	const time = b.done === undefined ? `${S.dim} …` : b.ms != null ? `${S.dim} ${b.ms}ms` : "";
+	const time = b.done === undefined ? `${S.dim} …` : b.ms != null ? `${S.faint} ${b.ms >= 1000 ? `${(b.ms / 1000).toFixed(1)}s` : `${b.ms}ms`}` : "";
 	const label = cut(toolLabel(b), Math.max(10, width - 14));
-	return `${mark}${R} ${S.dim}${label}${R}${time}${R}` + (b.patch ? "\n" + diffRows(b.patch, width).join("\n") : "");
+	const shown = `${S.dim}${label}`;
+	return `${mark}${R} ${shown}${R}${time}${R}` + (b.patch ? "\n" + diffRows(b.patch, width).join("\n") : "");
+};
+// Markdown is line based, so everything up to the last blank line outside a code fence renders the same whatever follows:
+// that prefix is rendered once (kept on the block) and only the open tail is redone on each streaming frame.
+const streamMarkdown = (block, text, width) => {
+	const cut_ = text.lastIndexOf("\n\n");
+	if (cut_ <= 0) return markdown(text, width);
+	const head = text.slice(0, cut_);
+	if ((head.match(/^```/gm) || []).length % 2) return markdown(text, width); // blank line inside a code fence: render whole
+	const memo = block.md;
+	if (!memo || memo.width !== width || !head.startsWith(memo.text)) block.md = { width, text: "", lines: [] };
+	const m = block.md;
+	if (m.text.length < head.length) { m.lines = m.lines.concat(markdown(m.text ? head.slice(m.text.length + 1) : head, width)); m.text = head; }
+	return m.lines.concat(markdown(text.slice(head.length + 1), width));
 };
 const blockLines = (block, width) => {
 	const done = block !== open && (block.kind !== "tool" || block.done !== undefined);
 	const hit = cache.get(block);
 	if (done && hit && hit.width === width && hit.len === block.text.length && hit.sh === showThinking) return hit.lines;
 	let lines;
-	if (block.kind === "assistant") lines = markdown(block.text.includes(SUG) ? block.text.slice(0, block.text.indexOf(SUG)).trimEnd() : block.text, width);
+	if (block.kind === "assistant") lines = streamMarkdown(block, block.text.includes(SUG) ? block.text.slice(0, block.text.indexOf(SUG)).trimEnd() : block.text, width);
 	else if (block.kind === "user") {
 		const inner = hardWrap(block.text, width - 3);
 		lines = inner.map((l) => `${bg(P.userBg)}${S.mag}▌${S.text} ${pad(l, width - 2)}${R}`);
@@ -413,44 +473,138 @@ const popup = () => {
 };
 
 // --- Side panel (wide terminals): intent, git, context, cost, extension status and widgets.
-const SIDE = 34;
+// Images waiting for the next prompt (pasted file paths, alt+v from the clipboard): {data, mime, name}.
+const attached = [];
+const IMG_RE = /\.(png|jpe?g)$/i;
+const attachFile = (raw) => {
+	const path = raw.trim().replace(/^['"]|['"]$/g, "").replace(/^file:\/\//, "").replace(/\\ /g, " ");
+	if (!IMG_RE.test(path) || path.includes("\n")) return false;
+	try { attached.push({ data: readFileSync(path).toString("base64"), mime: /\.jpe?g$/i.test(path) ? "image/jpeg" : "image/png", name: path.split(/[\\/]/).pop() }); return true; } catch { return false; }
+};
+// Clipboard image: wl-paste (Wayland), xclip (X11), PowerShell (WSL, Windows).
+const pasteClipboardImage = () => {
+	const tries = process.platform === "win32" ? [["powershell", ["-NoProfile", "-Command", CLIP_PS]]]
+		: [["wl-paste", ["-t", "image/png"]], ["xclip", ["-selection", "clipboard", "-t", "image/png", "-o"]], ["powershell.exe", ["-NoProfile", "-Command", CLIP_PS]]];
+	const next = (i) => {
+		if (i >= tries.length) { toast = "nessuna immagine negli appunti"; schedule(); return; }
+		const [cmd, args] = tries[i];
+		const isPs = cmd.startsWith("powershell");
+		execFile(cmd, args, { maxBuffer: 64 << 20, encoding: isPs ? "utf8" : "buffer", timeout: 8000 }, (err, stdout) => {
+			const data = !err && stdout && stdout.length > 100 ? (isPs ? String(stdout).trim() : Buffer.from(stdout).toString("base64")) : "";
+			if (data && data.length > 100) { attached.push({ data, mime: "image/png", name: "appunti.png" }); schedule(); } else next(i + 1);
+		});
+	};
+	next(0);
+};
+const CLIP_PS = "Add-Type -AssemblyName System.Windows.Forms; $i=[System.Windows.Forms.Clipboard]::GetImage(); if($i){$m=New-Object System.IO.MemoryStream; $i.Save($m,[System.Drawing.Imaging.ImageFormat]::Png); [Convert]::ToBase64String($m.ToArray())}";
+let panelOff = false; // alt+s hides / shows the panel (on narrow terminals it opens as a block above the status bar)
+let tests; // last test run seen in a bash result: {pass, fail, failing[]}
+const TEST_CMD = /\b(node\s+--test|npm\s+(run\s+)?test|pytest|vitest|jest|cargo\s+test|go\s+test)\b/;
+const testResult = (cmd, text, isError) => {
+	if (!TEST_CMD.test(String(cmd ?? ""))) return;
+	const o = checkOutcome(text, isError, true);
+	tests = { pass: o.pass, fail: o.fail, failed: o.failed, failing: o.failed ? failingTests(text).slice(0, 5) : [] };
+	sideVer++;
+};
+let plan = []; // todo tasks {subject, status}
+let intentInfo; // active intent {title, done, total}
 let sideVer = 0, sideSeen = -1, sideW = 0, sideCache = [];
 const sideLines = (w) => {
 	const L = [];
-	const head = (t) => L.push(`${S.faint}${t}${R}`);
+	const head = (t) => L.push(`${S.b}${S.dim}${t}${R} ${S.faint}${"─".repeat(Math.max(0, w - 1 - width_(t)))}${R}`);
+	const bar = (label, pct) => { const n = Math.max(4, w - 10), f = Math.round((Math.max(0, Math.min(100, pct)) / 100) * n); return `${S.dim}${label.padEnd(3)}${R} ${heat(pct, S.ok)}${"▰".repeat(f)}${S.faint}${"▱".repeat(n - f)}${R} ${S.dim}${String(Math.round(pct)).padStart(3)}%${R}`; };
+	const kv = (k, v) => `${S.dim}${k}${R}${" ".repeat(Math.max(1, w - k.length - width_(v)))}${S.text}${v}${R}`;
 	const intent = statuses.get("intent");
-	if (intent) { head("INTENT"); L.push(...wrap(`${S.text}${intent}${R}`, w)); L.push(""); }
+	if (intent) { head("INTENT"); L.push(...wrap(`${S.text}${intent}${R}`, w)); if (intentInfo) L.push(`${S.dim}${intentInfo.done}/${intentInfo.total} outcome${R}`); L.push(""); }
+	if (statuses.get("goal")) { head("GOAL"); L.push(...wrap(`${S.text}${statuses.get("goal")}${R}`, w)); L.push(""); }
+	if (plan.length) {
+		head(`PIANO ${plan.filter((t) => t.status === "completed").length}/${plan.length}`);
+		for (const t of plan.slice(0, 10)) L.push(cut(`${t.status === "completed" ? `${S.ok}✔` : t.status === "in_progress" ? `${S.mag}◐` : `${S.faint}○`}${R} ${t.status === "completed" ? S.dim : S.text}${t.subject}${R}`, w));
+		if (plan.length > 10) L.push(`${S.dim}+${plan.length - 10} altri${R}`);
+		L.push("");
+	}
+	if (tests) {
+		head("TEST");
+		L.push(`${tests.failed ? S.err : S.ok}${tests.failed ? "✗" : "✓"}${R} ${S.dim}${tests.pass ?? "?"} ok · ${tests.fail ?? (tests.failed ? "?" : 0)} falliti${R}`);
+		for (const f of tests.failing) L.push(...wrap(`${S.err}· ${R}${S.text}${f}${R}`, w));
+		L.push("");
+	}
+	if (widgets.size) {
+		head("ATTIVITÀ");
+		let first = true;
+		for (const lines of widgets.values()) { if (!first) L.push(""); first = false; for (const l of lines) for (const x of wrapAnsi(`${S.text}${l}${R}`, w, 2)) L.push(x); }
+		L.push("");
+	}
 	head(`GIT ${git.branch ? `${S.cyan}${git.branch}` : ""}`);
 	if (!git.files.length) L.push(`${S.dim}pulito${R}`);
 	for (const f of git.files.slice(0, 8)) L.push(`${f.st.includes("?") ? S.warn : S.ok}${f.st.padEnd(2)}${R} ${S.dim}${cut(f.p, w - 4)}${R}`);
 	if (git.files.length > 8) L.push(`${S.dim}+${git.files.length - 8} altri${R}`);
 	L.push("");
 	head("CONTEXT");
-	const pct = Math.max(0, Math.min(100, ctxPct ?? 0)), filled = Math.round((pct / 100) * (w - 6));
-	L.push(`${pct > 80 ? S.err : pct > 60 ? S.warn : S.ok}${"▰".repeat(filled)}${S.faint}${"▱".repeat(w - 6 - filled)}${R} ${S.dim}${Math.round(pct)}%${R}`);
-	if (cost != null) L.push(`${S.dim}$${cost.toFixed(2)}${R}`);
-	L.push(`${S.dim}immagini: ${imageProto === "?" ? "…" : imageProto}${R}`);
-	const others = [...statuses].filter(([k]) => k !== "intent");
+	L.push(bar("ctx", ctxPct ?? 0));
+	if (cost != null) L.push(kv("costo", `$${cost.toFixed(2)}`));
+	L.push(kv("immagini", imageProto === "?" ? "…" : imageProto));
+	if (usage.h5 != null || usage.d7 != null) {
+		L.push(""); head("USO");
+		if (usage.h5 != null) L.push(bar("5h", usage.h5 * 100));
+		if (usage.d7 != null) L.push(bar("7g", usage.d7 * 100));
+	}
+	const mem = statuses.get("memory");
+	if (mem) { L.push(""); head("MEMORIA"); for (const part of mem.split(" · ")) L.push(...wrap(`${S.text}${part}${R}`, w)); }
+	const others = [...statuses].filter(([k]) => k !== "intent" && k !== "goal" && k !== "memory");
 	if (others.length) { L.push(""); head("ESTENSIONI"); for (const [k, v] of others) L.push(...wrap(`${S.dim}${v}${R}`, w)); }
-	for (const lines of widgets.values()) { L.push(""); for (const l of lines) L.push(cut(`${S.text}${l}${R}`, w)); }
 	return L;
 };
 
 // --- Frame.
-let previous = [];
+let previous = [], toastText = "", toastSeen = "", toastT0 = 0, toastOut = 0;
 const frame = () => {
 	frames++;
 	const W = out.columns || 80, H = out.rows || 24;
-	const side = W >= 110 ? SIDE : 0;
+	const side = panelOff ? 0 : W >= 140 ? 36 : W >= 120 ? 34 : W >= 100 ? 28 : 0; // narrower on medium terminals, hidden below 100 columns
 	const leftW = side ? W - side - 3 : W;
 
 	// Bottom pieces first: their height decides the chat height.
 	const extra = [];
 	if (dialog) {
-		for (const l of `${dialog.title ?? ""}${dialog.message ? `\n${dialog.message}` : ""}`.split("\n")) extra.push(`${S.mag}${cut(l, leftW)}${R}`);
-		if (dialog.method === "select") dialog.options.forEach((o, i) => extra.push(i === dialog.sel ? `${S.cyan}▸ ${o}${R}` : `  ${o}`));
-		else if (dialog.method === "confirm") extra.push(`${S.dim}y = sì · n = no · esc = annulla${R}`);
-		else extra.push(`› ${dialog.text}${S.dim} (invio conferma · esc annulla)${R}`);
+		// Card: accent bar on the left, title, dimmed message, options with the selected row highlighted, key hints.
+		const bar = `${S.mag}▍${R} `, iw = leftW - 2;
+		const hint = (...kv) => `${bar}${kv.map(([k, v]) => `${S.text}${k}${S.dim} ${v}${R}`).join(`${S.faint}  ·  `)}`;
+		const head = `${dialog.title ?? ""}${dialog.message ? `\n${dialog.message}` : ""}`.split("\n");
+		if (dialog.method === "pager") {
+			for (const l of head) if (l) extra.push(`${bar}${S.b}${S.mag}${cut(l, iw)}${R}`);
+			const page = Math.max(3, H - 10);
+			for (const l of dialog.lines.slice(dialog.top, dialog.top + page)) extra.push(cut(`${S.text}${l}${R}`, leftW));
+			extra.push(hint(["↑↓ PgUp PgDn", "scorri"], ["q", "chiudi"], [`${dialog.top + 1}-${Math.min(dialog.lines.length, dialog.top + page)}/${dialog.lines.length}`, ""]));
+		} else {
+			extra.push(`${bar}${S.b}${S.text}${cut(head[0], iw)}${R}`);
+			for (const l of head.slice(1)) for (const w of wrap(l, iw)) extra.push(`${bar}${S.dim}${w}${R}`);
+			extra.push(bar.trimEnd());
+			if (dialog.method === "select") {
+				const room = Math.max(3, H - 14), n = dialog.options.length;
+				const from = Math.max(0, Math.min(dialog.sel - Math.floor(room / 2), n - room));
+				if (from > 0) extra.push(`${bar}${S.faint}↑ ${from} sopra${R}`);
+				let note = "";
+				dialog.options.slice(from, from + room).forEach((o, k) => {
+					const i = from + k, [lab, ...desc] = String(o).split(/\s+[—–]\s+|\n/);
+					const num = i < 9 ? `${i + 1}` : " ";
+					if (i === dialog.sel) { extra.push(`${bar}${bg(P.userBg)}${S.cyan}▸ ${S.dim}${num} ${S.b}${S.text}${pad(cut(lab, iw - 5), iw - 4)}${R}`); note = desc.join(" "); }
+					else extra.push(`${bar}${S.faint}  ${num} ${S.text}${cut(lab, iw - 5)}${R}`);
+					if (i === dialog.sel && note) for (const w of wrap(note, iw - 6).slice(0, 2)) extra.push(`${bar}${S.dim}      ${w}${R}`);
+				});
+				if (from + room < n) extra.push(`${bar}${S.faint}↓ ${n - from - room} sotto${R}`);
+				extra.push(bar.trimEnd());
+				extra.push(hint(["↑↓", "scegli"], ["1-9", "diretto"], ["⏎", "conferma"], ["esc", "annulla"]));
+			} else if (dialog.method === "confirm") {
+				extra.push(`${bar}${S.ok}y${S.text} Sì${R}   ${S.err}n${S.text} No${R}`);
+				extra.push(bar.trimEnd());
+				extra.push(hint(["⏎", "sì"], ["esc", "annulla"]));
+			} else {
+				extra.push(`${bar}${bg(P.userBg)}${S.mag}› ${S.text}${pad(`${dialog.text}${S.mag}▌`, iw - 2)}${R}`);
+				extra.push(bar.trimEnd());
+				extra.push(hint(["⏎", "conferma"], ["esc", "annulla"]));
+			}
+		}
 	}
 	const items = popup();
 	if (items) {
@@ -460,36 +614,107 @@ const frame = () => {
 			extra.push(i === popSel ? `${bg(P.userBg)}${S.cyan}▸ ${pad(cut(text, leftW - 2), leftW - 2)}${R}` : cut(`  ${S.text}${text}`, leftW) + R);
 		});
 	}
-	if (!input && suggestions.length && !dialog) suggestions.forEach((x, i) => extra.push(cut(`${S.mag}${i + 1}${R} ${S.dim}${x}${R}`, leftW)));
-	if (!side) for (const lines of widgets.values()) for (const l of lines) extra.push(cut(l, leftW));
+	if (!input && suggestions.length && !dialog) {
+		// Badges side by side, one equal-width cell each (static text, drawn only while the prompt is empty).
+		const n = Math.min(3, suggestions.length), cell = Math.floor((leftW - (n - 1)) / n);
+		const cells = suggestions.slice(0, n).map((x) => {
+			const rows = wrapAnsi(x, cell - 3);
+			if (rows.length > 2) rows.length = 2, rows[1] = cut(`${rows[1]}…`, cell - 3);
+			return rows;
+		});
+		for (let r = 0; r < Math.max(...cells.map((c) => c.length)); r++)
+			extra.push(cells.map((c, i) => `${bg(P.userBg)}${S.mag}${r ? " " : i + 1} ${S.dim}${pad(c[r] ?? "", cell - 2)}${R}`).join(" "));
+	}
+	if (attached.length) extra.push(`${S.mag}📎 ${R}${S.text}${attached.map((a) => `${a.name} ${Math.round(a.data.length * 0.75 / 1024)}KB`).join(" · ")}${R}${S.dim}  (invio le manda · ctrl+u a prompt vuoto le toglie)${R}`);
+	// Narrow terminals: only the timeout bar stays above the prompt; other widgets (memory progress…) live in the panel (alt+s).
+	if (!side && widgets.has("timeout-bar")) for (const l of widgets.get("timeout-bar")) extra.push(cut(l, leftW));
+	if (!side && W < 100 && panelOff) { for (const l of sideLines(leftW - 1).slice(0, 14)) extra.push(cut(l, leftW)); }
+	if (running && !side) {
+		// Never leave the user blind: say what Pi did last and how long ago.
+		const quiet = Math.floor((Date.now() - (sigAt || startedAt)) / 1000);
+		extra.push(`${S.mag}◇ ${S.dim}${quiet >= 3 ? `no output for ${quiet}s` : "receiving"} · last: ${sigWhat || "waiting for model"}${R}`);
+	}
+	// Notices (startup warnings, errors) get their own row above the prompt, never inside the status bar.
+	// Toast slide: enters/leaves in ~180 ms by revealing the card row by row from the bottom; frames are scheduled only while it moves.
+	const nowMs = Date.now();
+	if (toast !== toastSeen) { if (toast) { toastText = toast; toastT0 = nowMs; toastOut = 0; } else if (toastText) toastOut = nowMs; toastSeen = toast; }
+	let toastP = 1;
+	if (toastText) {
+		toastP = ANIM ? Math.min(1, (nowMs - (toastOut || toastT0)) / 180) : 1;
+		if (toastOut) { toastP = ANIM ? 1 - toastP : 0; if (toastP <= 0) toastText = ""; }
+		if (toastP > 0 && toastP < 1 && typeof schedule === "function") schedule();
+	}
+	const card = toastText && W >= 80;
+	if (toast && !card) extra.push(cut(`${S.warn}⚠ ${toast}${R}`, leftW));
 	const elapsed = running ? Math.floor((Date.now() - startedAt) / 1000) : 0;
-	const bits = [running ? `${S.mag}● working ${elapsed}s` : `${S.ok}●${S.dim} idle`, model, !side && ctxPct != null ? `ctx ${Math.round(ctxPct)}%` : "", !side && cost != null ? `$${cost.toFixed(2)}` : "", ...(side ? [] : statuses.values()), toast ? `${S.warn}${toast}${S.dim}` : "", scroll ? `↑${scroll} (End)` : "", `ctrl+c ${running ? "abort" : "quit"}`].filter(Boolean);
-	const status = cut(`${S.dim}${bits.join(" · ")}${R}`, leftW);
-	const sepLine = `${S.faint}${"─".repeat(leftW)}${R}`;
+	// Items with a priority (low = kept longest): when the line is too wide the least important drop first.
+	const bitem = [
+		[5, `${bg(P.codeBg)}${S.mag}\x1b[1m PROTOTIPO ${R}`],
+		[0, yolo ? `${S.err}\x1b[1mSENZA PERMESSI${R}${S.dim}` : ""],
+		[0, running ? `${S.mag}${ANIM ? SPIN[tickNow() % SPIN.length] : "●"} working ${elapsed}s${S.dim}${sigAt ? ` · ${Math.max(0, Math.floor((Date.now() - sigAt) / 1000))}s since ${sigWhat}` : ""}${queued ? ` · ${S.warn}${queued} in coda${S.dim}` : ""}${S.mag}` : `${S.ok}●${S.dim} idle`],
+		[1, model],
+		[6, sessionName ? sessionName.slice(0, 30) : ""],
+		[2, !side && ctxPct != null ? `${heat(ctxPct)}ctx ${Math.round(ctxPct)}%${S.dim}` : ""],
+		[4, !side && cost != null ? `$${cost.toFixed(2)}` : ""],
+		[3, !side ? usageText : ""],
+		...(side ? [] : [...statuses.values()].map((v) => [7, v])),
+		[0, scroll ? `↑${scroll} (End)` : ""],
+		[8, `ctrl+c ${running ? "abort" : "quit"}`],
+	].filter((x) => x[1]);
+	const sep = `${S.faint} │ ${S.dim}`;
+	let line = bitem.map((x) => x[1]).join(sep);
+	while (bitem.length > 1 && width_(line) > leftW) {
+		let k = 0;
+		bitem.forEach((x, i) => { if (x[0] >= bitem[k][0]) k = i; });
+		bitem.splice(k, 1);
+		line = bitem.map((x) => x[1]).join(sep);
+	}
+	const status = cut(`${S.dim}${line}${R}`, leftW);
+	// Light frame: top rule with a label, a bar on the continuation lines, bottom rule (static strings, no extra work).
+	const bc = S.faint;
+	const ruleLen = Math.max(0, leftW - 1);
+	let sepLine = `${bc}╭${"─".repeat(ruleLen)}${R}`;
+	if (ANIM && running && ruleLen > 12) {
+		// A 6-cell light sweeps along the top rule (8 fps, about 1 cell per tick).
+		const at = tickNow() % (ruleLen + 6) - 6, a = Math.max(0, at), b = Math.min(ruleLen, at + 6);
+		if (b > a) sepLine = `${bc}╭${"─".repeat(a)}${S.mag}${"━".repeat(b - a)}${bc}${"─".repeat(ruleLen - b)}${R}`;
+	}
+	const endLine = `${bc}╰${"─".repeat(Math.max(0, leftW - 1))}${R}`;
 	const wrapped = hardWrap(input, leftW - 2);
 	const pre = hardWrap(input.slice(0, cursor), leftW - 2);
 	const crow = pre.length - 1, ccol = width_(pre[crow]);
 	const start = Math.max(0, crow - 5);
-	const promptLines = wrapped.slice(start, start + 6).map((l, i) => `${S.mag}${start + i === 0 ? "›" : " "}${R} ${l}`);
+	const promptLines = wrapped.slice(start, start + 6).map((l, i) => `${S.mag}${start + i === 0 ? "›" : `${bc}│`}${R} ${l}`);
 
-	const chatRows = Math.max(1, H - extra.length - 1 - 1 - promptLines.length);
+	const chatRows = Math.max(1, H - extra.length - 1 - 1 - 1 - promptLines.length);
 	const body = bodyLines(leftW);
 	scroll = Math.max(0, Math.min(scroll, Math.max(0, body.length - chatRows)));
 	const view = body.slice(Math.max(0, body.length - chatRows - scroll), body.length - scroll);
 	while (view.length < chatRows) view.unshift("");
 
-	const left = [...view.map((l) => cut(l, leftW)), ...extra, status, sepLine, ...promptLines];
+	const left = [...view.map((l) => cut(l, leftW)), ...extra, status, sepLine, ...promptLines, endLine];
 	let next;
 	if (side) {
-		if (sideVer !== sideSeen || sideW !== SIDE) { sideCache = sideLines(SIDE - 1).map((l) => cut(l, SIDE - 1)); sideSeen = sideVer; sideW = SIDE; }
+		if (sideVer !== sideSeen || sideW !== side) { sideCache = sideLines(side - 1).map((l) => cut(l, side - 1)); sideSeen = sideVer; sideW = side; }
 		// Only the chat rows get the panel; the status, separator and prompt rows keep the full width.
 		next = left.map((l, i) => (i < view.length + extra.length ? `${pad(l, leftW)}${S.faint} │ ${R}${sideCache[i] ?? ""}` : l));
 	} else next = left;
+	if (card) {
+		// Toast card on the top center, composited into the rows before the diff: only these rows are rewritten, when it shows or hides.
+		const kind = SEV[sevOf(toastText)]; // {c, i}
+		const inner = Math.max(18, Math.min(44, Math.floor(W / 2) - 6, width_(toastText) + 2));
+		const lines = wrap(toastText, inner).slice(0, 3);
+		if (lines.length === 3 && wrap(toastText, inner).length > 3) lines[2] = cut(lines[2], inner - 1) + "…";
+		const boxW = inner + 4, x = Math.max(0, Math.floor((W - boxW) / 2));
+		const rows = [`${kind.c}╭${"─".repeat(boxW - 2)}╮${R}`, ...lines.map((l, i) => `${kind.c}│${R}${bg(P.userBg)} ${i ? " " : `${kind.c}${kind.i}${R}${bg(P.userBg)}`} ${S.text}${pad(l, inner - 2)} ${R}${kind.c}│${R}`), `${kind.c}╰${"─".repeat(boxW - 2)}╯${R}`];
+		const shown = Math.max(1, Math.ceil(toastP * rows.length));
+		rows.slice(rows.length - shown).forEach((box, r) => { if (next[r + 1] !== undefined && !MARK.test(next[r + 1])) next[r + 1] = `${pad(cut(next[r + 1], x), x)}${box}`; });
+	}
 	let buf = "";
 	for (let i = 0; i < next.length; i++) if (previous[i] !== next[i]) buf += `${ESC}${i + 1};1H${next[i].replace(MARK, "")}${ESC}K`;
 	for (let i = next.length; i < previous.length; i++) buf += `${ESC}${i + 1};1H${ESC}K`;
 	buf += placeImages(next, previous);
-	buf += `${ESC}${next.length - promptLines.length + (crow - start) + 1};${3 + Math.min(ccol, leftW - 3)}H`;
+	buf += `${ESC}${next.length - 1 - promptLines.length + (crow - start) + 1};${3 + Math.min(ccol, leftW - 3)}H`;
 	previous = next;
 	if (buf) out.write(buf);
 };
@@ -497,7 +722,8 @@ const frame = () => {
 let timer, lastDraw = 0;
 const schedule = () => {
 	if (timer) return;
-	const wait = Math.max(0, 1000 / FPS - (Date.now() - lastDraw));
+	// Streaming redraws are paced at half rate (keys redraw at once via drawNow): measured -21% client CPU, text still reads smoothly.
+	const wait = Math.max(0, 1000 / (running && !process.env.PROTO_FPS ? FPS / 2 : FPS) - (Date.now() - lastDraw));
 	timer = setTimeout(() => { timer = undefined; lastDraw = Date.now(); frame(); }, wait);
 };
 const drawNow = () => { lastDraw = Date.now(); frame(); };
@@ -528,9 +754,10 @@ child.stdout.on("data", (chunk) => {
 	}
 });
 const onRecord = (r) => {
+	if (r.type !== "response") { sigAt = Date.now(); sigWhat = r.type === "message_update" ? (r.assistantMessageEvent?.type ?? "update").replace(/_delta$/, "") : r.type === "tool_execution_start" ? `tool ${r.toolName}` : r.type.replace(/^(agent|tool_execution)_/, ""); }
 	switch (r.type) {
 		case "agent_start":
-			running = true; startedAt = Date.now(); open = undefined;
+			running = true; startedAt = Date.now(); sigAt = Date.now(); sigWhat = "start"; open = undefined;
 			break;
 		case "message_update": {
 			const e = r.assistantMessageEvent;
@@ -547,14 +774,19 @@ const onRecord = (r) => {
 			open = undefined;
 			const t = blocks.findLast((b) => b.id === r.toolCallId);
 			if (t) { t.failed = !!r.isError; t.done = true; t.ms = r.durationMs; if (r.result?.details?.patch) t.patch = r.result.details.patch; }
+			if (r.toolName === "todo") planFrom(r.result?.details);
+			if (r.toolName === "bash") testResult(t?.args?.command, (r.result?.content ?? []).map((c) => c.text ?? "").join("\n"), !!r.isError);
 			for (const c of r.result?.content ?? []) if (c.type === "image" && c.data) addImage(c.data, c.mimeType ?? "image/png");
 			break;
 		}
 		case "response":
 			sideVer++;
 			if (r.id === "stats" && r.success) { ctxPct = r.data?.contextUsage?.percent ?? ctxPct; cost = r.data?.cost ?? cost; }
-			else if (r.id === "state" && r.success) model = r.data?.model?.id ?? model;
+			else if (r.id === "state" && r.success) { model = r.data?.model?.id ?? model; sessionFile = r.data?.sessionFile ?? sessionFile; sessionName = r.data?.sessionName ?? ""; }
+			else if (r.id === "switch" && r.success) { send({ id: "state", type: "get_state" }); send({ id: "msgs", type: "get_messages" }); }
+			else if (r.id === "msgs" && r.success) loadMessages(r.data?.messages ?? []);
 			else if (r.id === "cmds" && r.success) commands = [...commands, ...(r.data?.commands ?? [])].filter((c, i, a) => a.findIndex((x) => x.name === c.name) === i);
+			else if (r.command === "prompt" && r.success === false && /streamingBehavior/.test(r.error ?? "") && sentPrompts.has(r.id)) { running = true; queued++; send({ ...sentPrompts.get(r.id), id: `${r.id}r`, streamingBehavior: "followUp" }); }
 			else if (r.command === "prompt" && r.success === false) toast = `errore: ${r.error ?? "prompt rifiutato"}`;
 			break;
 		case "extension_ui_request": {
@@ -563,7 +795,8 @@ const onRecord = (r) => {
 			if (m === "select") dialog = { id: r.id, method: m, title: r.title, options: r.options ?? [], sel: 0 };
 			else if (m === "confirm") dialog = { id: r.id, method: m, title: r.title, message: r.message };
 			else if (m === "input" || m === "editor") dialog = { id: r.id, method: m, title: r.title, text: r.prefill ?? r.text ?? "" };
-			else if (m === "notify") { toast = r.message; setTimeout(() => { toast = ""; schedule(); }, 5000).unref(); }
+			else if (m === "notify" && String(r.message ?? "").split("\n").length >= 4) dialog = { id: r.id, method: "pager", title: "", lines: String(r.message).split("\n"), top: 0 };
+			else if (m === "notify") { toast = String(r.message ?? "").replace(/\s*\n\s*/g, " ").replace(/[\x00-\x1f]/g, ""); setTimeout(() => { toast = ""; schedule(); }, 8000).unref(); }
 			else if (m === "setStatus") r.statusText ? statuses.set(r.statusKey, r.statusText) : statuses.delete(r.statusKey);
 			else if (m === "setWidget") r.widgetLines?.length ? widgets.set(r.widgetKey, r.widgetLines) : widgets.delete(r.widgetKey);
 			else if (m === "setTitle") { title = r.title ?? title; out.write(`\x1b]0;${r.title}\x07`); }
@@ -574,10 +807,10 @@ const onRecord = (r) => {
 		case "agent_settled": {
 			running = false; open = undefined; queued = 0;
 			const last = blocks.findLast((b) => b.kind === "assistant");
-			suggestions = last && last.text.includes(SUG) ? last.text.slice(last.text.indexOf(SUG) + SUG.length).split("\n").map((l) => /^\s*[-*•]\s+(.+?)\s*$/.exec(l)?.[1]).filter(Boolean).slice(0, 4) : [];
+			suggestions = last && last.text.includes(SUG) ? last.text.slice(last.text.indexOf(SUG) + SUG.length).split("\n").map((l) => /^\s*[-*•]\s+(.+?)\s*$/.exec(l)?.[1]).filter(Boolean).slice(0, 3) : [];
 			if (Date.now() - startedAt > 30000) out.write("\x07"); // long turn over: bell
 		}
-			refreshStats(); refreshGit();
+			refreshStats(); refreshGit(); readUsage(); readIntent();
 			break;
 		default:
 			return;
@@ -585,13 +818,24 @@ const onRecord = (r) => {
 	schedule();
 };
 
-const answer = (body) => { send({ type: "extension_ui_response", id: dialog.id, ...body }); dialog = undefined; };
+const answer = (body) => {
+	if (dialog.local) { const d = dialog; dialog = undefined; if (!body.cancelled) d.local(body.value); return; } send({ type: "extension_ui_response", id: dialog.id, ...body }); dialog = undefined; };
 // Keys while a dialog is open (select / confirm / input / editor); returns true when consumed.
 const dialogKey = (key, csi) => {
 	if (!dialog) return false;
 	const d = dialog;
+	if (d.method === "pager") {
+		const page = Math.max(3, (out.rows || 24) - 10);
+		if (csi === "A") d.top = Math.max(0, d.top - 1);
+		else if (csi === "B") d.top = Math.min(Math.max(0, d.lines.length - page), d.top + 1);
+		else if (csi === "5~") d.top = Math.max(0, d.top - page);
+		else if (csi === "6~" || key === " ") d.top = Math.min(Math.max(0, d.lines.length - page), d.top + page);
+		else if (key === "\x1b" || key === "q" || key === "\r") dialog = undefined;
+		return true;
+	}
 	if (csi === "A" && d.method === "select") d.sel = Math.max(0, d.sel - 1);
 	else if (csi === "B" && d.method === "select") d.sel = Math.min(d.options.length - 1, d.sel + 1);
+	else if (d.method === "select" && !csi && key >= "1" && key <= "9" && +key <= d.options.length) answer({ value: d.options[+key - 1] });
 	else if (key === "\x1b" && !csi) answer({ cancelled: true });
 	else if (key === "\r" || key === "\n") answer(d.method === "select" ? { value: d.options[d.sel] } : d.method === "confirm" ? { confirmed: true } : { value: d.text });
 	else if (d.method === "confirm" && (key === "y" || key === "Y")) answer({ confirmed: true });
@@ -601,8 +845,90 @@ const dialogKey = (key, csi) => {
 	return true;
 };
 
+// --- Sessions: /resume lists the session files next to the current one; /name sets the display name.
+const textOf = (c) => (typeof c === "string" ? c : (c ?? []).filter((x) => x.type === "text").map((x) => x.text).join(""));
+const planFrom = (d) => {
+	if (!d || !Array.isArray(d.tasks)) return;
+	plan = d.tasks.filter((t) => t.status !== "deleted").map((t) => ({ subject: String(t.subject ?? ""), status: String(t.status ?? "pending") }));
+	sideVer++;
+};
+// Newest in-progress intent: title and how many "Outcome atteso" boxes are ticked.
+const readIntent = () => {
+	try {
+		for (const f of readdirSync("intents").filter((n) => n.endsWith(".md")).sort().reverse()) {
+			const t = readFileSync(join("intents", f), "utf8");
+			if (!/^status:\s*in-progress/m.test(t)) continue;
+			const sec = /## Outcome atteso([\s\S]*?)(\n## |$)/.exec(t)?.[1] ?? "";
+			const boxes = sec.match(/^- \[[ x]\]/gm) ?? [];
+			intentInfo = { title: f, done: boxes.filter((b) => b.includes("x")).length, total: boxes.length };
+			return;
+		}
+	} catch {}
+	intentInfo = undefined;
+};
+const loadMessages = (msgs) => {
+	plan = [];
+	blocks.length = 0; open = undefined; previous = []; out.write(`${ESC}2J`);
+	for (const m of msgs) {
+		if (m.role === "user") { const t = textOf(m.content); if (t) blocks.push({ kind: "user", text: t }); }
+		else if (m.role === "assistant") {
+			for (const c of m.content ?? []) {
+				if (c.type === "text" && c.text) blocks.push({ kind: "assistant", text: c.text });
+				else if (c.type === "thinking" && c.thinking) blocks.push({ kind: "thinking", text: c.thinking });
+				else if (c.type === "toolCall") blocks.push({ kind: "tool", id: c.id, name: c.name, args: c.arguments, text: "", done: true });
+			}
+		} else if (m.role === "toolResult") {
+			const t = blocks.findLast((b) => b.id === m.toolCallId);
+			if (t) { t.failed = !!m.isError; if (m.details?.patch) t.patch = m.details.patch; }
+			if (m.toolName === "todo") planFrom(m.details);
+		}
+	}
+	scroll = 0; sideVer++;
+};
+const listSessions = () => {
+	if (!sessionFile) return [];
+	const dir = dirname(sessionFile);
+	return readdirSync(dir).filter((f) => f.endsWith(".jsonl") && join(dir, f) !== sessionFile).map((f) => ({ f: join(dir, f), t: statSync(join(dir, f)).mtimeMs })).sort((a, b) => b.t - a.t).slice(0, 60).map((x) => {
+		let name = "", first = "";
+		for (const l of readFileSync(x.f, "utf8").split("\n")) {
+			if (!l) continue;
+			let o; try { o = JSON.parse(l); } catch { continue; }
+			if (o.type === "session_info" && o.name) name = o.name;
+			else if (!first && o.type === "message" && o.message?.role === "user") first = textOf(o.message.content).replace(/\s+/g, " ").slice(0, 60);
+		}
+		if (!name && !first) return undefined;
+		return { ...x, label: `${new Date(x.t).toISOString().slice(5, 16).replace("T", " ")}  ${name || first}` };
+	}).filter(Boolean).slice(0, 30);
+};
+const resume = () => {
+	let list;
+	try { list = listSessions(); } catch (e) { toast = `resume: ${e.code ?? e.message}`; return; }
+	if (!list.length) { toast = "nessuna sessione"; return; }
+	dialog = { id: "local", method: "select", title: "Riprendi sessione", options: list.map((x) => x.label), sel: 0, local: (v) => {
+		const hit = list.find((x) => x.label === v);
+		if (!hit) return;
+		send({ id: "switch", type: "switch_session", sessionPath: hit.f });
+	} };
+	sideVer++;
+};
+
 // --- Keyboard.
+// /custom-reload: relaunch this client on the same session (new Pi process: extensions, settings, bridge reloaded).
+const restart = () => {
+	const args = process.argv.slice(2).filter((a, i, all) => a !== "--no-session" && a !== "--session" && all[i - 1] !== "--session" && a !== "-c" && a !== "--continue");
+	if (sessionFile) args.push("--session", sessionFile);
+	if (yolo) env.PI_YOLO = "1"; else delete env.PI_YOLO;
+	restarting = true;
+	try { child.kill(); } catch {}
+	process.stdin.pause(); process.stdin.removeAllListeners("data");
+	out.write(`${ESC}?2004l${ESC}?1006l${ESC}?1000l${ESC}?1049l${ESC}?25h`);
+	if (process.stdin.isTTY) process.stdin.setRawMode(false);
+	const next = spawn(process.execPath, [process.argv[1], ...args], { stdio: "inherit", env });
+	next.on("exit", (c) => process.exit(c ?? 0));
+};
+let quitting = false;
 const quit = () => {
+	quitting = true;
 	if (process.env.PROTO_DUMP) writeFileSync(process.env.PROTO_DUMP, previous.join("\n").replace(STRIP, ""));
 	try {
 		const stat = readFileSync(`/proc/${child.pid}/stat`, "utf8").split(") ")[1].split(" ");
@@ -614,15 +940,37 @@ const quit = () => {
 	child.stdin.end();
 	setTimeout(() => process.exit(0), 200);
 };
+// The agent can be busy without a turn we saw (compaction, extension work, two quick prompts): Pi then refuses the
+// prompt asking for streamingBehavior; the refused prompts are resent as follow-ups.
+const sentPrompts = new Map();
+let promptSeq = 0;
+const sendPrompt = (cmd) => {
+	const id = `p${++promptSeq}`;
+	sentPrompts.set(id, cmd);
+	if (sentPrompts.size > 20) sentPrompts.delete(sentPrompts.keys().next().value);
+	if (running) { queued++; sideVer++; }
+	send({ ...cmd, id, ...(running ? { streamingBehavior: "followUp" } : {}) });
+};
 const submit = () => {
 	const text = input.trim();
-	if (!text) return;
+	if (!text && !attached.length) return;
 	if (hist[hist.length - 1] !== text) hist.push(text);
 	hIdx = hist.length; draft = "";
 	input = ""; cursor = 0; scroll = 0; popDismissed = ""; suggestions = [];
 	if (/^\/(quit|exit)$/.test(text)) return quit();
 	if (text === "/clear") { blocks.length = 0; open = undefined; previous = []; out.write(`${ESC}2J`); return; }
-	if (text === "/new") { send({ type: "new_session" }); blocks.length = 0; open = undefined; previous = []; out.write(`${ESC}2J`); return; }
+	if (text === "/new") { send({ type: "new_session" }); sessionName = ""; send({ id: "state", type: "get_state" }); blocks.length = 0; open = undefined; previous = []; out.write(`${ESC}2J`); return; }
+	if (text === "/resume") { resume(); return; }
+	if (text === "/custom-reload") { restart(); return; }
+	let np;
+	if ((np = /^\/no-permissions\s*(on|off)?$/i.exec(text))) {
+		yolo = np[1] ? np[1].toLowerCase() === "on" : !yolo;
+		send({ type: "prompt", message: `/no-permissions ${yolo ? "on" : "off"}` });
+		toast = yolo ? "senza permessi: attivo" : "senza permessi: spento";
+		return;
+	}
+	let nm;
+	if ((nm = /^\/name\s+(.+)$/.exec(text))) { send({ type: "set_session_name", name: nm[1] }); sessionName = nm[1]; sideVer++; return; }
 	if (text === "/compact") { send({ type: "compact" }); toast = "compatto…"; return; }
 	let m;
 	if ((m = /^\/img\s+(\S+)\s*(.*)$/.exec(text))) {
@@ -631,13 +979,14 @@ const submit = () => {
 			const mime = /\.jpe?g$/i.test(path) ? "image/jpeg" : "image/png";
 			blocks.push({ kind: "user", text: m[2] || path });
 			addImage(data, mime);
-			send({ type: "prompt", message: m[2] || "Describe this image.", images: [{ type: "image", data, mimeType: mime }], ...(running ? { streamingBehavior: "followUp" } : {}) });
+			sendPrompt({ type: "prompt", message: m[2] || "Describe this image.", images: [{ type: "image", data, mimeType: mime }] });
 		} catch (e) { toast = `img: ${e.code ?? e.message}`; }
 		return;
 	}
-	blocks.push({ kind: "user", text });
+	blocks.push({ kind: "user", text: text || "(immagine)" });
 	open = undefined;
-	send({ type: "prompt", message: text, ...(running ? { streamingBehavior: "followUp" } : {}) });
+	const images = attached.splice(0).map((a) => { addImage(a.data, a.mime); return { type: "image", data: a.data, mimeType: a.mime }; });
+	sendPrompt({ type: "prompt", message: text || "Describe this image.", ...(images.length ? { images } : {}) });
 };
 const applyPopup = (it) => { input = input.slice(0, it.from) + it.insert + input.slice(cursor); cursor = it.from + it.insert.length; popDismissed = ""; };
 const wordLeft = () => { let i = cursor; while (i > 0 && /\s/.test(input[i - 1])) i--; while (i > 0 && !/\s/.test(input[i - 1])) i--; return i; };
@@ -667,7 +1016,8 @@ process.stdin.on("data", (data) => {
 		if (m[3] !== undefined) { // bracketed paste: literal text, newlines kept
 			const t = m[3].replace(/\r\n?/g, "\n");
 			if (dialog?.text !== undefined) dialog.text += t.replace(/\n/g, " ");
-			else if (!dialog) insert(t);
+			else if (!dialog && !t.trim()) pasteClipboardImage(); // image-only clipboard: terminals paste nothing, read the image
+			else if (!dialog && !attachFile(t)) insert(t);
 		} else if (m[4] !== undefined) { // SGR mouse: 64 wheel up, 65 wheel down
 			if (m[4] === "64") scroll += 3;
 			else if (m[4] === "65") scroll = Math.max(0, scroll - 3);
@@ -689,7 +1039,8 @@ process.stdin.on("data", (data) => {
 			else if (k === "13;5u") { send({ type: "prompt", message: "/now" }); toast = "invio subito…"; }
 			else if (k === "A") { if (items) popSel = (popSel + items.length - 1) % items.length; else if (!input.includes("\n")) histMove(-1); else cursor = Math.max(0, input.lastIndexOf("\n", cursor - 1)); }
 			else if (k === "B") { if (items) popSel = (popSel + 1) % items.length; else if (!input.includes("\n")) histMove(1); else { const n = input.indexOf("\n", cursor); cursor = n < 0 ? input.length : n + 1; } }
-		} else if (m[7] !== undefined) { if (m[7][1] === "n") { send({ type: "prompt", message: "/now" }); toast = "invio subito…"; } else insert("\n"); }
+		} else if (m[7] !== undefined) { if (m[7][1] === "n") { send({ type: "prompt", message: "/now" }); toast = "invio subito…"; } else if (m[7][1] === "v") pasteClipboardImage();
+		else if (m[7][1] === "s") { panelOff = !panelOff; previous = []; out.write(`${ESC}2J`); } else insert("\n"); }
 		else {
 			const key = m[8];
 			if (dialogKey(key)) continue;
@@ -707,28 +1058,44 @@ process.stdin.on("data", (data) => {
 			else if (key === "\x0f") expandSteps = !expandSteps;
 			else if (key === "\x14") showThinking = !showThinking;
 			else if (key === "\x7f") { if (cursor > 0) { input = input.slice(0, cursor - 1) + input.slice(cursor); cursor--; popSel = 0; popDismissed = ""; } }
-			else if (key === "\x15") { input = input.slice(cursor); cursor = 0; }
+			else if (key === "\x15") { if (!input && attached.length) attached.length = 0; else { input = input.slice(cursor); cursor = 0; } }
 			else if (key === "\x0b") input = input.slice(0, cursor);
 			else if (key === "\x17") { const i = wordLeft(); input = input.slice(0, i) + input.slice(cursor); cursor = i; }
 			else if (key === "\x01") cursor = 0;
 			else if (key === "\x05") cursor = input.length;
 			else if (key === "\x10") histMove(-1);
 			else if (key === "\x0e") histMove(1);
-			else if (key >= "1" && key <= "4" && !input && suggestions[+key - 1]) { input = suggestions[+key - 1]; cursor = input.length; suggestions = []; }
+			else if (key === "\x16") pasteClipboardImage();
+			else if (key >= "1" && key <= "3" && !input && suggestions[+key - 1]) { input = suggestions[+key - 1]; cursor = input.length; suggestions = []; }
 			else if (key >= " ") { insert(key); popDismissed = ""; }
 		}
 	}
 	drawNow();
 });
 out.on("resize", () => { previous = []; shownKitty = new Set(); if (imageProto === "kitty") out.write("\x1b_Ga=d,d=A,q=2\x1b\\"); out.write(`${ESC}2J`); drawNow(); });
-child.on("exit", () => quit());
+let restarting = false;
+child.on("exit", (code, sig) => {
+	if (restarting) return;
+	dialog = undefined;
+	if (!quitting) {
+		const msg = `pi terminated unexpectedly (code ${code ?? "-"}, signal ${sig ?? "-"})\n${errTail.trim()}`;
+		try { writeFileSync(join(homedir(), ".pi", "agent", "proto-last-exit.log"), `${new Date().toISOString()}\n${msg}\n`); } catch {}
+		quit(); out.write(`\n${msg}\n(log: ~/.pi/agent/proto-last-exit.log)\n`);
+		return;
+	}
+});
 out.write(`${ESC}?1049h${ESC}?1000h${ESC}?1006h${ESC}?2004h${ESC}2J`);
 drawNow();
 // Ask the terminal: kitty graphics query (1x1 pixel) then device attributes; the replies set imageProto.
 out.write("\x1b[16t\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c");
+// 1 s heartbeat only while a turn runs: keeps the working timer and the "no output for Ns" line alive when Pi is silent.
+setInterval(() => { if (running) schedule(); }, ANIM ? 125 : 1000).unref();
 setTimeout(() => { if (imageProto === "?") { imageProto = "none"; sideVer++; schedule(); } }, 1500).unref();
 
 send({ id: "state", type: "get_state" });
+send({ id: "msgs", type: "get_messages" }); // resumed sessions (--session, -c, /custom-reload) start with history
 send({ id: "cmds", type: "get_commands" });
 refreshStats();
 refreshGit();
+readUsage();
+readIntent();

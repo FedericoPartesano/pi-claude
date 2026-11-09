@@ -239,6 +239,16 @@ export function archiveOverview(branch: readonly (Entry & { customType?: string;
 	};
 }
 
+/** Plain-text summary of the archive for clients without the full-screen view. */
+export function archiveText(overview: ArchiveOverview): string {
+	const lines = [`Archivio: ${overview.entries.length} voci, ${overview.compactions} compattazioni, ${overview.injections.length} iniezioni`, "", "Iniezioni:"];
+	for (const injection of overview.injections.slice(-10)) lines.push(`  ${injection.method === "semantic" ? "sem" : "lex"} ${injection.hits.map((hit) => `#${hit.id}`).join(" ") || "-"} ← ${injection.prompt.replace(/\s+/g, " ").slice(0, 70)}`);
+	if (!overview.injections.length) lines.push("  nessuna");
+	lines.push("", "Voci (/archivio <id> le apre, /archivio <testo> cerca):");
+	for (const entry of overview.entries.slice(-40)) lines.push(`  #${entry.id.slice(0, 8)} ${entry.label} ${entry.chars}c${entry.injected ? ` ×${entry.injected}` : ""}  ${entry.preview.slice(0, 80)}`);
+	return lines.join("\n");
+}
+
 /** Excerpts worth adding to a request unasked: several query terms in the same chunk, short output. */
 /** Header of an injection; the tool is only named when it can be called. */
 const HEADER = () => (process.env.PI_ARCHIVE_TOOL !== "1" ? "Dalla storia compattata (dettagli esatti):" : "Dalla storia compattata (dettagli esatti; apri una voce intera con richiama id):");
@@ -395,11 +405,19 @@ export default function (pi: ExtensionAPI) {
 	pi.registerCommand("archivio", {
 		description: "Apri l'archivio della storia compattata: iniezioni, voci e prova di recupero",
 		handler: async (_args, ctx) => {
-			if (ctx.mode !== "tui") return ctx.ui.notify("/archivio serve il terminale interattivo.", "warning");
+			if (ctx.mode !== "tui" && ctx.mode !== "rpc") return ctx.ui.notify("/archivio serve il terminale interattivo.", "warning");
 			const branch = ctx.sessionManager.getBranch() as Entry[];
 			const overview = archiveOverview(branch);
 			if (overview.entries.length === 0) return ctx.ui.notify("Archivio vuoto: nulla \u00e8 stato ancora compattato in questa sessione.", "info");
 			const chunks = chunkArchive(archivedEntries(branch));
+			if (ctx.mode === "rpc") {
+				// No custom views over RPC: the client shows a multi-line notification in a pager.
+				const arg = _args.trim();
+				if (!arg) return ctx.ui.notify(archiveText(overview), "info");
+				if (/^[0-9a-f]{6,}$/i.test(arg)) return ctx.ui.notify(openEntry(archivedEntries(branch), arg), "info");
+				const hits = embedder?.ready && vectors.size > 0 ? rankSemantic(chunks, vectors, (await embedder.embed([arg.slice(0, 600)], "query"))[0], 8) : searchChunks(chunks, arg, 8);
+				return ctx.ui.notify(hits.length ? hits.map((hit) => `#${hit.entryId.slice(0, 8)} ${hit.label}${hit.z !== undefined ? ` z${hit.z.toFixed(1)}` : ""}\n${hit.text}`).join("\n\n") : "Nessun risultato.", "info");
+			}
 			const { ArchiveView } = await import("../pi-ui/src/archive-view.ts");
 			const search = async (query: string) => {
 				if (embedder?.ready && vectors.size > 0) {

@@ -16,7 +16,7 @@ export function renderTeamLog(theme: ViewTheme, agents: readonly AgentActivity[]
 	const running = agents.filter((agent) => agent.state === "running");
 	const head = spread(
 		`${theme.bold(theme.fg(running.length ? "accent" : "muted", "TEAM"))} ${theme.fg("dim", running.length ? `${running.length} al lavoro · ${agents.length - running.length} finiti` : `${agents.length} finiti`)}`,
-		theme.fg("dim", "ctrl+alt+a dettaglio"),
+		width >= 48 ? theme.fg("dim", "ctrl+alt+a dettaglio") : "",
 		width,
 	);
 	if (agents.length === 0) return [head, theme.fg("dim", "nessun agente")].map((line) => fit(line, width));
@@ -52,6 +52,18 @@ export interface TeamLogUi {
 }
 
 export const COLUMN_WIDTH = 60;
+/** Panel width of the RPC chat; the text widget is rendered for it. */
+export const TEXT_WIDTH = 33;
+/** RPC hosts only get plain string lines: the clock only has to move the "stalled" label, so it ticks slowly. */
+export const TEXT_TICK_MS = 5_000;
+const ROLE_COLOR: Record<string, string> = { accent: "38;2;255;63;216", success: "38;2;61;242;160", error: "38;2;255;77;109", warning: "38;2;245;185;66", muted: "38;2;133;139;160", dim: "38;2;133;139;160", text: "38;2;220;223;232" };
+/** Minimal ANSI theme for hosts that do not hand one over (RPC). */
+export const ansiTheme: ViewTheme = {
+	fg: (role, text) => `\x1b[${ROLE_COLOR[role] ?? ROLE_COLOR.text}m${text}\x1b[39m`,
+	bg: (_role, text) => text,
+	bold: (text) => `\x1b[1m${text}\x1b[22m`,
+	italic: (text) => `\x1b[3m${text}\x1b[23m`,
+};
 /** How long the log stays after the last agent ends. */
 export const LINGER_MS = 15_000;
 
@@ -59,7 +71,9 @@ export class TeamLog {
 	private frame = 0;
 	private timer?: ReturnType<typeof setInterval>;
 	private closeTimer?: ReturnType<typeof setTimeout>;
-	private mode: "none" | "column" | "strip" = "none";
+	private mode: "none" | "column" | "strip" | "text" = "none";
+	private textOnly = false;
+	private lastText = "";
 	private ui?: TeamLogUi;
 	private requestRender?: () => void;
 	/** Set by the user with /team-log: the log stays closed even while agents run. */
@@ -77,8 +91,9 @@ export class TeamLog {
 	}
 
 	/** The newest UI to draw on; call at the start of each run (a context captured before a reload is stale). */
-	attach(ui: TeamLogUi | undefined): void {
+	attach(ui: TeamLogUi | undefined, mode?: string): void {
 		this.ui = ui;
+		this.textOnly = mode !== undefined && mode !== "tui";
 		this.update();
 	}
 
@@ -98,11 +113,28 @@ export class TeamLog {
 			this.closeTimer.unref?.();
 		}
 		if (this.mode === "column") sideColumn()?.redraw();
+		else if (this.mode === "text") this.pushText();
 		this.requestRender?.();
+	}
+
+	/** RPC: send the log as a string-array widget, only when it changed. */
+	private pushText(): void {
+		const lines = renderTeamLog(ansiTheme, this.feed.agents, TEXT_WIDTH, Math.min(16, Math.max(4, this.feed.agents.length * 3 + 2)), this.now(), 0);
+		const text = lines.join("\n");
+		if (text === this.lastText) return;
+		this.lastText = text;
+		this.ui?.setWidget("team-log", lines);
 	}
 
 	open(): void {
 		if (!this.ui || this.mode !== "none") return;
+		if (this.textOnly) {
+			this.mode = "text";
+			this.pushText();
+			this.timer = setInterval(() => this.update(), TEXT_TICK_MS);
+			this.timer.unref?.();
+			return;
+		}
 		const column = sideColumn();
 		if (column?.available() && !column.isOpen()) {
 			column.open(this.component, { width: COLUMN_WIDTH, onClose: () => { if (this.mode === "column") this.stop(); } });
@@ -133,6 +165,7 @@ export class TeamLog {
 		this.timer = undefined;
 		this.closeTimer = undefined;
 		this.requestRender = undefined;
+		this.lastText = "";
 	}
 
 	close(): void {
@@ -140,7 +173,7 @@ export class TeamLog {
 		if (was === "none") return;
 		this.stop();
 		if (was === "column") sideColumn()?.close();
-		else this.ui?.setWidget("team-log", undefined);
+		else this.ui?.setWidget("team-log", undefined); // strip or text
 	}
 
 	toggle(): boolean {

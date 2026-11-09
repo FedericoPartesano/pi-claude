@@ -216,7 +216,10 @@ export default function (pi: ExtensionAPI) {
 					};
 				},
 				{ overlay: true, overlayOptions: { anchor: "top-left", width: "100%", maxHeight: "100%" } },
-			).catch(() => {
+			).then(() => {
+				// RPC mode: custom() resolves at once without ever building the component → fall back to the widget text.
+				if (!renderScreen) { background = true; draw(); }
+			}).catch(() => {
 				background = true;
 			});
 		}
