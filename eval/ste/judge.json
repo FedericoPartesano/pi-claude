@@ -1,0 +1,410 @@
+[
+ {
+  "x": "plain",
+  "y": "ste",
+  "q": 0,
+  "a": "ste",
+  "b": "plain",
+  "winner": "plain",
+  "plain": {
+   "c": 5,
+   "k": 5
+  },
+  "ste": {
+   "c": 4,
+   "k": 3
+  },
+  "reason": "Both give correct find and stop commands, but A presents `fuser -k` as a casual one-step option without noting it sends SIGKILL (which contradicts its graceful-first advice) and omits Docker and WSL2 cases, while B warns about SIGKILL, adds a verification step, and covers Docker and WSL2 port holders."
+ },
+ {
+  "x": "plain",
+  "y": "ste",
+  "q": 2,
+  "a": "ste",
+  "b": "plain",
+  "winner": "plain",
+  "plain": {
+   "c": 4,
+   "k": 4
+  },
+  "ste": {
+   "c": 4,
+   "k": 3
+  },
+  "reason": "B forces GC before measuring (so growth reflects retained memory), covers --heapsnapshot-signal and --heap-prof, and lists more causes (promises, streams); A's --trace-gc Mark-Compact check and snapshot steps are fine, but it lacks forced GC and incorrectly implies clinic heapprofiler/--heapsnapshot-near-heap-limit are comparable, while B has a minor flaw in suggesting --heap-prof opens in DevTools Allocation Sampling view loosely."
+ },
+ {
+  "x": "plain",
+  "y": "ste",
+  "q": 1,
+  "a": "plain",
+  "b": "ste",
+  "winner": "plain",
+  "plain": {
+   "c": 5,
+   "k": 5
+  },
+  "ste": {
+   "c": 4,
+   "k": 4
+  },
+  "reason": "A is correct and more actionable, with sem_init shown, a clear comparison table, and a warning about binary semaphores being misused as mutexes; B is also accurate and adds priority inheritance, but its semaphore example omits initialization and its mutex 'protects one shared resource' phrasing is slightly loose."
+ },
+ {
+  "x": "plain",
+  "y": "ste",
+  "q": 3,
+  "a": "plain",
+  "b": "ste",
+  "winner": "plain",
+  "plain": {
+   "c": 5,
+   "k": 5
+  },
+  "ste": {
+   "c": 4,
+   "k": 3
+  },
+  "reason": "A is accurate and recommends the safer --force-with-lease, whereas B makes a misleading claim that the old commit message stays in .git/COMMIT_EDITMSG (not reliably true after reset) and includes an irrelevant note about the cwd not being a git repo, plus recommends plain --force."
+ },
+ {
+  "x": "plain",
+  "y": "ste",
+  "q": 5,
+  "a": "plain",
+  "b": "ste",
+  "winner": "plain",
+  "plain": {
+   "c": 5,
+   "k": 4
+  },
+  "ste": {
+   "c": 4,
+   "k": 4
+  },
+  "reason": "A explains why reopening is needed, the copytruncate caveats, and common pitfalls, with sound directives, though its sparse-file claim is slightly overstated; B is correct and concise but omits the reasoning and the failure modes a developer would need when something goes wrong."
+ },
+ {
+  "x": "plain",
+  "y": "ste",
+  "q": 6,
+  "a": "ste",
+  "b": "plain",
+  "winner": "plain",
+  "plain": {
+   "c": 4,
+   "k": 4
+  },
+  "ste": {
+   "c": 4,
+   "k": 4
+  },
+  "reason": "Both are technically sound, but B covers more actionable causes (CRLF line endings, a common WSL2 pitfall, and a build check for missing COPY files), includes the error field in inspect, and notes that logs persist after exit, while A's Compose commands are a minor plus that doesn't outweigh this."
+ },
+ {
+  "x": "plain",
+  "y": "ste",
+  "q": 4,
+  "a": "plain",
+  "b": "ste",
+  "winner": "plain",
+  "plain": {
+   "c": 5,
+   "k": 5
+  },
+  "ste": {
+   "c": 4,
+   "k": 4
+  },
+  "reason": "Both are accurate, but A is more complete and precise (notes UDP can duplicate/reorder, explains QUIC runs in user space over UDP, includes a 'build your own reliability' criterion), while B's table is clear but slightly shallower and its 'does a lost or late packet break the result' rule of thumb is useful but omits duplication and the congestion-control implications of UDP."
+ },
+ {
+  "x": "plain",
+  "y": "ste",
+  "q": 7,
+  "a": "ste",
+  "b": "plain",
+  "winner": "plain",
+  "plain": {
+   "c": 5,
+   "k": 5
+  },
+  "ste": {
+   "c": 4,
+   "k": 4
+  },
+  "reason": "B is technically sound and more complete for acting on it (sort-column ordering, partial/covering/expression indexes, a query for finding invalid indexes, Bitmap scans, index size, and redundant-index advice), while A is correct but thinner and omits ordering considerations, with a minor imprecision in its claim that a text-vs-varchar comparison prevents index use."
+ },
+ {
+  "x": "plain",
+  "y": "combo",
+  "q": 1,
+  "a": "plain",
+  "b": "combo",
+  "winner": "plain",
+  "plain": {
+   "c": 5,
+   "k": 5
+  },
+  "combo": {
+   "c": 3,
+   "k": 4
+  },
+  "reason": "Answer A is accurate and gives code examples, a comparison table, and guidance on when to use each (including the binary-semaphore caveat), while Answer B is correct but too terse to act on and omits the signaling use case."
+ },
+ {
+  "x": "plain",
+  "y": "combo",
+  "q": 0,
+  "a": "combo",
+  "b": "plain",
+  "winner": "plain",
+  "plain": {
+   "c": 4,
+   "k": 4
+  },
+  "combo": {
+   "c": 5,
+   "k": 4
+  },
+  "reason": "Both give correct commands and a graceful-then-force kill sequence, but B is more complete for a developer who must act (systemd restarts, Docker, WSL2 caveats, fuser option), while its fuser -k shortcut is flagged with an appropriate SIGKILL warning; A is cleaner but omits cases where kill alone won't work."
+ },
+ {
+  "x": "plain",
+  "y": "combo",
+  "q": 3,
+  "a": "plain",
+  "b": "combo",
+  "winner": "plain",
+  "plain": {
+   "c": 5,
+   "k": 5
+  },
+  "combo": {
+   "c": 4,
+   "k": 4
+  },
+  "reason": "A correctly explains both soft and mixed resets and accurately notes that force-pushing with --force-with-lease is the way to update a pushed branch, while B is terse, mislabels the unstaged option, and gives no way to rewrite history after a push beyond suggesting revert, which does not meet the 'undo but keep changes' goal."
+ },
+ {
+  "x": "plain",
+  "y": "combo",
+  "q": 2,
+  "a": "plain",
+  "b": "combo",
+  "winner": "plain",
+  "plain": {
+   "c": 5,
+   "k": 5
+  },
+  "combo": {
+   "c": 4,
+   "k": 5
+  },
+  "reason": "Both are technically correct, but A explains why to force GC when measuring, gives a clearer snapshot-diff workflow with retainer-chain guidance, and has a fuller list of causes, whereas B is terser and leaves out some of that context (though it adds a useful --trace-gc tip)."
+ },
+ {
+  "x": "plain",
+  "y": "combo",
+  "q": 4,
+  "a": "combo",
+  "b": "plain",
+  "winner": "plain",
+  "plain": {
+   "c": 5,
+   "k": 5
+  },
+  "combo": {
+   "c": 4,
+   "k": 4
+  },
+  "reason": "B is more complete and precise: it notes UDP can duplicate/reorder packets, lacks congestion control, gives header sizes, covers more protocols (NTP, SNMP), and correctly says QUIC provides reliability and encryption in user space, while A is accurate but terser and omits these details, and its 'Pick TCP by default' rule of thumb is a bit simplistic."
+ },
+ {
+  "x": "plain",
+  "y": "combo",
+  "q": 7,
+  "a": "plain",
+  "b": "combo",
+  "winner": "plain",
+  "plain": {
+   "c": 5,
+   "k": 5
+  },
+  "combo": {
+   "c": 4,
+   "k": 4
+  },
+  "reason": "A is accurate and more actionable, covering invalid index cleanup after failed CONCURRENTLY builds, partial/covering/expression indexes, sort-direction matching, and reasons the planner may ignore an index, while B is correct but terse and its example index omits the status filter and sort-direction handling."
+ },
+ {
+  "x": "plain",
+  "y": "combo",
+  "q": 5,
+  "a": "combo",
+  "b": "plain",
+  "winner": "plain",
+  "plain": {
+   "c": 5,
+   "k": 4
+  },
+  "combo": {
+   "c": 4,
+   "k": 4
+  },
+  "reason": "Both configs are sound, but B explains each directive, adds the post-rotation check that the app writes to the new file, notes the sparse-file risk of copytruncate, and covers the scheduled run and status file, while A is terser and omits these; B's weaker points are `systemctl reload` assuming the unit defines ExecReload and a distro-specific status path."
+ },
+ {
+  "x": "plain",
+  "y": "combo",
+  "q": 6,
+  "a": "plain",
+  "b": "combo",
+  "winner": "plain",
+  "plain": {
+   "c": 5,
+   "k": 5
+  },
+  "combo": {
+   "c": 4,
+   "k": 4
+  },
+  "reason": "A is more complete and accurate (covers daemonizing, OOM, exec vs shell form, inspecting the effective CMD/ENTRYPOINT, and a clear exit-code table), while B is correct but terser and slightly imprecise, e.g. 'CMD [\"bash\"] without a TTY' and treating 137 as simply 'killed'."
+ },
+ {
+  "x": "caveman",
+  "y": "combo",
+  "q": 0,
+  "a": "caveman",
+  "b": "combo",
+  "winner": "combo",
+  "caveman": {
+   "c": 3,
+   "k": 4
+  },
+  "combo": {
+   "c": 5,
+   "k": 5
+  },
+  "reason": "Both are technically valid, but B matches the question's language (English) and gives a clear stepwise workflow with verification and a caution on SIGKILL, while A answers in Italian to an English question and includes an unguarded fuser -k shortcut that skips the graceful-stop step."
+ },
+ {
+  "x": "caveman",
+  "y": "combo",
+  "q": 1,
+  "a": "caveman",
+  "b": "combo",
+  "winner": "caveman",
+  "caveman": {
+   "c": 4,
+   "k": 5
+  },
+  "combo": {
+   "c": 4,
+   "k": 4
+  },
+  "reason": "A is more complete and technically precise (ownership contrast, wait/signal semantics, signaling use case), while B is correct but omits the event-signaling use and blocking behavior, and is in English while the question was in English, though A's Italian content is accurate and actionable."
+ },
+ {
+  "x": "caveman",
+  "y": "combo",
+  "q": 3,
+  "a": "caveman",
+  "b": "combo",
+  "winner": "combo",
+  "caveman": {
+   "c": 3,
+   "k": 4
+  },
+  "combo": {
+   "c": 5,
+   "k": 5
+  },
+  "reason": "Both give the correct command, but B is in the question's language, warns that rewriting pushed history is unsafe and gives the git revert alternative, while A answers in Italian to an English question, adds an irrelevant note about /tmp/ste-cwd, and wrongly implies that mixed reset is the only option to unstage without noting the push caveat."
+ },
+ {
+  "x": "caveman",
+  "y": "combo",
+  "q": 2,
+  "a": "caveman",
+  "b": "combo",
+  "winner": "combo",
+  "caveman": {
+   "c": 4,
+   "k": 5
+  },
+  "combo": {
+   "c": 5,
+   "k": 5
+  },
+  "reason": "Both are technically correct, but B gives one coherent snapshot-comparison workflow (warm-up, workload, forced GC, diff, retainers) and adds the practical `--heapsnapshot-signal` option for a running process, while A mixes alternative methods into one numbered list."
+ },
+ {
+  "x": "caveman",
+  "y": "combo",
+  "q": 4,
+  "a": "combo",
+  "b": "caveman",
+  "winner": "caveman",
+  "caveman": {
+   "c": 4,
+   "k": 4
+  },
+  "combo": {
+   "c": 5,
+   "k": 4
+  },
+  "reason": "B is more technically precise (byte stream vs. preserved datagram boundaries, head-of-line blocking, no congestion control, duplicates, multicast/broadcast) and gives a more actionable rationale for UDP, while A is cleaner to read but omits these details and its 'no ordering' framing is shallower; B's phrase listing QUIC under 'custom reliability or multicast' is slightly muddled."
+ },
+ {
+  "x": "caveman",
+  "y": "combo",
+  "q": 7,
+  "a": "caveman",
+  "b": "combo",
+  "winner": "caveman",
+  "caveman": {
+   "c": 4,
+   "k": 5
+  },
+  "combo": {
+   "c": 4,
+   "k": 4
+  },
+  "reason": "A covers the key CONCURRENTLY failure mode (INVALID index left behind, how to drop and detect it), expression-index pitfalls, and the large-result-set caveat, while B's useful EXPLAIN ANALYZE DML-rollback warning is outweighed by omitting invalid-index handling and by its slightly loose claim that CONCURRENTLY merely 'does not block writes'."
+ },
+ {
+  "x": "caveman",
+  "y": "combo",
+  "q": 5,
+  "a": "combo",
+  "b": "caveman",
+  "winner": "combo",
+  "caveman": {
+   "c": 4,
+   "k": 4
+  },
+  "combo": {
+   "c": 5,
+   "k": 5
+  },
+  "reason": "A gives the same correct config but adds a clear step-by-step flow including a result check, the `|| true` silent-failure caveat, and verification of the logrotate.d include and timer, while B is in Italian (the question was in English) and slightly less complete and more vague (e.g., the closing remark about 'a different path' is unclear)."
+ },
+ {
+  "x": "caveman",
+  "y": "combo",
+  "q": 6,
+  "a": "caveman",
+  "b": "combo",
+  "winner": "caveman",
+  "caveman": {
+   "c": 5,
+   "k": 5
+  },
+  "combo": {
+   "c": 4,
+   "k": 4
+  },
+  "reason": "A is more accurate and actionable (explains the foreground-process cause, uses --entrypoint correctly, covers the background '&' pitfall and the TTY issue, and recommends 'file' and 'dos2unix' for CRLF), while B's CRLF error message example is slightly off ('bash\\r: No such file' is a less standard form), its 'CMD [\"bash\"] without a TTY' framing is fine but less complete, and its numbered steps are somewhat redundant (steps 1-3 overlap)."
+ }
+]
