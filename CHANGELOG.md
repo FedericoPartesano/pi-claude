@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.24.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.23.0...pi-claude-v0.24.0) (2026-11-09)
+
+
+### Features
+
+* modello fable nel provider claude-code ([0293305](https://github.com/FedericoPartesano/pi-claude/commit/0293305a522345b4dbe62985b3f9d4ae3de59495))
+* prototipo con /model, suggerimenti via rpc-suggest, sblocco working e toast che si chiudono ([28ebd40](https://github.com/FedericoPartesano/pi-claude/commit/28ebd40041ddcc8e0164c83ffb5ce4642f2a351f))
+* skill agent-skills ed ecc integrate nel pacchetto (nascoste, richiamabili con /skill:nome) ([8edb67c](https://github.com/FedericoPartesano/pi-claude/commit/8edb67c2df8b20070f816a9170ee702544fbd0fb))
+
+
+### Bug Fixes
+
+* embedder unico per processo, niente SIGABRT di onnxruntime nell'analisi del vault ([f48d976](https://github.com/FedericoPartesano/pi-claude/commit/f48d9761fae787651475dc215134397613db381a))
+
 ## [0.23.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.22.0...pi-claude-v0.23.0) (2026-11-09)
 
 
