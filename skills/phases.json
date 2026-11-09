@@ -1,0 +1,11 @@
+{
+  "_doc": "Auto mode contract: phase -> skills it reads (SKILL.md path under skills/). Editable. Outside auto mode nothing loads: all skills are disable-model-invocation.",
+  "define":   ["agent-skills/skills/idea-refine", "agent-skills/skills/spec-driven-development", "ecc/skills/loop-design-check"],
+  "plan":     ["agent-skills/skills/planning-and-task-breakdown", "agent-skills/skills/constraint-driven-development"],
+  "build":    ["agent-skills/skills/incremental-implementation", "agent-skills/skills/test-driven-development", "agent-skills/skills/context-engineering"],
+  "verify":   ["agent-skills/skills/debugging-and-error-recovery", "agent-skills/skills/security-and-hardening"],
+  "review":   ["agent-skills/skills/code-review-and-quality", "agent-skills/skills/code-simplification"],
+  "ship":     ["agent-skills/skills/git-workflow-and-versioning"],
+  "gate":     ["agent-skills/skills/doubt-driven-development"],
+  "index":    ["agent-skills/skills/using-agent-skills"]
+}

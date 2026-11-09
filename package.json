@@ -43,6 +43,10 @@
     ],
     "themes": [
       "./pi-ui/themes/*.json"
+    ],
+    "skills": [
+      "./skills/agent-skills/skills",
+      "./skills/ecc/skills"
     ]
   },
   "dependencies": {
