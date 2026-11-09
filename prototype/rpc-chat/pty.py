@@ -8,7 +8,7 @@ a = sys.argv[1:]; opt = {"cols": "100", "rows": "30", "wait": "2"}; steps = []; 
 while a:
     x = a.pop(0)
     if x == "--": chat = a; break
-    if x.startswith("--") and x[2:] in ("fake", "cols", "rows", "wait", "exit", "err"): opt[x[2:]] = a.pop(0)
+    if x.startswith("--") and x[2:] in ("fake", "cols", "rows", "wait", "exit", "err", "log"): opt[x[2:]] = a.pop(0)
     else: steps.append(x)
 KEYS = {"down": b"\x1b[B", "up": b"\x1b[A", "enter": b"\r", "esc": b"\x1b", "tab": b"\t", "ctrl-c": b"\x03", "ctrl-d": b"\x04"}
 dump = tempfile.mktemp(suffix=".txt")
@@ -18,6 +18,7 @@ if "fake" in opt or "exit" in opt:
     if "fake" in opt: env["FAKEPI_SCRIPT"] = opt["fake"]
     if "exit" in opt: env["FAKEPI_EXIT"] = opt["exit"]
     if "err" in opt: env["FAKEPI_ERR"] = opt["err"]
+    if "log" in opt: env["FAKEPI_LOG"] = opt["log"]
 pid, fd = pty.fork()
 if pid == 0:
     os.execvpe("node", ["node", os.path.join(here, "chat.mjs"), *chat], env)

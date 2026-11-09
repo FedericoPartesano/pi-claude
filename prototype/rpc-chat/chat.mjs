@@ -594,6 +594,89 @@ const bootFrame = () => {
 	buf += `${ESC}?25l`;
 	if (buf) out.write(buf);
 };
+// --- Questionnaire (ask_user_question). Without a real terminal the extension sends one select/input dialog per question;
+// we draw all the questions in one card (tabs, checkboxes, preview, free text, review page) and answer those dialogs ourselves.
+let qz;
+const qzMk = (qs) => ({ qs, tab: 0, a: qs.map(() => ({ sel: 0, on: new Set(), text: "", done: false })), ready: false, cancelled: false, held: undefined, resp: [] });
+const qzName = (q, i) => q.header || `Domanda ${i + 1}`;
+const qzSummary = (q, a) => !a.done ? "—" : q.multiSelect ? (a.text.trim() || [...a.on].sort((x, y) => x - y).map((i) => q.options[i].label).join(", ") || "(nessuna)") : a.sel < q.options.length ? q.options[a.sel].label : a.text.trim();
+// Answers in the order the extension asks its dialogs: single option, "Type something" (select + input), or multi (one input "1,3").
+const qzResp = (z) => z.qs.flatMap((q, i) => {
+	const a = z.a[i];
+	if (q.multiSelect) return [{ kind: "text", v: a.text.trim() || [...a.on].sort((x, y) => x - y).map((k) => k + 1).join(",") }];
+	return a.sel < q.options.length ? [{ kind: "opt", i: a.sel }] : [{ kind: "other" }, { kind: "text", v: a.text.trim() }];
+});
+const qzReply = (r) => {
+	if (qz.cancelled) { send({ type: "extension_ui_response", id: r.id, cancelled: true }); return; }
+	const e = qz.resp.shift();
+	const v = e?.kind === "opt" && r.method === "select" ? (r.options ?? []).find((o) => String(o).startsWith(`${e.i + 1}.`))
+		: e?.kind === "other" && r.method === "select" ? (r.options ?? []).at(-1)
+		: e?.kind === "text" && r.method !== "select" ? e.v : undefined;
+	if (v === undefined) { qz = undefined; onRecord(r); return; } // unexpected sequence: show the dialog the plain way
+	send({ type: "extension_ui_response", id: r.id, value: v });
+};
+// True when the dialog request was taken over (held until the card is finished, or answered from it).
+const qzIntercept = (r) => {
+	if (!qz || !["select", "input", "editor"].includes(r.method)) return false;
+	if (!qz.ready && !qz.cancelled) { qz.held = r; return true; }
+	qzReply(r); return true;
+};
+const qzKey = (z, key, csi) => {
+	const n = z.qs.length, review = n > 1, last = review ? n : n - 1;
+	const finish = () => { z.resp = qzResp(z); z.ready = true; dialog = undefined; if (z.held) { const h = z.held; z.held = undefined; qzReply(h); } };
+	const cancel = () => { z.cancelled = true; dialog = undefined; if (z.held) { const h = z.held; z.held = undefined; qzReply(h); } };
+	if (key === "\x1b" && !csi) return cancel();
+	if (csi === "C") { z.tab = Math.min(last, z.tab + 1); return; }
+	if (csi === "D") { z.tab = Math.max(0, z.tab - 1); return; }
+	if (review && z.tab === n) {
+		if (key === "\r" || key === "\n") { const miss = z.a.findIndex((a) => !a.done); if (miss >= 0) z.tab = miss; else finish(); }
+		return;
+	}
+	const q = z.qs[z.tab], a = z.a[z.tab], no = q.options.length, onOther = a.sel === no;
+	const advance = () => { a.done = true; if (z.tab < last) z.tab++; else finish(); };
+	if (csi === "A") a.sel = Math.max(0, a.sel - 1);
+	else if (csi === "B") a.sel = Math.min(no, a.sel + 1);
+	else if (key === "\r" || key === "\n") { if (!q.multiSelect && onOther && !a.text.trim()) return; advance(); }
+	else if (onOther && key === "\x7f") a.text = a.text.slice(0, -1);
+	else if (onOther && key && key >= " " && !csi) a.text += key;
+	else if (!csi && key >= "1" && key <= "9" && +key <= no) { if (q.multiSelect) toggle(a, +key - 1); else { a.sel = +key - 1; advance(); } }
+	else if (!csi && key === " " && q.multiSelect) toggle(a, a.sel);
+};
+const toggle = (a, i) => { if (a.on.has(i)) a.on.delete(i); else a.on.add(i); };
+const quizLines = (z, bar, iw, leftW, H) => {
+	const L = [], n = z.qs.length;
+	const hint = (...kv) => `${bar}${kv.map(([k, v]) => `${S.text}${k}${S.dim} ${v}${R}`).join(`${S.faint}  ·  `)}`;
+	const tabs = z.qs.map((q, i) => { const on = i === z.tab, mark = z.a[i].done ? "●" : "○", lab = cut(qzName(q, i), 14); return on ? `${S.cyan}${S.b}${mark} ${lab}${R}` : `${z.a[i].done ? S.ok : S.dim}${mark} ${lab}${R}`; });
+	if (n > 1) tabs.push(z.tab === n ? `${S.cyan}${S.b}✓ Rivedi${R}` : `${S.dim}✓ Rivedi${R}`);
+	L.push(cut(`${bar}${S.mag}${S.b}DOMANDE${R}  ${tabs.join("  ")}`, leftW));
+	L.push(bar.trimEnd());
+	if (n > 1 && z.tab === n) {
+		z.qs.forEach((q, i) => { const a = z.a[i]; L.push(cut(`${bar}${a.done ? `${S.ok}✓` : `${S.err}✖`} ${S.dim}${qzName(q, i)}${R}  ${S.text}${qzSummary(q, a)}${R}`, leftW)); });
+		L.push(bar.trimEnd());
+		L.push(hint(["⏎", "invia"], ["←", "correggi"], ["esc", "annulla"]));
+		return L;
+	}
+	const q = z.qs[z.tab], a = z.a[z.tab], no = q.options.length;
+	for (const w of wrap(q.question, iw)) L.push(`${bar}${S.b}${S.text}${w}${R}`);
+	L.push(bar.trimEnd());
+	q.options.forEach((o, i) => {
+		const cur = a.sel === i, box = q.multiSelect ? (a.on.has(i) ? "☑" : "☐") : (a.done && a.sel === i ? "◉" : "○");
+		L.push(cur ? `${bar}${bg(P.userBg)}${S.cyan}▸ ${S.dim}${i < 9 ? i + 1 : " "} ${S.cyan}${box} ${S.b}${S.text}${pad(cut(o.label, iw - 8), iw - 7)}${R}` : `${bar}${S.faint}  ${i < 9 ? i + 1 : " "} ${S.dim}${box} ${S.text}${cut(o.label, iw - 8)}${R}`);
+		if (cur && o.description) for (const w of wrap(o.description, iw - 8).slice(0, 2)) L.push(`${bar}${S.dim}        ${w}${R}`);
+	});
+	const cur = a.sel === no;
+	L.push(`${bar}${cur ? `${bg(P.userBg)}${S.cyan}▸ ${S.mag}✎ ${S.text}${pad(a.text ? `${cut(a.text, iw - 8)}${S.mag}▌` : `${S.mag}▌${S.faint}scrivi la tua risposta`, iw - 4)}` : `${S.faint}    ${S.dim}✎ ${a.text ? S.text : S.faint}${cut(a.text || "scrivi la tua risposta…", iw - 8)}`}${R}`);
+	const pv = !cur && q.options[a.sel]?.preview;
+	if (pv) {
+		L.push(bar.trimEnd());
+		const rows = pv.split("\n").flatMap((l) => wrap(l, iw - 4));
+		for (const l of rows.slice(0, Math.max(3, Math.min(8, H - 24)))) L.push(`${bar}${S.faint}┆ ${S.dim}${l}${R}`);
+		if (rows.length > Math.max(3, Math.min(8, H - 24))) L.push(`${bar}${S.faint}┆ …${R}`);
+	}
+	L.push(bar.trimEnd());
+	L.push(q.multiSelect ? hint(["↑↓", "muovi"], ["spazio", "spunta"], ["⏎", "avanti"], ["←→", "domanda"], ["esc", "annulla"]) : hint(["↑↓", "scegli"], ["1-9", "diretto"], ["⏎", "conferma"], ["←→", "domanda"], ["esc", "annulla"]));
+	return L;
+};
 let previous = [], toastText = "", toastSeen = "", toastT0 = 0, toastOut = 0;
 const frame = () => {
 	if (booting) return bootFrame();
@@ -614,6 +697,8 @@ const frame = () => {
 			const page = Math.max(3, H - 10);
 			for (const l of dialog.lines.slice(dialog.top, dialog.top + page)) extra.push(cut(`${S.text}${l}${R}`, leftW));
 			extra.push(hint(["↑↓ PgUp PgDn", "scorri"], ["q", "chiudi"], [`${dialog.top + 1}-${Math.min(dialog.lines.length, dialog.top + page)}/${dialog.lines.length}`, ""]));
+		} else if (dialog.method === "quiz") {
+			extra.push(...quizLines(dialog.z, bar, iw, leftW, H));
 		} else {
 			extra.push(`${bar}${S.b}${S.text}${cut(head[0], iw)}${R}`);
 			for (const l of head.slice(1)) for (const w of wrap(l, iw)) extra.push(`${bar}${S.dim}${w}${R}`);
@@ -777,14 +862,16 @@ const frame = () => {
 	if (buf) out.write(buf);
 };
 
+// Set by /custom-reload: this process only waits for the new client, it must not paint over it any more.
+let restarting = false;
 let timer, lastDraw = 0;
 const schedule = () => {
-	if (timer) return;
+	if (timer || restarting) return;
 	// Streaming redraws are paced at half rate (keys redraw at once via drawNow): measured -21% client CPU, text still reads smoothly.
 	const wait = Math.max(0, 1000 / (running && !process.env.PROTO_FPS ? FPS / 2 : FPS) - (Date.now() - lastDraw));
-	timer = setTimeout(() => { timer = undefined; lastDraw = Date.now(); frame(); }, wait);
+	timer = setTimeout(() => { timer = undefined; if (restarting) return; lastDraw = Date.now(); frame(); }, wait);
 };
-const drawNow = () => { lastDraw = Date.now(); frame(); };
+const drawNow = () => { if (restarting) return; lastDraw = Date.now(); frame(); };
 
 // --- RPC.
 const send = (command) => child.stdin.write(`${JSON.stringify(command)}\n`);
@@ -828,9 +915,11 @@ const onRecord = (r) => {
 		case "tool_execution_start":
 			open = undefined;
 			blocks.push({ kind: "tool", id: r.toolCallId, name: r.toolName, args: r.args, text: "" });
+			if (r.toolName === "ask_user_question" && Array.isArray(r.args?.questions) && r.args.questions.length && !dialog) { qz = qzMk(r.args.questions); dialog = { method: "quiz", z: qz }; }
 			break;
 		case "tool_execution_end": {
 			open = undefined;
+			if (r.toolName === "ask_user_question") { qz = undefined; if (dialog?.method === "quiz") dialog = undefined; }
 			const t = blocks.findLast((b) => b.id === r.toolCallId);
 			if (t) { t.failed = !!r.isError; t.done = true; t.ms = r.durationMs; if (r.result?.details?.patch) t.patch = r.result.details.patch; }
 			if (r.toolName === "todo") planFrom(r.result?.details);
@@ -851,6 +940,7 @@ const onRecord = (r) => {
 		case "extension_ui_request": {
 			const m = r.method;
 			sideVer++;
+			if (qzIntercept(r)) break;
 			if (booting) bootNote(m === "setStatus" || m === "setWidget" ? `estensione: ${r.statusKey ?? r.widgetKey}` : m === "notify" ? "estensioni: avvisi iniziali" : "estensioni in caricamento");
 			if (m === "select") dialog = { id: r.id, method: m, title: r.title, options: r.options ?? [], sel: 0 };
 			else if (m === "confirm") dialog = { id: r.id, method: m, title: r.title, message: r.message };
@@ -884,6 +974,7 @@ const answer = (body) => {
 const dialogKey = (key, csi) => {
 	if (!dialog) return false;
 	const d = dialog;
+	if (d.method === "quiz") { qzKey(d.z, key, csi); return true; }
 	if (d.method === "pager") {
 		const page = Math.max(3, (out.rows || 24) - 10);
 		if (csi === "A") d.top = Math.max(0, d.top - 1);
@@ -1144,7 +1235,6 @@ process.stdin.on("data", (data) => {
 	drawNow();
 });
 out.on("resize", () => { previous = []; shownKitty = new Set(); if (imageProto === "kitty") out.write("\x1b_Ga=d,d=A,q=2\x1b\\"); out.write(`${ESC}2J`); drawNow(); });
-let restarting = false;
 child.on("exit", (code, sig) => {
 	if (restarting) return;
 	dialog = undefined;

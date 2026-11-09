@@ -1,8 +1,16 @@
 #!/usr/bin/env node
 // Fake `pi --mode rpc` for pty tests: replays JSON lines from $FAKEPI_SCRIPT (one event per line), then exits with $FAKEPI_EXIT.
-import { readFileSync } from "node:fs";
+import { readFileSync, appendFileSync } from "node:fs";
 const file = process.env.FAKEPI_SCRIPT;
-if (file) for (const line of readFileSync(file, "utf8").split("\n").filter(Boolean)) console.log(line);
+// Lines are released in batches: a {"_wait":true} line holds the rest until the client sends an extension_ui_response
+// (like the real ask_user_question, which awaits one dialog before asking the next). $FAKEPI_LOG records what the client wrote.
+const lines = file ? readFileSync(file, "utf8").split("\n").filter(Boolean) : [];
+const release = () => { while (lines.length) { const l = lines.shift(); if (l.includes('"_wait"')) return; console.log(l); } };
+release();
+if (process.env.FAKEPI_LOG) process.stdin.on("data", (d) => {
+	appendFileSync(process.env.FAKEPI_LOG, d);
+	if (String(d).includes("extension_ui_response")) release();
+});
 if (process.env.FAKEPI_ERR) console.error(process.env.FAKEPI_ERR);
 if (process.env.FAKEPI_EXIT) setTimeout(() => process.exit(Number(process.env.FAKEPI_EXIT)), 800);
 else setInterval(() => {}, 1e6);

@@ -35,6 +35,7 @@ Fatto:
 - passi dei tool con ✓/✗ e durata, diff colorato di `edit`, pensiero (`ctrl+t`), suggerimenti 1-4, link `file:riga`, campanello a fine turno lungo, send now (`alt+n`).
 - immagini (kitty): risultati dei tool, `/img`, incolla di un percorso PNG/JPEG o `alt+v` dagli appunti (anteprima 📎 sopra il prompt, `ctrl+u` a prompt vuoto le toglie).
 - completamento `/comandi` e `@file`, Markdown, tabelle, grafici, incolla multiriga.
+- questionari (`ask_user_question`): una card sola con schede per domanda, caselle ☑ per la scelta multipla, anteprima, risposta libera e pagina «Rivedi»; il client risponde da solo ai dialog `select`/`input` che l'estensione invia in sequenza (se la sequenza non torna, mostra i dialog normali);
 - dialog `select`/`confirm`/`input`/`editor`; `/bugreport` come serie di dialog; `/archivio [id|testo]` come testo in un pager.
 - grafica: messaggi di Pi con barra `▍` e aria tra i turni; passi dei tool come schede sottili (barra di stato a sinistra, durata a destra); toast animato in alto al centro con livelli (`SEV`); cornice solo sul prompt; blocchi di codice con etichetta del linguaggio; barra di stato a voci con priorità (toglie le meno importanti quando è stretta).
 - pannello destro adattivo (36/34/28 colonne, nascosto sotto 100; `alt+s`): INTENT, GOAL, PIANO, TEST, ATTIVITÀ (barre dei timer `▰▱` con etichetta a sinistra e orologio a destra), GIT, CONTEXT, USO (5h/7g), MEMORIA, ESTENSIONI, log del team (`team-log`).
