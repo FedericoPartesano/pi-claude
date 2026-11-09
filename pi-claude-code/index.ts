@@ -49,6 +49,17 @@ export default function (pi: ExtensionAPI) {
 				maxTokens: 64_000,
 			},
 			{
+				// Claude Code alias for claude-fable-5-1 (measured: 1M context, 64k output).
+				id: "fable",
+				name: "Claude Fable (Claude Code)",
+				reasoning: true,
+				thinkingLevelMap,
+				input: ["text", "image"],
+				cost: zeroCost,
+				contextWindow: 1_000_000,
+				maxTokens: 64_000,
+			},
+			{
 				id: "haiku",
 				name: "Claude Haiku (Claude Code)",
 				reasoning: true,
