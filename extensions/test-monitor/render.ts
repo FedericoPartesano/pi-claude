@@ -86,7 +86,30 @@ export function panel(color: string, width: number) {
 	return { row, split };
 }
 
-export function renderTestMonitor(run: TestRun, width: number, now: number, frame: number): string[] {
+/** Narrow hosts (side panel): title and clock, a progress bar like the usage bars, counters, the latest test or the verdict. */
+function renderNarrow(run: TestRun, width: number, now: number, frame: number): string[] {
+	const done = run.endedAt !== undefined;
+	const bad = run.fail > 0;
+	const color = done ? (bad ? C.err : C.ok) : C.cyan;
+	const finished = run.results.length;
+	const total = Math.max(run.total ?? 0, finished);
+	const split = (left: string, right: string) => `${left}${" ".repeat(Math.max(1, width - visibleWidth(left) - visibleWidth(right)))}${right}`;
+	const title = bold(fg(color, done ? (bad ? "✖ FAILED" : "✔ PASSED") : `${SPINNER[frame % SPINNER.length]} RUNNING`));
+	const rows = [split(title, fg(C.dim, duration((run.endedAt ?? now) - run.startedAt)))];
+	if (run.total) {
+		const cells = Math.max(4, width - 5);
+		const filled = Math.min(cells, Math.round((finished / total) * cells));
+		const pct = Math.round((finished / total) * 100);
+		rows.push(`${fg(bad ? C.err : C.ok, "▰".repeat(filled))}${fg(C.faint, "▱".repeat(cells - filled))} ${fg(C.dim, `${pct}%`.padStart(3))}`);
+	}
+	rows.push(`${fg(C.ok, `${run.pass} ok`)}${bad ? `${fg(C.dim, " · ")}${fg(C.err, `${run.fail} ko`)}` : ""}${run.total ? fg(C.dim, ` · ${finished}/${total}`) : ""}`);
+	if (done && bad) for (const name of run.failed.slice(0, 3)) rows.push(fg(C.err, truncateToWidth(`· ${name}`, width)));
+	else if (!done) rows.push(run.last ? `${fg(C.dim, "› ")}${fg(C.text, truncateToWidth(run.last, width - 2))}` : fg(C.dim, "waiting for the first result…"));
+	return rows;
+}
+
+export function renderTestMonitor(run: TestRun, width: number, now: number, frame: number, compact = false): string[] {
+	if (compact) return renderNarrow(run, width, now, frame);
 	const done = run.endedAt !== undefined;
 	const bad = run.fail > 0;
 	const color = done ? (bad ? C.err : C.ok) : C.cyan;

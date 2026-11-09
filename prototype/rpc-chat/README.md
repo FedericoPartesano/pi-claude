@@ -36,14 +36,24 @@ Fatto:
 - immagini (kitty): risultati dei tool, `/img`, incolla di un percorso PNG/JPEG o `alt+v` dagli appunti (anteprima 📎 sopra il prompt, `ctrl+u` a prompt vuoto le toglie).
 - completamento `/comandi` e `@file`, Markdown, tabelle, grafici, incolla multiriga.
 - dialog `select`/`confirm`/`input`/`editor`; `/bugreport` come serie di dialog; `/archivio [id|testo]` come testo in un pager.
+- grafica: messaggi di Pi con barra `▍` e aria tra i turni; passi dei tool come schede sottili (barra di stato a sinistra, durata a destra); toast animato in alto al centro con livelli (`SEV`); cornice solo sul prompt; blocchi di codice con etichetta del linguaggio; barra di stato a voci con priorità (toglie le meno importanti quando è stretta).
+- pannello destro adattivo (36/34/28 colonne, nascosto sotto 100; `alt+s`): INTENT, GOAL, PIANO, TEST, ATTIVITÀ (barre dei timer `▰▱` con etichetta a sinistra e orologio a destra), GIT, CONTEXT, USO (5h/7g), MEMORIA, ESTENSIONI, log del team (`team-log`).
+- `/custom-reload` (riavvia il processo Pi tenendo la sessione), `/no-permissions`, `ctrl+v`/`alt+v` per immagini e testo dagli appunti, messaggi in coda («N in coda»), badge consigli (max 3).
+- animazioni con un solo orologio (125 ms) solo durante un turno; `PROTO_ANIM=0` le spegne; 15 fps in streaming.
+- se Pi muore, il motivo finisce in `~/.pi/agent/proto-last-exit.log`.
 
 Scartato, con motivo:
 - animazioni di intro, effetti, miniature con worker: pesanti, poca utilità (obiettivo CPU ≤ 1/4).
 - sixel: 2,5 s di CPU su un'immagine grossa.
-- `/custom-reload`: serve il `pi` classico; il prototipo si rilancia a mano.
 - `alt+a` (picker modale) e `/pick`: sostituiti dal completamento `@file`.
-- colonna browser, widget voce, log del team nella sidebar: componenti `custom()`, inesistenti in RPC; restano gli stati testuali.
+- colonna browser, widget voce: componenti `custom()`, inesistenti in RPC; restano gli stati testuali.
 - `alt+b` per `/bugreport`: usa il comando.
 - notifica toast di Windows: resta il campanello.
 - `/archivio` a schermo intero con ricerca interattiva: `custom()` assente in RPC; sostituito da riepilogo e ricerca testuale.
 - pannello float (`PI_UI_PANEL=float`): il pannello è fisso.
+
+## Prove e prestazioni
+- `node --test --test-concurrency=2 prototype/rpc-chat/perf.test.mjs`: 23 test e budget in µs per funzione (`PERF_VERBOSE=1` stampa i tempi); il banco `perf-harness.mjs` esegue il corpo di `chat.mjs`.
+- `python3 -I prototype/rpc-chat/pty.py [--fake eventi.jsonl] [--cols N] PASSO… -- [args]`: prova nel pty con `fake/pi` (passi: testo, `key:down|up|enter|esc|tab`, `sleep:S`).
+- `node scripts/t.mjs [nome…]`: lancia solo i test dei file modificati.
+- Misure su Proxmox (CPU, replay): `eval/ui/REPORT.md`.

@@ -41,13 +41,13 @@ check("diffRows (40-line patch)", 4000, () => c.diffRows(Array.from({ length: 40
 check("popup   (/ commands, 8 results)", 300, () => { c.state.input = "/re"; c.state.cursor = 3; return c.popup(); });
 check("fuzzy   (query vs path)", 5, () => c.fuzzy("chat", "prototype/rpc-chat/chat.mjs"));
 
-// Incremental markdown must give exactly the same lines as the full render, at every prefix of the text.
+// Incremental markdown must give exactly the same lines as the full render (plus the left gutter), at every prefix of the text.
 test("streamMarkdown == markdown at every prefix", { skip: only && !"streamMarkdown".includes(only) }, () => {
 	const t = MD + "\n" + MD;
 	const blk = { kind: "assistant", text: "" };
 	for (let n = 0; n <= t.length; n += 7) {
 		blk.text = t.slice(0, n);
-		assert.deepEqual(c.streamMarkdown(blk, blk.text, W), c.markdown(blk.text, W), `prefix ${n}`);
+		assert.deepEqual(c.streamMarkdown(blk, blk.text, W), c.markdown(blk.text, W - 2).map((l) => `${c.S.faint}▍${c.R} ${l}`), `prefix ${n}`); // gutter: 2 cells narrower
 	}
 });
 {

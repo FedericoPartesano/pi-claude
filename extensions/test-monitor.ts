@@ -114,7 +114,7 @@ export default function (pi: ExtensionAPI) {
 		setWidgetCompat(
 			ctx as never,
 			"test-monitor",
-			() => ({ render: (width: number) => (other ? renderView(other.view, width, Date.now(), frame) : run ? renderTestMonitor(run, width, Date.now(), frame) : []), invalidate() {} }),
+			() => ({ render: (width: number) => (other ? renderView(other.view, width, Date.now(), frame) : run ? renderTestMonitor(run, width, Date.now(), frame, width <= 36) : []), invalidate() {} }),
 			{ placement: "aboveEditor" },
 			(widgetTui) => {
 				tui = widgetTui;

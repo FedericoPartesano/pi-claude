@@ -377,25 +377,32 @@ const diffRows = (patch, width) => {
 	if (more) rows.push(`${S.dim}   … +${more} righe${R}`);
 	return rows;
 };
+// One tool step as a slim card in the toast style: status bar on the left, name, duration at the right edge.
+const stepRow = (color, mark, text, right, width) => {
+	const rw = width_(right), body = cut(`${color}▎${R}${bg(P.userBg)} ${color}${mark}${R}${bg(P.userBg)} ${S.dim}${text}`, Math.max(8, width - rw - 1));
+	return `${bg(P.userBg)}${pad(body, width - rw - 1)}${S.faint}${right}${R}${bg(P.userBg)} ${R}`;
+};
 const toolLine = (b, width) => {
-	const mark = b.done === undefined ? `${S.yel}⠿` : b.failed ? `${S.err}✗` : `${S.ok}✓`;
-	const time = b.done === undefined ? `${S.dim} …` : b.ms != null ? `${S.faint} ${b.ms >= 1000 ? `${(b.ms / 1000).toFixed(1)}s` : `${b.ms}ms`}` : "";
-	const label = cut(toolLabel(b), Math.max(10, width - 14));
-	const shown = `${S.dim}${label}`;
-	return `${mark}${R} ${shown}${R}${time}${R}` + (b.patch ? "\n" + diffRows(b.patch, width).join("\n") : "");
+	const color = b.done === undefined ? S.yel : b.failed ? S.err : S.ok;
+	const mark = b.done === undefined ? "⠿" : b.failed ? "✗" : "✓";
+	const time = b.done === undefined ? "…" : b.ms != null ? (b.ms >= 1000 ? `${(b.ms / 1000).toFixed(1)}s` : `${b.ms}ms`) : "";
+	return stepRow(color, mark, toolLabel(b), time, width) + (b.patch ? "\n" + diffRows(b.patch, width).join("\n") : "");
 };
 // Markdown is line based, so everything up to the last blank line outside a code fence renders the same whatever follows:
 // that prefix is rendered once (kept on the block) and only the open tail is redone on each streaming frame.
-const streamMarkdown = (block, text, width) => {
+const GUT = `${S.faint}▍${R} `;
+const gutter = (lines) => lines.map((l) => GUT + l);
+const streamMarkdown = (block, text, width_in) => {
+	const width = width_in - 2, md = (t) => gutter(markdown(t, width));
 	const cut_ = text.lastIndexOf("\n\n");
-	if (cut_ <= 0) return markdown(text, width);
+	if (cut_ <= 0) return md(text);
 	const head = text.slice(0, cut_);
-	if ((head.match(/^```/gm) || []).length % 2) return markdown(text, width); // blank line inside a code fence: render whole
+	if ((head.match(/^```/gm) || []).length % 2) return md(text); // blank line inside a code fence: render whole
 	const memo = block.md;
 	if (!memo || memo.width !== width || !head.startsWith(memo.text)) block.md = { width, text: "", lines: [] };
 	const m = block.md;
-	if (m.text.length < head.length) { m.lines = m.lines.concat(markdown(m.text ? head.slice(m.text.length + 1) : head, width)); m.text = head; }
-	return m.lines.concat(markdown(text.slice(head.length + 1), width));
+	if (m.text.length < head.length) { m.lines = m.lines.concat(md(m.text ? head.slice(m.text.length + 1) : head)); m.text = head; }
+	return m.lines.concat(md(text.slice(head.length + 1)));
 };
 const blockLines = (block, width) => {
 	const done = block !== open && (block.kind !== "tool" || block.done !== undefined);
@@ -424,6 +431,7 @@ const bodyLines = (width) => {
 	const body = [];
 	for (let i = 0; i < blocks.length; i++) {
 		const block = blocks[i];
+		if (block.kind === "user" && body.length && blocks[i - 1]?.kind !== "user") body.push(""); // air between turns
 		if (block.kind !== "tool") { body.push(...blockLines(block, width)); continue; }
 		let j = i;
 		while (j + 1 < blocks.length && blocks[j + 1].kind === "tool") j++;
@@ -431,14 +439,14 @@ const bodyLines = (width) => {
 		const live = group.some((b) => b.done === undefined);
 		if (expandSteps || group.length <= 2 || live) {
 			const shown = !expandSteps && group.length > 4 ? group.slice(-3) : group;
-			if (shown.length < group.length) body.push(`${S.dim}⠿ ${group.length - shown.length} earlier steps · ctrl+o${R}`);
+			if (shown.length < group.length) body.push(stepRow(S.dim, "⠿", `${group.length - shown.length} earlier steps`, "ctrl+o", width));
 			for (const b of shown) body.push(...toolLine(b, width).split("\n"));
 		} else {
 			const counts = new Map();
 			for (const b of group) counts.set(toolName(b), (counts.get(toolName(b)) ?? 0) + 1);
 			const failed = group.filter((b) => b.failed).length;
 			const ms = group.reduce((a, b) => a + (b.ms ?? 0), 0);
-			body.push(`${failed ? S.err + "✗" : S.ok + "✓"}${R} ${S.dim}${group.length} steps · ${[...counts].map(([n, c]) => `${n}×${c}`).join(" ")}${failed ? ` · ${failed} failed` : ""} · ${ms >= 1000 ? (ms / 1000).toFixed(1) + "s" : ms + "ms"} (ctrl+o)${R}`);
+			body.push(stepRow(failed ? S.err : S.ok, failed ? "✗" : "✓", `${group.length} steps · ${[...counts].map(([n, c]) => `${n}×${c}`).join(" ")}${failed ? ` · ${failed} failed` : ""}`, `${ms >= 1000 ? (ms / 1000).toFixed(1) + "s" : ms + "ms"} ctrl+o`, width));
 		}
 		body.push("");
 		i = j;
@@ -544,15 +552,16 @@ const sideLines = (w) => {
 	L.push(bar("ctx", ctxPct ?? 0));
 	if (cost != null) L.push(kv("costo", `$${cost.toFixed(2)}`));
 	L.push(kv("immagini", imageProto === "?" ? "…" : imageProto));
+	const arc = statuses.get("archivio"), mem = statuses.get("memory");
+	if (arc) L.push(kv("archivio", arc));
+	if (mem) { const parts = mem.split(" · "); L.push(kv("memoria", parts[0])); for (const part of parts.slice(1)) L.push(...wrap(`${S.dim}${part}${R}`, w)); }
 	if (usage.h5 != null || usage.d7 != null) {
 		L.push(""); head("USO");
 		if (usage.h5 != null) L.push(bar("5h", usage.h5 * 100));
 		if (usage.d7 != null) L.push(bar("7g", usage.d7 * 100));
 	}
-	const mem = statuses.get("memory");
-	if (mem) { L.push(""); head("MEMORIA"); for (const part of mem.split(" · ")) L.push(...wrap(`${S.text}${part}${R}`, w)); }
-	const others = [...statuses].filter(([k]) => k !== "intent" && k !== "goal" && k !== "memory");
-	if (others.length) { L.push(""); head("ESTENSIONI"); for (const [k, v] of others) L.push(...wrap(`${S.dim}${v}${R}`, w)); }
+	const others = [...statuses].filter(([k]) => k !== "intent" && k !== "goal" && k !== "memory" && k !== "archivio" && k !== "claude-code");
+	if (others.length) { L.push(""); head("ESTENSIONI"); for (const [k, v] of others) L.push(...wrap(`${S.dim}${new RegExp(k, "i").test(v) ? v : `${k} ${v}`}${R}`, w)); }
 	return L;
 };
 
@@ -703,8 +712,9 @@ const frame = () => {
 		// Toast card on the top center, composited into the rows before the diff: only these rows are rewritten, when it shows or hides.
 		const kind = SEV[sevOf(toastText)]; // {c, i}
 		const inner = Math.max(18, Math.min(44, Math.floor(W / 2) - 6, width_(toastText) + 2));
-		const lines = wrap(toastText, inner).slice(0, 3);
-		if (lines.length === 3 && wrap(toastText, inner).length > 3) lines[2] = cut(lines[2], inner - 1) + "…";
+		// The text column is inner - 2 wide (icon + spaces): wrapping at inner pushed the right border out.
+		const tw = inner - 2, wrapped = wrap(toastText, tw), lines = wrapped.slice(0, 3);
+		if (wrapped.length > 3) lines[2] = cut(lines[2], tw - 1) + "…";
 		const boxW = inner + 4, x = Math.max(0, Math.floor((W - boxW) / 2));
 		const rows = [`${kind.c}╭${"─".repeat(boxW - 2)}╮${R}`, ...lines.map((l, i) => `${kind.c}│${R}${bg(P.userBg)} ${i ? " " : `${kind.c}${kind.i}${R}${bg(P.userBg)}`} ${S.text}${pad(l, inner - 2)} ${R}${kind.c}│${R}`), `${kind.c}╰${"─".repeat(boxW - 2)}╯${R}`];
 		const shown = Math.max(1, Math.ceil(toastP * rows.length));

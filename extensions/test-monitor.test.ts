@@ -74,7 +74,7 @@ test("shownCommand drops the tee Pi inserted", () => {
 
 test("monitor while running: three full-width rows, a dot per test, counters, clock, latest name", () => {
 	const run = { ...newTestRun("node --test a.test.ts", 0), pass: 3, fail: 1, results: ["p", "p", "f", "p"] as ("p" | "f")[], failed: ["b"], last: "d" };
-	for (const width of [40, 80, 140]) {
+	for (const width of [50, 80, 140]) {
 		const rows = renderTestMonitor(run, width, 12_000, 0);
 		assert.equal(rows.length, 3);
 		for (const row of rows) assert.equal(visibleWidth(row), width, `@${width}`);
@@ -85,6 +85,20 @@ test("monitor while running: three full-width rows, a dot per test, counters, cl
 	assert.match(text, /3 ok · 1 ko/);
 	assert.match(text, /12s/);
 	assert.match(text, /last d/);
+});
+
+test("monitor in a narrow panel: title and clock, progress bar, counters, latest name; failures listed when done", () => {
+	const run = { ...newTestRun("node --test a.test.ts", 0), total: 10, pass: 3, fail: 1, results: ["p", "p", "f", "p"] as ("p" | "f")[], failed: ["b"], last: "d" };
+	const rows = renderTestMonitor(run, 33, 12_000, 0, true).map(strip);
+	assert.equal(rows.length, 4);
+	assert.match(rows[0], /^. RUNNING +12s$/);
+	assert.match(rows[1], /^▰+▱+ 40%$/);
+	assert.equal(rows[2], "3 ok · 1 ko · 4/10");
+	assert.equal(rows[3], "› d");
+	for (const row of rows) assert.ok(visibleWidth(row) <= 33, row);
+	const done = renderTestMonitor({ ...run, endedAt: 5000 }, 33, 9000, 0, true).map(strip);
+	assert.match(done[0], /^✖ FAILED +5s$/);
+	assert.equal(done.at(-1), "· b");
 });
 
 test("monitor when done: verdict and failed names, or all passing", () => {

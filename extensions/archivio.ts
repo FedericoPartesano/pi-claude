@@ -434,6 +434,14 @@ export default function (pi: ExtensionAPI) {
 			);
 		},
 	});
-	pi.on("session_start", (_event, ctx) => { turnOn(ctx); buildIndex(ctx); });
-	pi.on("session_compact", (_event, ctx) => { turnOn(ctx); buildIndex(ctx); });
+	// Short status for side panels: archived entries and how many injections rode along.
+	const publish = (ctx: ExtensionContext) =>
+		safely(() => {
+			if (!ctx.hasUI) return;
+			const overview = archiveOverview(ctx.sessionManager.getBranch() as Entry[]);
+			ctx.ui.setStatus("archivio", overview.entries.length ? `${overview.entries.length} voci · ${overview.injections.length} richiami` : undefined);
+		});
+	pi.on("session_start", (_event, ctx) => { turnOn(ctx); buildIndex(ctx); publish(ctx); });
+	pi.on("session_compact", (_event, ctx) => { turnOn(ctx); buildIndex(ctx); publish(ctx); });
+	pi.on("agent_end", (_event, ctx) => publish(ctx));
 }
