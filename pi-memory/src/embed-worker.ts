@@ -1,6 +1,7 @@
 // Worker thread of pi-memory's embedder (src/embed.ts, WorkerEmbedder): loads the model and computes vectors off the
 // main thread, so Pi's interface never waits for it.
-import { parentPort } from "node:worker_threads";
+import { parentPort, workerData } from "node:worker_threads";
+import { markBusy } from "./inflight.ts";
 
 let extractor: ((texts: string[], options: object) => Promise<{ tolist(): number[][] }>) | undefined;
 
@@ -17,11 +18,14 @@ parentPort?.on("message", async (message: { type: string; id?: number; name?: st
 		return;
 	}
 	if (message.type === "embed") {
+		const done = markBusy(workerData.inflight);
 		try {
 			const out = await extractor!(message.texts!, { pooling: "mean", normalize: true });
 			parentPort?.postMessage({ type: "result", id: message.id, vectors: out.tolist().map((row) => Float32Array.from(row)) });
 		} catch (error) {
 			parentPort?.postMessage({ type: "result", id: message.id, error: String((error as Error)?.message ?? error) });
+		} finally {
+			done();
 		}
 	}
 });

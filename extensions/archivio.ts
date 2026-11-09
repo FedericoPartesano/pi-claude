@@ -357,8 +357,8 @@ export default function (pi: ExtensionAPI) {
 				const chunks = chunkArchive(archivedEntries(ctx.sessionManager.getBranch() as Entry[]));
 				if (chunks.length === 0) return;
 				if (!embedder) {
-					const { WorkerEmbedder, MODELS } = await import("../pi-memory/src/embed.ts");
-					embedder = new WorkerEmbedder(MODELS.e5);
+					const { sharedEmbedder, MODELS } = await import("../pi-memory/src/embed.ts");
+					embedder = sharedEmbedder(MODELS.e5);
 				}
 				if (!(await embedder.start?.())) return;
 				const missing = chunks.filter((chunk) => !vectors.has(chunk.text));

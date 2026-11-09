@@ -1,6 +1,7 @@
 /** Local embeddings. The model loads lazily and in the background; a deterministic fake serves tests. */
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { guardExit, isBusy, newCounter } from "./inflight.ts";
 
 export type EmbedKind = "query" | "passage";
 
@@ -122,6 +123,19 @@ export class BackgroundEmbedder implements Embedder {
  * thread. Measured: loading it in the main thread held a keystroke for 2.2 s right after startup. Same interface as
  * BackgroundEmbedder; if the worker cannot start it falls back to one (in-thread).
  */
+/**
+ * One WorkerEmbedder per model for the whole process. onnxruntime-node aborts the process (SIGABRT, "HandleScope …
+ * without proper locking") when inferences run in several worker threads at once: measured with 3 parallel
+ * WorkerEmbedders (exit 134), while 1 is fine. vault, archivio and lean-tools must share this one. Kept on globalThis
+ * because each extension may load its own copy of this module.
+ */
+export function sharedEmbedder(profile: ModelProfile = MODELS[DEFAULT_MODEL]): WorkerEmbedder {
+	const pool = ((globalThis as { __piSharedEmbedders?: Map<string, WorkerEmbedder> }).__piSharedEmbedders ??= new Map());
+	let embedder = pool.get(profile.name);
+	if (!embedder) pool.set(profile.name, (embedder = new WorkerEmbedder(profile)));
+	return embedder;
+}
+
 export class WorkerEmbedder implements Embedder {
 	private worker: import("node:worker_threads").Worker | undefined;
 	private fallback: BackgroundEmbedder | undefined;
@@ -157,7 +171,7 @@ export class WorkerEmbedder implements Embedder {
 		this.idleTimer.unref?.();
 	}
 	private unload(): void {
-		if (this.pending.size) return this.touch();
+		if (this.pending.size || isBusy()) return this.touch();
 		void this.worker?.terminate();
 		this.worker = undefined;
 		this.isReady = false;
@@ -172,7 +186,10 @@ export class WorkerEmbedder implements Embedder {
 			};
 			import("node:worker_threads")
 				.then(({ Worker }) => {
-					const worker = new Worker(new URL("./embed-worker.ts", import.meta.url));
+					const counter = newCounter();
+					const worker = new Worker(new URL("./embed-worker.ts", import.meta.url), { workerData: { inflight: counter.buffer } });
+					counter.attach(worker);
+					guardExit();
 					worker.unref();
 					this.worker = worker;
 					worker.on("message", (message: { type: string; id?: number; vectors?: Float32Array[]; error?: string }) => {

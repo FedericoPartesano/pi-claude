@@ -69,8 +69,8 @@ export default function (pi: ExtensionAPI) {
 	const getEmbedder = async () => {
 		if (hooks.embedder) return hooks.embedder;
 		if (!embedder) {
-			const { WorkerEmbedder, MODELS } = await import("../pi-memory/src/embed.ts");
-			embedder = new WorkerEmbedder(MODELS.e5);
+			const { sharedEmbedder, MODELS } = await import("../pi-memory/src/embed.ts");
+			embedder = sharedEmbedder(MODELS.e5);
 		}
 		return embedder;
 	};

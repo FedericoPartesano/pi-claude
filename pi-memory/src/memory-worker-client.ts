@@ -5,6 +5,7 @@
  */
 import type { EmbedKind, Embedder, ModelProfile } from "./embed.ts";
 import { DEFAULT_MODEL, MODELS } from "./embed.ts";
+import { guardExit, isBusy, newCounter } from "./inflight.ts";
 import type { RecallRun, StoreDirs } from "./engine.ts";
 import type { MemoryRecord } from "./store.ts";
 import type { EpisodeHit } from "./episodes.ts";
@@ -49,7 +50,10 @@ export class MemoryWorker implements Embedder {
 	private boot(): Promise<void> {
 		this.booting ??= import("node:worker_threads")
 			.then(({ Worker }) => {
-				const worker = new Worker(new URL("./memory-worker.ts", import.meta.url), { workerData: { profile: this.profile, fake: this.fake } });
+				const counter = newCounter();
+				const worker = new Worker(new URL("./memory-worker.ts", import.meta.url), { workerData: { profile: this.profile, fake: this.fake, inflight: counter.buffer } });
+				counter.attach(worker);
+				guardExit();
 				worker.on("message", (message: { id: number; result?: unknown; error?: string; progress?: MemoryProgress }) => {
 					if (message.progress) return this.emitProgress(message.progress);
 					const entry = this.pending.get(message.id);
@@ -219,7 +223,7 @@ export class MemoryWorker implements Embedder {
 		// let the waiting requests finish first, with a hard limit.
 		const started = Date.now();
 		const stop = () => {
-			if (this.pending.size && Date.now() - started < 3000) return void setTimeout(stop, 100).unref();
+			if ((this.pending.size || isBusy()) && Date.now() - started < 30_000) return void setTimeout(stop, 100).unref();
 			void worker.terminate();
 		};
 		stop();
