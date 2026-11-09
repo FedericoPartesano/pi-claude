@@ -87,6 +87,23 @@ per il contrario), il goal lavora su un branch suo (`goal/metric-…`, working t
 se migliora fa commit, altrimenti mette da parte la modifica con `git stash` (recuperabile). Il promemoria porta lo storico dei
 giri al modello; con `--target` il goal si chiude quando il numero ci arriva.
 
+## Auto mode (`/auto`)
+
+`/auto <goal>` porta un goal fino in fondo senza intervento: scrive l'intent, pianifica requisiti con un check ciascuno,
+implementa, verifica, fa la review e consegna un branch `auto/<slug>` in una worktree accanto al repo (`<repo>-auto/<slug>`).
+Non fa mai push né merge: il branch lo integri tu con `/land`. Ogni passo è un processo `pi` figlio leggero
+(`--no-extensions`, la skill della fase iniettata una volta); a decidere quando è finito sono i check, congelati dopo il
+piano, non il modello. Su Linux i comandi girano in `bwrap` (sola lettura fuori dalla worktree, rete spenta da build in
+poi), altrove resta la lista nera. Si ferma su stallo (3 passi senza progresso), stesso errore 5 volte, 50% della finestra
+di 5 ore, 3 ore (`PI_AUTO_HOURS`) o 60 passi; le azioni irreversibili finiscono in `auto/da-approvare.md`.
+
+```
+/auto aggiungi l'export CSV alla pagina ordini
+/auto status · /auto stop · /auto resume [slug]
+```
+
+Scelta e limiti: [ADR 0001](docs/adr/0001-auto-mode-processo-figlio-per-passo.md).
+
 ## Integrazione (`/land`)
 
 Per più sessioni in parallelo, ognuna nella sua worktree: `/land` integra il branch corrente in `main` solo se i controlli
