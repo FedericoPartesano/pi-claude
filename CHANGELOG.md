@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.22.0...pi-claude-v0.23.0) (2026-11-09)
+
+
+### Features
+
+* questionari del prototipo in una card unica con schede, scelta multipla, anteprima e revisione; fix riga working dopo /custom-reload ([2ec96df](https://github.com/FedericoPartesano/pi-claude/commit/2ec96df8aee21dddce096067905def0795c320dc))
+
 ## [0.22.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.21.0...pi-claude-v0.22.0) (2026-11-09)
 
 
