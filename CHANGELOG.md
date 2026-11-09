@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.20.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.19.0...pi-claude-v0.20.0) (2026-11-09)
+
+
+### Features
+
+* estensione ste (stile ASD-STE100, spenta di default) con misura in eval/ste ([a1877d3](https://github.com/FedericoPartesano/pi-claude/commit/a1877d30f0004deb728633e3109bed66700e7de0))
+* il prototipo RPC diventa la UI predefinita ufficiale (pi lancia il prototipo, --classic per la vecchia) ([79fcd4a](https://github.com/FedericoPartesano/pi-claude/commit/79fcd4a52d1be4a0ddc414309e642c2c1ba738ab))
+
+
+### Bug Fixes
+
+* diff del prototipo RPC, tetto di 7 righe per tipo (prima le aggiunte sparivano nei diff lunghi) ([88dc26a](https://github.com/FedericoPartesano/pi-claude/commit/88dc26a0418ec41ce7a7b27868d0778335498561))
+* la memoria aspetta le richieste in corso prima di chiudere il worker (abort nativo di onnxruntime) ([504d8b4](https://github.com/FedericoPartesano/pi-claude/commit/504d8b4b4b1f22e950b78ce68e421bb6f5cb3a8b))
+* meno CPU e eco più rapida con la UI accesa (auto-dream all'avvio, clamp del pensiero solo sui messaggi con pensiero) ([8acc5fa](https://github.com/FedericoPartesano/pi-claude/commit/8acc5fa9a5ab41c3e9bafe814d13f6d403365926))
+
 ## [0.19.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.18.0...pi-claude-v0.19.0) (2026-11-05)
 
 
