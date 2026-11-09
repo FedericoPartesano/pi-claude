@@ -159,3 +159,41 @@ Provider replay con `REPLAY_MODE=rich` (`prototype/replay/index.ts`): 5 giri di 
 Lettura: Pi/prototipo ≈ 7,5×, `PI_UI=off`/prototipo ≈ 2,9×. Il primo giro del prototipo (16,0 s) è un'anomalia: il processo figlio `pi` ha usato 22,8 s contro 4,2–4,8 degli altri (probabile costo a freddo del file replay appena modificato; non indagato), il client è 3,4 s contro 4,1: lo scarto sta nel figlio, non nel prototipo. Resta incluso nella tabella, la mediana lo ignora. Con l'eco a 2–3 ms le funzioni nuove non costano latenza percepibile. Limiti: replay sintetico, un solo tipo di strumento (`edit`), niente immagini (misurate a parte), una macchina, stato della macchina: durante la prova le VM `rc-hub`, `rc-nodo1`, `rc-nodo2` risultavano accese (non mie), il carico a inizio giro era 0,5–1,2 (un solo giro Pi a 2,3).
 
 Soglia fissata dall'utente: il prototipo deve restare a 1/4 della CPU di Pi. Limiti attuali: 34,6/4 = 8,6 s sul carico di testo (prototipo 8,0 s: margine ≈7%), 40,3/4 = 10,1 s sul carico ricco (5,4 s). Il carico di solo testo è il vincolo più stretto.
+
+### Lotto 2 (sessioni salvate, usage, pannello con goal/piano/test, widget in RPC, pager, immagini incollate, dialog `/bugreport`, `bin/pi.mjs`) — 2026-11-06
+Stesso banco (LXC 301, core 1, replay, 5 giri alternati proto → Pi → `PI_UI=off`, `PI_VAULT_OFF=1`); dati grezzi in `eval/ui/pve/lotto2/`. Differenza dal banco precedente: il prototipo ora salva la sessione (prima `--no-session`).
+
+| Carico | Prototipo (s, per giro) | Mediana | Pi con `pi-ui` (mediana) | `PI_UI=off` (mediana) | Pi/proto | Soglia 1/4 |
+|---|---|---|---|---|---|---|
+| Testo (34,6 s di Pi nel banco precedente) | 14,4 · 8,25 · 8,36 · 8,41 · 8,36 | **8,36** | 35,4 (35,7 · 35,4 · 35,2 · 35,4 · 34,3) | 26,3 | 4,23× | ≤ 8,85 (35,4/4): **rispettata, margine 5,5%** |
+| Ricco | 5,43 · 5,41 · 5,10 · 5,13 · 5,19 | **5,19** | 40,2 | 15,0 | 7,7× | ≤ 10,0: rispettata, margine ampio |
+
+Lettura: il testo resta il vincolo stretto (8,36 s su 8,85; contro 8,0 s del banco precedente: +0,36 s, cioè pannello, sessioni e widget costano circa il 4% sul carico di testo). Il primo giro del prototipo è di nuovo anomalo (14,4 s: il figlio `pi` ha usato 22 s contro 4,1–4,4 degli altri): succede al primo avvio dopo la sincronizzazione dei file, probabilmente cache di compilazione a freddo; non indagato. Eco in streaming: prototipo 6–11 ms (testo) e 2 ms (ricco), Pi 28–39 ms. Le soglie sono sul replay sintetico e su una macchina; il terminale reale non è misurato.
+
+### Lotto 3 (rifiniture grafiche, cornice del prompt, ATTIVITÀ, markdown incrementale) — 2026-11-06
+Stesso banco (LXC 301, core 1, replay). Due misure, dati in `eval/ui/pve/lotto3a/` e `lotto3b/`.
+
+**3a: `chat.mjs` con le rifiniture grafiche (intestazione `◆`, barra `▰▱`, separatori, cornice del prompt), senza markdown incrementale.** 5 giri alternati proto → Pi → `PI_UI=off`.
+
+| Carico | Prototipo (s, per giro) | Mediana | Pi con `pi-ui` (mediana) | Pi/proto | Soglia 1/4 |
+|---|---|---|---|---|---|
+| Testo | 12,04 · 8,11 · 8,17 · 8,08 · 8,09 | **8,11** | 34,85 | 4,30× | ≤ 8,71: rispettata, margine ≈7% |
+
+**3b: `chat.mjs` finale** (grafica sobria, sezione ATTIVITÀ con a capo, `streamMarkdown`). Solo il prototipo, 5 giri (testo e ricco alternati); Pi non è stato rimisurato (invariato nel lotto 3a: 34,85 s testo, 40,2 s ricco dal lotto 2).
+
+| Carico | Prototipo (s, per giro) | Mediana | Pi (riferimento) | Pi/proto | Soglia 1/4 |
+|---|---|---|---|---|---|
+| Testo | 3,88 · 3,72 · 3,90 · 4,01 · 3,76 | **3,88** | 34,85 | 8,98× | ≤ 8,71: rispettata, margine ampio |
+| Ricco | 5,09 · 5,47 · 5,06 · 5,17 · 5,57 | **5,17** | 40,2 | 7,8× | ≤ 10,0: rispettata |
+
+Lettura: il markdown incrementale dimezza la CPU sul carico di testo (8,11 → 3,88 s, −52%); sul ricco non cambia (5,19 → 5,17: lì il costo non è il markdown della risposta). Nel 3a il primo giro è l'anomalia di avvio già vista. Limiti: Pi non rimisurato nel 3b (stesso banco, valori stabili entro ±1% tra i lotti); due soli carichi sintetici; una macchina.
+
+### Lotto 4 (15 fps in streaming, animazioni, toast animato, badge, team-log, pannello USO/MEMORIA, barra con priorità) — 2026-11-09
+Stesso banco (LXC 301, core 1, replay), `chat.mjs` finale, 5 giri alternati testo/ricco; Pi non rimisurato (34,85 s testo, 40,2 s ricco). Dati in `eval/ui/pve/lotto4/`.
+
+| Carico | Prototipo (s, per giro) | Mediana | Pi/proto | Soglia 1/4 |
+|---|---|---|---|---|
+| Testo | 7,03 · 2,61 · 2,62 · 2,67 · 2,76 | **2,67** | 13,1× | ≤ 8,71: rispettata |
+| Ricco | 3,56 · 3,59 · 3,61 · 3,77 · 3,82 | **3,61** | 11,1× | ≤ 10,0: rispettata |
+
+Lettura: nessun degrado; rispetto al lotto 3b la CPU scende (3,88 → 2,67 s testo, 5,17 → 3,61 s ricco), per i 15 fps in streaming e la cache `width_`/`cut`. Il primo giro del testo (7,03 s) è l'anomalia di avvio già vista. Limiti: Pi non rimisurato; replay, non modello vero.

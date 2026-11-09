@@ -1,5 +1,11 @@
 # Log
 
+## [2026-11-09] ingest | ASD-STE100
+- Creato [[asd-ste100]]: regole, dizionario, evidenza HN (debole), Karpathy non confermato, relazione con Pi.
+
+## [2026-11-06] update | chat-rpc come UI predefinita
+- Creato [[chat-rpc]]: avvio con `bin/pi.mjs`, parità, misure del lotto 2 (testo 8,36 s vs 35,4 s; ricco 5,19 s vs 40,2 s).
+
 ## [2026-11-05] update | archivio della storia compattata
 - Creato [[extension-archivio]]: recupero semantico (e5, z ≥ 4,2), misure del banco `noid` (36/36 corrette contro 23/36, iniezioni sbagliate 12,5%), latenza ≈29 ms, costo sole letture +1,7% con causa nel tool `richiama`.
 

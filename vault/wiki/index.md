@@ -5,6 +5,7 @@
 
 ## Entities
 - [[pi-claude-code]] — provider Pi che usa la CLI Claude Code con l'abbonamento
+- [[chat-rpc]] — frontend su RPC, UI predefinita proposta: pannello, sessioni, misure 4–7× meno CPU
 - [[pi-ui]] — chat Neon Night: barra di stato, passi, pannello con uso e stima di esaurimento
 - [[pi-picker]] — picker modale di file, cartelle e progetti
 - [[pi-team]] — sub-agenti guidati da un orchestratore
@@ -18,6 +19,7 @@
 - [[costo-fisso-in-token]] — regola: ogni aggiunta costa il minimo per richiesta
 - [[tool-su-richiesta]] — gruppi di tool spenti finché non servono
 - [[ricerca-ibrida]] — vettori + BM25 con RRF e soglie
+- [[asd-ste100]] — inglese tecnico controllato: regole, evidenza debole, rapporto con Pi
 
 ## Sources
 - [[partesano-2026-notes]] — NOTES.md: fattibilità e architettura del bridge
