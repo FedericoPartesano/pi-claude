@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.20.0...pi-claude-v0.21.0) (2026-11-09)
+
+
+### Features
+
+* prototipo con barra ▍ sui messaggi, schede tool, monitor test compatto e archivio/memoria in CONTEXT; fix toast e duplicati nel pannello ([7f75b01](https://github.com/FedericoPartesano/pi-claude/commit/7f75b01d20a7eb1ef7fa3108c8a32c011fdca6a7))
+
 ## [0.20.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.19.0...pi-claude-v0.20.0) (2026-11-09)
 
 
