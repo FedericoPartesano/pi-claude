@@ -18,6 +18,10 @@ export const PROMPT = [
 export default function (pi: ExtensionAPI) {
 	pi.on("before_agent_start", (event, ctx) => {
 		if (ctx.mode !== "rpc" || process.env.PI_UI_SUGGEST === "0") return;
-		(event.systemPromptOptions as { sections: Record<string, string> }).sections.suggerimenti = PROMPT;
+		// Appended to the chained prompt, not set in systemPromptOptions.sections: handlers that return a whole
+		// `systemPrompt` (caveman, vault…) replace the prompt for the run, and a section added there never reached the
+		// model (measured with pi --mode rpc: the block was missing from claude's system prompt). Static text: cache-stable.
+		if (event.systemPrompt.includes(MARK)) return;
+		return { systemPrompt: `${event.systemPrompt}\n\n${PROMPT}` };
 	});
 }
