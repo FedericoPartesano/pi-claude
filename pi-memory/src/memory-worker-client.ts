@@ -211,8 +211,17 @@ export class MemoryWorker implements Embedder {
 	close(): void {
 		this.closing = true;
 		if (this.idleTimer) clearTimeout(this.idleTimer);
-		void this.worker?.terminate();
+		const worker = this.worker;
 		this.worker = undefined;
 		this.modelReady = false;
+		if (!worker) return;
+		// Terminating a thread while onnxruntime runs an inference aborts the whole process (HandleScope fatal error):
+		// let the waiting requests finish first, with a hard limit.
+		const started = Date.now();
+		const stop = () => {
+			if (this.pending.size && Date.now() - started < 3000) return void setTimeout(stop, 100).unref();
+			void worker.terminate();
+		};
+		stop();
 	}
 }
