@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.29.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.28.0...pi-claude-v0.29.0) (2026-11-11)
+
+
+### Features
+
+* **pi-ui:** attività in background sotto la chat, reset e previsione d'uso nel pannello; invio immediato senza interruzioni ([1a8be45](https://github.com/FedericoPartesano/pi-claude/commit/1a8be45536c9b3e952d217a7e957bcd8501a9349))
+
 ## [0.28.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.27.0...pi-claude-v0.28.0) (2026-11-11)
 
 
