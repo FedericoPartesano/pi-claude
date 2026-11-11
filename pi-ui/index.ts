@@ -35,7 +35,7 @@ import { answerFor, dangerReason } from "./src/permission.ts";
 import { extractSuggestions, renderSuggestions, SUGGESTION_MARK, SUGGESTION_PROMPT } from "./src/suggestions.ts";
 import { patchPromptRace, runtimeAgentSession, runtimeExport } from "./src/prompt-race.ts";
 import { sendNow, trackedSession, trackSession } from "./src/send-now.ts";
-import { backgroundBash, detachAll, doneMessage } from "./src/bg-bash.ts";
+import { backgroundBash, backgroundTasks, detachAll, doneMessage, taskRows, watchBackgroundTasks } from "./src/bg-bash.ts";
 import { startTrace } from "./src/trace.ts";
 import { frameEditor } from "./src/editor.ts";
 import { phrase } from "./src/phrases.ts";
@@ -372,6 +372,13 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	pi.on("session_start", async (_event, ctx: ExtensionContext) => {
+		// Background commands: one row each under the chat (RPC chat and TUI alike), updated on start/end only.
+		if (ctx.hasUI) {
+			watchBackgroundTasks(() => {
+				const rows = taskRows(backgroundTasks());
+				try { ctx.ui.setWidget("bg-tasks", rows.length ? rows : undefined, { placement: "belowEditor" }); } catch { /* replaced session */ }
+			});
+		}
 		if (ctx.mode !== "tui") {
 			// RPC (the prototype chat): no TUI to patch, but /now still needs the session to re-queue follow-ups as steers.
 			if (ctx.mode === "rpc") trackSession(((await runtimeAgentSession(process.argv[1], AgentSession)) as { prototype: unknown }).prototype as Parameters<typeof trackSession>[0]);
@@ -929,7 +936,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerShortcut(panelKey as Parameters<typeof pi.registerShortcut>[0], { description: "Pannello della sessione: goal/loop/team, file, test, immagini, uso", handler: togglePanel });
 	// Send now: queued messages (and the text in the editor) reach the model at its next call, like Claude Code's ctrl+enter.
 	// ctrl+enter needs a terminal that tells it from Enter (kitty protocol); alt+n works everywhere (alt+s is the session panel). ctrl+x and ctrl+s stay Pi's.
-	// Running bash commands move to the background (like Claude Code); otherwise the run is interrupted.
+	// Running bash commands move to the background (like Claude Code); otherwise nothing is interrupted: the model reads the steers at its next step.
 	const sendNowKey = async (ctx: ExtensionContext, args?: string) => {
 		const fromEditor = args === undefined;
 		const typed = fromEditor ? ctx.ui.getEditorText() : args;
@@ -937,11 +944,11 @@ export default function (pi: ExtensionAPI) {
 		if (result.sent > 0) {
 			if (fromEditor && typed.trim()) ctx.ui.setEditorText("");
 			const n = `${result.sent} ${result.sent === 1 ? "messaggio" : "messaggi"}`;
-			ctx.ui.notify(result.moved ? `Comando spostato in background, inviati subito: ${n}.` : `Interrotto, inviati subito: ${n}.`, "info");
+			ctx.ui.notify(result.moved ? `Comando spostato in background, inviati subito: ${n}.` : `Nessun comando da spostare, il modello legge al primo passo utile: ${n}.`, "info");
 		} else ctx.ui.notify(result.reason === "idle" ? "Pi è fermo: i messaggi partono da soli." : "Niente da inviare subito.", "info");
 	};
 	for (const key of ["ctrl+enter", "alt+n"]) pi.registerShortcut(key as Parameters<typeof pi.registerShortcut>[0], { description: "Invia subito i messaggi in coda al modello", handler: (ctx) => sendNowKey(ctx) });
-	pi.registerCommand("now", { description: "Invia subito al modello i messaggi in coda (ctrl+enter o alt+n): sposta in background i comandi bash in corso, altrimenti interrompe", handler: async (args, ctx) => sendNowKey(ctx, args?.trim() ? args : undefined) });
+	pi.registerCommand("now", { description: "Invia subito al modello i messaggi in coda (ctrl+enter, alt+n o alt+d nella chat predefinita): sposta in background i comandi bash in corso; senza bash in corso non interrompe: il modello legge la coda al primo passo utile", handler: async (args, ctx) => sendNowKey(ctx, args?.trim() ? args : undefined) });
 	// bash override: Pi's own definition (same prompt), plus moving a running command to the background on send-now.
 	if (process.env.PI_BG_BASH !== "0") {
 		// settings can only be read once the runtime is up (not while extensions load): read them at the first command

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createBashToolDefinition, createLocalBashOperations } from "@earendil-works/pi-coding-agent";
-import { backgroundBash, detachAll, outcomeOf, runningCount, type Done } from "../src/bg-bash.ts";
+import { backgroundBash, backgroundTasks, detachAll, outcomeOf, runningCount, taskRows, watchBackgroundTasks, type Done } from "../src/bg-bash.ts";
 
 const setup = () => {
 	const dir = mkdtempSync(join(tmpdir(), "bgb-"));
@@ -68,4 +68,25 @@ test("outcomeOf", () => {
 	assert.equal(outcomeOf(undefined), "exit 0");
 	assert.equal(outcomeOf(new Error("out\n\nCommand exited with code 7")), "exit 7");
 	assert.equal(outcomeOf(new Error("x\n\nCommand timed out after 5 seconds")), "timed out after 5 seconds");
+});
+
+test("task in background: elenco e avvisi all'avvio e alla fine, righe compatte", async () => {
+	const { tool, ended } = setup();
+	let changes = 0;
+	watchBackgroundTasks(() => changes++);
+	const p = tool.execute("c9", { command: "sleep 0.5" }, undefined, undefined);
+	await new Promise((r) => setTimeout(r, 100));
+	assert.equal(backgroundTasks().length, 0, "non staccato: non è un task in background");
+	detachAll();
+	await p;
+	assert.equal(backgroundTasks().length, 1);
+	assert.equal(changes, 1);
+	assert.match(taskRows(backgroundTasks())[0], /^\d\d:\d\d:\d\d {2}sleep 0\.5$/);
+	await ended;
+	assert.equal(backgroundTasks().length, 0);
+	assert.equal(changes, 2);
+	watchBackgroundTasks(undefined);
+	const many = Array.from({ length: 5 }, (_, i) => ({ command: `c${i}`, startedAt: 0, log: "" }));
+	assert.equal(taskRows(many).length, 4);
+	assert.equal(taskRows(many)[3], "+2 altri");
 });

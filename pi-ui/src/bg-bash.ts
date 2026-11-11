@@ -35,6 +35,21 @@ export function detachAll(): number {
 
 export const runningCount = () => running.size;
 
+/** Commands moved to the background and still running, by tool call id (for the "background" row under the chat). */
+export type BgTask = { command: string; startedAt: number; log: string };
+const tasks = new Map<string, BgTask>();
+let onTasks: (() => void) | undefined;
+export const backgroundTasks = () => [...tasks.values()];
+/** One listener: called when a task starts or ends (no polling, no timer). */
+export const watchBackgroundTasks = (cb: (() => void) | undefined) => { onTasks = cb; };
+/** Rows for the widget: `HH:MM:SS  command` (start time, so the row never goes stale between redraws). */
+export function taskRows(list: BgTask[], max = 3): string[] {
+	const row = (t: BgTask) => `${new Date(t.startedAt).toTimeString().slice(0, 8)}  ${t.command.replace(/\s+/g, " ").slice(0, 70)}`;
+	const rows = list.slice(0, max).map(row);
+	if (list.length > max) rows.push(`+${list.length - max} altri`);
+	return rows;
+}
+
 /** The message the model gets when a background command ends. */
 export function doneMessage(done: Done): string {
 	const seconds = Math.round(done.ms / 1000);
@@ -101,7 +116,11 @@ export function backgroundBash(make: (operations: BashOperations) => ToolDef, lo
 				} catch {
 					fd = undefined;
 				}
+				tasks.set(id, { command: params.command, startedAt, log });
+				onTasks?.();
 				const finish = (error?: unknown) => {
+					tasks.delete(id);
+					onTasks?.();
 					if (fd !== undefined) try { closeSync(fd); } catch {}
 					fd = -1; // keep later data out of the (closed) editor stream
 					notify({ id, command: params.command, log, ms: Date.now() - startedAt, outcome: typeof exitCode === "number" ? `exit ${exitCode}` : outcomeOf(error), tail: strip(tail).trimEnd().slice(-TAIL_CHARS) });

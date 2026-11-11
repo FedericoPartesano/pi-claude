@@ -7,6 +7,7 @@ import { readFileSync, writeFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { checkOutcome, failingTests } from "../../pi-ui/src/test-output.ts";
+import { readUsage as readUsageFile, forecastLines, resetLabel } from "../../pi-ui/src/usage.ts";
 
 const FPS = Number(process.env.PROTO_FPS) || 30;
 // Sessions are persisted by default (pass --no-session to opt out).
@@ -50,10 +51,13 @@ const heat = (pct, low = S.dim) => (pct >= 85 ? S.err : pct >= 65 ? S.warn : low
 let usageText = "", usage = {};
 const readUsage = () => {
 	try {
+		// Reset times and burn-rate forecast per window, computed once per read (turn end), never per frame.
+		const raw = readUsageFile(), now = Date.now();
+		usage = raw ? { h5r: resetLabel(raw.fiveHourResetsAt, now), d7r: resetLabel(raw.sevenDayResetsAt, now), h5f: forecastLines(raw, "five_hour", now), d7f: forecastLines(raw, "seven_day", now) } : {};
 		const u = JSON.parse(readFileSync(join(homedir(), ".pi/agent/claude-code-usage.json"), "utf8"));
 		const pc = (x) => (typeof x === "number" ? `${Math.round(x * 100)}%` : "");
 		const col = (x) => heat(x * 100);
-		usage = { h5: u.fiveHourUtilization, d7: u.sevenDayUtilization };
+		usage = { ...usage, h5: u.fiveHourUtilization, d7: u.sevenDayUtilization };
 		usageText = [["5h", u.fiveHourUtilization], ["7g", u.sevenDayUtilization]].filter(([, x]) => typeof x === "number").map(([l, x]) => `${col(x)}${l} ${pc(x)}${S.dim}`).join(" ");
 	} catch { usageText = ""; usage = {}; }
 };
@@ -581,10 +585,11 @@ const sideLines = (w) => {
 	if (mem) { const parts = mem.split(" · "); L.push(kv("memoria", parts[0])); for (const part of parts.slice(1)) L.push(...wrap(`${S.dim}${part}${R}`, w)); }
 	if (usage.h5 != null || usage.d7 != null) {
 		L.push(""); head("USO");
-		if (usage.h5 != null) L.push(bar("5h", usage.h5 * 100));
-		if (usage.d7 != null) L.push(bar("7g", usage.d7 * 100));
+		const rows = (reset, fc) => { for (const r of [...(reset ? [{ role: "dim", label: "Reset", value: reset }] : []), ...(fc ?? [])]) L.push(kv(`  ${r.label}`, r.role === "err" ? `${S.err}${r.value}` : r.role === "warn" ? `${S.warn}${r.value}` : r.role === "ok" ? `${S.ok}${r.value}` : r.value)); };
+		if (usage.h5 != null) { L.push(bar("5h", usage.h5 * 100)); rows(usage.h5r, usage.h5f); }
+		if (usage.d7 != null) { L.push(bar("7g", usage.d7 * 100)); rows(usage.d7r, usage.d7f); }
 	}
-	const wk = [...widgets].filter(([k]) => k !== "btw" && k !== "auto");
+	const wk = [...widgets].filter(([k]) => k !== "btw" && k !== "auto" && k !== "bg-tasks");
 	if (wk.length) {
 		L.push(""); head("ATTIVITÀ");
 		let first = true;
@@ -814,6 +819,8 @@ const frame = () => {
 		extra.push(`${S.mag}${"─".repeat(Math.max(0, leftW))}${R}`);
 		for (const l of shown) extra.push(`${S.mag}▍${R} ${pad(l, leftW - 2)}`);
 	}
+	// Background commands (pi-ui widget "bg-tasks"): one dim row each, just above the prompt, also next to the side panel.
+	if (widgets.has("bg-tasks")) for (const [i, l] of widgets.get("bg-tasks").entries()) extra.push(cut(`${S.cyan}${i ? " " : "⏵"} ${S.dim}${i ? "" : "background · "}${l}${R}`, leftW));
 	if (!side && widgets.has("timeout-bar")) for (const l of widgets.get("timeout-bar")) extra.push(cut(l, leftW));
 	if (!side && W < 100 && panelOff) { for (const l of sideLines(leftW - 1).slice(0, 14)) extra.push(cut(l, leftW)); }
 	if (running && !side) {

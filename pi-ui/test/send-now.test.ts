@@ -25,11 +25,12 @@ test("sendNow: con un bash in corso lo sposta in background e manda tutto come s
 	assert.equal(s.aborted, 0);
 });
 
-test("sendNow: senza nulla da spostare interrompe e manda la coda come prossimo prompt", async () => {
+test("sendNow: senza nulla da spostare non interrompe e rimette la coda come steering", async () => {
 	const s = fake(true);
-	assert.deepEqual(await sendNow(s, "ora"), { sent: 4, interrupted: true });
-	assert.equal(s.aborted, 1);
-	assert.deepEqual(s.prompted, ["s1\n\nf1\n\nf2\n\nora"]);
+	assert.deepEqual(await sendNow(s, "ora"), { sent: 4, moved: 0 });
+	assert.equal(s.aborted, 0);
+	assert.deepEqual(s.prompted, []);
+	assert.deepEqual(s.steered, ["s1", "f1", "f2", "ora"]);
 });
 
 test("sendNow: coda vuota non stacca né interrompe", async () => {
