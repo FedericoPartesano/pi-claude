@@ -62,7 +62,7 @@ const statuses = new Map(), widgets = new Map();
 let expandSteps = false, showThinking = false, suggestions = [], queued = 0, sigAt = 0, sigWhat = ""; // sigAt/sigWhat = last Pi signal; queued = messages waiting in Pi's queue (queue_update) (shown in the status bar)
 const SUG = "<!--suggerimenti-->";
 const git = { branch: "", files: [] };
-let commands = [{ name: "resume", description: "riprendi una sessione" }, { name: "model", description: "cambia modello (/model [nome])" }, { name: "name", description: "nome della sessione" }, { name: "now", description: "invia subito la coda: i comandi bash in corso passano in background, altrimenti interrompe (alt+i)" }, { name: "quit", description: "esci" }, { name: "clear", description: "pulisci la vista" }, { name: "new", description: "nuova sessione" }, { name: "compact", description: "compatta il contesto" }, { name: "img", description: "invia un'immagine: /img percorso testo" }];
+let commands = [{ name: "resume", description: "riprendi una sessione" }, { name: "model", description: "cambia modello (/model [nome])" }, { name: "name", description: "nome della sessione" }, { name: "now", description: "invia subito la coda: i comandi bash in corso passano in background, altrimenti interrompe (ctrl+enter)" }, { name: "quit", description: "esci" }, { name: "clear", description: "pulisci la vista" }, { name: "new", description: "nuova sessione" }, { name: "compact", description: "compatta il contesto" }, { name: "img", description: "invia un'immagine: /img percorso testo" }];
 let projectFiles = [];
 const hist = []; let hIdx = 0, draft = "";
 let popSel = 0, popDismissed = "";
@@ -443,7 +443,7 @@ const pendingLines = (width) => {
 	if (!queuedMsgs.length) return [];
 	const body = [""];
 	for (const p of queuedMsgs) for (const l of hardWrap(p.text, width - 3)) body.push(`${S.faint}▌ ${S.dim}${pad(l, width - 2)}${R}`);
-	body.push(`${S.dim}  ↳ in coda · ${S.warn}alt+i${S.dim} invia ora${R}`, "");
+	body.push(`${S.dim}  ↳ in coda · ${S.warn}alt+${NOW_ALT}${S.dim} invia ora${R}`, "");
 	return body;
 };
 
@@ -839,7 +839,7 @@ const frame = () => {
 	const bitem = [
 		[5, `${bg(P.codeBg)}${S.mag}\x1b[1m ${bootVersion ? `v${bootVersion} · ` : ""}${cut(process.cwd().split(/[\\/]/).filter(Boolean).pop() || "/", 24)}${git.branch && !side ? ` ⎇ ${cut(git.branch, 20)}` : ""} ${R}`],
 		[0, yolo ? `${S.err}\x1b[1mSENZA PERMESSI${R}${S.dim}` : ""],
-		[0, running ? `${S.mag}${ANIM ? SPIN[tickNow() % SPIN.length] : "●"} working ${elapsed}s${S.dim}${sigAt ? ` · ${Math.max(0, Math.floor((Date.now() - sigAt) / 1000))}s since ${sigWhat}` : ""}${queued ? ` · ${S.warn}${queued} in coda (alt+i now)${S.dim}` : ""}${S.mag}` : `${S.ok}●${S.dim} idle`],
+		[0, running ? `${S.mag}${ANIM ? SPIN[tickNow() % SPIN.length] : "●"} working ${elapsed}s${S.dim}${sigAt ? ` · ${Math.max(0, Math.floor((Date.now() - sigAt) / 1000))}s since ${sigWhat}` : ""}${queued ? ` · ${S.warn}${queued} in coda (alt+${NOW_ALT} now)${S.dim}` : ""}${S.mag}` : `${S.ok}●${S.dim} idle`],
 		[1, model],
 		[6, sessionName ? sessionName.slice(0, 30) : ""],
 		[2, !side && ctxPct != null ? `${heat(ctxPct)}ctx ${Math.round(ctxPct)}%${S.dim}` : ""],
@@ -1188,7 +1188,7 @@ const sendPrompt = (cmd) => {
 	// stopping the run. A follow-up would wait for the whole run to end.
 	send({ ...cmd, id, ...(running ? { streamingBehavior: "steer" } : {}) });
 };
-// Steers wait for the running tool to end (a bash can last minutes). alt+i or /now (without pi-ui) takes Pi's queue back
+// Steers wait for the running tool to end (a bash can last minutes). alt+n or /now (without pi-ui) takes Pi's queue back
 // (clear_queue), aborts the run (the running tool is cancelled) and sends the queue plus the editor text as one prompt.
 let flushExtra = "", flushImages = [], flushMsgs;
 const flushNow = () => {
@@ -1224,6 +1224,8 @@ const flushReply = (r) => {
 // over in the same turn, or interrupts when nothing can move. The editor text rides along as the command argument.
 // Without pi-ui (no /now command) flushNow above does the interrupting version on its own.
 let piHasNow = false;
+// Send-now key: alt+<letter>, PI_NOW_KEY overrides (alt+n/alt+i clash with window managers like komorebi). ctrl+enter and /now always work.
+const NOW_ALT = /^[a-z]$/.test(process.env.PI_NOW_KEY ?? "") && !"vs".includes(process.env.PI_NOW_KEY) ? process.env.PI_NOW_KEY : "d";
 const nowKey = () => {
 	const text = input.trim();
 	if (!running) { if (text || attached.length) submit(); return; }
@@ -1288,9 +1290,10 @@ const histMove = (dir) => {
 };
 
 process.stdin.setRawMode(true);
+const re = new RegExp(/\x1b_G([^\x1b]*)\x1b\\|\x1b\[\?([0-9;]*)c|\x1b\[200~([\s\S]*?)\x1b\[201~|\x1b\[<(\d+);\d+;\d+[Mm]|\x1b\[([0-9;]*)([A-Za-z~])|(\x1b[\r\nvs])|([\s\S])/.source.replace("vs]", `vs${NOW_ALT}]`), "gu");
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (data) => {
-	const re = /\x1b_G([^\x1b]*)\x1b\\|\x1b\[\?([0-9;]*)c|\x1b\[200~([\s\S]*?)\x1b\[201~|\x1b\[<(\d+);\d+;\d+[Mm]|\x1b\[([0-9;]*)([A-Za-z~])|(\x1b[\r\nnvsi])|([\s\S])/gu;
+	re.lastIndex = 0;
 	let m;
 	while ((m = re.exec(data))) {
 		if (m[1] !== undefined) { // kitty graphics reply to our query: it understands the protocol
@@ -1328,7 +1331,7 @@ process.stdin.on("data", (data) => {
 			else if (k === "13;5u") nowKey();
 			else if (k === "A") { if (items) popSel = (popSel + items.length - 1) % items.length; else if (!input.includes("\n")) histMove(-1); else cursor = Math.max(0, input.lastIndexOf("\n", cursor - 1)); }
 			else if (k === "B") { if (items) popSel = (popSel + 1) % items.length; else if (!input.includes("\n")) histMove(1); else { const n = input.indexOf("\n", cursor); cursor = n < 0 ? input.length : n + 1; } }
-		} else if (m[7] !== undefined) { if (m[7][1] === "n" || m[7][1] === "i") nowKey(); else if (m[7][1] === "v") pasteClipboardImage();
+		} else if (m[7] !== undefined) { if (m[7][1] === NOW_ALT) nowKey(); else if (m[7][1] === "v") pasteClipboardImage();
 		else if (m[7][1] === "s") { panelOff = !panelOff; previous = []; out.write(`${ESC}2J`); } else insert("\n"); }
 		else {
 			const key = m[8];

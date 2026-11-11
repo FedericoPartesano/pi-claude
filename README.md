@@ -215,8 +215,8 @@ Attiva in `pi` e `pi-full`. Temi: `neon-night` (neon su nero), `lilla` (i pastel
 - **Comandi pericolosi** (`rm -rf`, `sudo`, `777`, force push, `reset --hard`, `curl | sh`…): domanda nella barra,
   `s` sì · `n` no · `a` sempre per quel comando. Resta attiva anche con `PI_UI=off` (dialogo); senza interfaccia blocca.
 - **Pannello** sempre visibile come colonna a destra (fullscreen, terminale ≥ 120 colonne: la chat si restringe, niente viene coperto); `Alt+S` (o `/panel`) lo nasconde e lo mostra, sotto le 120 colonne lo apre come overlay. `PI_UI_PANEL=float` = solo su richiesta; `PI_UI_PANEL_KEY` cambia il tasto. Sezioni: sessione, turno, **piano** (todo, passo in corso evidenziato), **intent** attivo, sub-agenti, test falliti, attività, file, suggerimenti, memoria, git, **token risparmiati** da lean-tools, immagini, uso 5h/7g/contesto; se l'altezza non basta si nascondono prima le meno utili.
-- **Invia subito** come Claude Code: i messaggi scritti mentre Pi lavora restano in coda; `ctrl+enter`, `alt+n` o `/now`
-  (nella chat predefinita anche `alt+i`) li consegnano subito. Un comando bash in corso passa in background e
+- **Invia subito** come Claude Code: i messaggi scritti mentre Pi lavora restano in coda; `ctrl+enter`, `alt+d` (cambia con `PI_NOW_KEY`) o `/now`
+  li consegnano subito. Un comando bash in corso passa in background e
   continua (il tool ritorna con l'output finora e il log, a fine comando arriva un messaggio al modello); se non c'è
   un bash da spostare, il turno viene interrotto e la coda parte come prossimo prompt. `PI_BG_BASH=0` spegne il background
   (resta l'interruzione). Il tool `bash` è quello di Pi con lo stesso prompt: cache invariata.
