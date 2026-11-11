@@ -15,7 +15,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
-import { AgentSession, AssistantMessageComponent, CustomEditor, VERSION as PI_VERSION, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { AgentSession, AssistantMessageComponent, createBashToolDefinition, createLocalBashOperations, CustomEditor, VERSION as PI_VERSION, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getCapabilities, setCapabilityOverrides, visibleWidth, type Component, type TUI } from "@earendil-works/pi-tui";
 import { linkFileRefs, vscodeUrl, wslDistro } from "./src/answer.ts";
 import { subagentRows, teamRows, type AgentRow } from "./src/agents.ts";
@@ -35,6 +35,7 @@ import { answerFor, dangerReason } from "./src/permission.ts";
 import { extractSuggestions, renderSuggestions, SUGGESTION_MARK, SUGGESTION_PROMPT } from "./src/suggestions.ts";
 import { patchPromptRace, runtimeAgentSession, runtimeExport } from "./src/prompt-race.ts";
 import { sendNow, trackedSession, trackSession } from "./src/send-now.ts";
+import { backgroundBash, detachAll, doneMessage } from "./src/bg-bash.ts";
 import { startTrace } from "./src/trace.ts";
 import { frameEditor } from "./src/editor.ts";
 import { phrase } from "./src/phrases.ts";
@@ -371,7 +372,11 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	pi.on("session_start", async (_event, ctx: ExtensionContext) => {
-		if (ctx.mode !== "tui") return;
+		if (ctx.mode !== "tui") {
+			// RPC (the prototype chat): no TUI to patch, but /now still needs the session to re-queue follow-ups as steers.
+			if (ctx.mode === "rpc") trackSession(((await runtimeAgentSession(process.argv[1], AgentSession)) as { prototype: unknown }).prototype as Parameters<typeof trackSession>[0]);
+			return;
+		}
 		// The terminal's late answers to Pi's startup color questions can arrive as plain text ("95"): drop them for the
 		// first seconds, and clear the prompt if one already got in.
 		const startedAt = Date.now();
@@ -924,16 +929,38 @@ export default function (pi: ExtensionAPI) {
 	pi.registerShortcut(panelKey as Parameters<typeof pi.registerShortcut>[0], { description: "Pannello della sessione: goal/loop/team, file, test, immagini, uso", handler: togglePanel });
 	// Send now: queued messages (and the text in the editor) reach the model at its next call, like Claude Code's ctrl+enter.
 	// ctrl+enter needs a terminal that tells it from Enter (kitty protocol); alt+n works everywhere (alt+s is the session panel). ctrl+x and ctrl+s stay Pi's.
-	const sendNowKey = async (ctx: ExtensionContext) => {
-		const typed = ctx.ui.getEditorText();
-		const result = await sendNow(trackedSession() as Parameters<typeof sendNow>[0], typed);
+	// Running bash commands move to the background (like Claude Code); otherwise the run is interrupted.
+	const sendNowKey = async (ctx: ExtensionContext, args?: string) => {
+		const fromEditor = args === undefined;
+		const typed = fromEditor ? ctx.ui.getEditorText() : args;
+		const result = await sendNow(trackedSession() as Parameters<typeof sendNow>[0], typed, detachAll);
 		if (result.sent > 0) {
-			if (typed.trim()) ctx.ui.setEditorText("");
-			ctx.ui.notify(`Inviato subito al modello: ${result.sent} ${result.sent === 1 ? "messaggio" : "messaggi"}.`, "info");
+			if (fromEditor && typed.trim()) ctx.ui.setEditorText("");
+			const n = `${result.sent} ${result.sent === 1 ? "messaggio" : "messaggi"}`;
+			ctx.ui.notify(result.moved ? `Comando spostato in background, inviati subito: ${n}.` : `Interrotto, inviati subito: ${n}.`, "info");
 		} else ctx.ui.notify(result.reason === "idle" ? "Pi è fermo: i messaggi partono da soli." : "Niente da inviare subito.", "info");
 	};
-	for (const key of ["ctrl+enter", "alt+n"]) pi.registerShortcut(key as Parameters<typeof pi.registerShortcut>[0], { description: "Invia subito i messaggi in coda al modello", handler: sendNowKey });
-	pi.registerCommand("now", { description: "Invia subito al modello i messaggi in coda (ctrl+enter o alt+n)", handler: async (_args, ctx) => sendNowKey(ctx) });
+	for (const key of ["ctrl+enter", "alt+n"]) pi.registerShortcut(key as Parameters<typeof pi.registerShortcut>[0], { description: "Invia subito i messaggi in coda al modello", handler: (ctx) => sendNowKey(ctx) });
+	pi.registerCommand("now", { description: "Invia subito al modello i messaggi in coda (ctrl+enter o alt+n): sposta in background i comandi bash in corso, altrimenti interrompe", handler: async (args, ctx) => sendNowKey(ctx, args?.trim() ? args : undefined) });
+	// bash override: Pi's own definition (same prompt), plus moving a running command to the background on send-now.
+	if (process.env.PI_BG_BASH !== "0") {
+		// settings can only be read once the runtime is up (not while extensions load): read them at the first command
+		let shell: { shellPath?: string; shellCommandPrefix?: string } | undefined;
+		const cfg = () => (shell ??= (pi.getSettings?.() ?? {}) as { shellPath?: string; shellCommandPrefix?: string });
+		let localOps: ReturnType<typeof createLocalBashOperations> | undefined;
+		const local = { exec: (...a: Parameters<ReturnType<typeof createLocalBashOperations>["exec"]>) => (localOps ??= createLocalBashOperations({ shellPath: cfg().shellPath })).exec(...a) };
+		const make = (operations: unknown) =>
+			createBashToolDefinition(process.cwd(), { operations: operations as never, ...(shell || operations !== local ? { commandPrefix: cfg().shellCommandPrefix, shellPath: cfg().shellPath } : {}) });
+		pi.registerTool(
+			backgroundBash(make as never, local as never, (done) => {
+				try {
+					pi.sendMessage({ customType: "bg-bash-done", content: doneMessage(done), display: true, details: done }, { triggerTurn: true, deliverAs: "followUp" });
+				} catch {
+					// the extension instance was replaced (reload): nobody to tell
+				}
+			}) as never,
+		);
+	}
 	// Long thinking shows its last 5 lines; /thinking opens it whole and back (Pi rebuilds the messages on the label reset).
 	pi.registerCommand("thinking", {
 		description: "Opens or folds long thinking: by default only the last 5 lines show",

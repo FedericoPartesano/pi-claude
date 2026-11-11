@@ -2,7 +2,7 @@
 
 `node prototype/rpc-chat/chat.mjs [--model haiku]` — un file, nessuna dipendenza, niente `pi-tui`. Avvia `pi --mode rpc` (sessioni salvate) e disegna da sé la chat nel terminale (schermo alternativo).
 
-Cosa fa: prompt (invio), streaming di testo e pensiero, riga per i tool, abort (ctrl+c durante il lavoro), prompt in coda con `followUp`, uscita (ctrl+c a riposo, ctrl+d). Disegno differenziale per riga, frame in streaming limitati a `PROTO_FPS` (30), tasti ridisegnati subito, righe a capo dei blocchi chiusi in cache.
+Cosa fa: prompt (invio), streaming di testo e pensiero, riga per i tool, abort (ctrl+c durante il lavoro), messaggi scritti durante il lavoro inviati come `steer` (il modello li legge dopo i tool in corso, senza fermare il lavoro; il contatore «N in coda» segue `queue_update`), uscita (ctrl+c a riposo, ctrl+d). Disegno differenziale per riga, frame in streaming limitati a `PROTO_FPS` (30), tasti ridisegnati subito, righe a capo dei blocchi chiusi in cache.
 
 Aggiunti per il confronto equo: Markdown (titoli, elenchi, citazioni, blocchi di codice, grassetto/corsivo/codice in linea), a capo consapevole di ANSI, scorrimento (PagUp/PagDown, frecce su/giù, rotellina, End), cursore e modifica nel prompt (frecce, Home/End, Canc, ctrl+a/e/u).
 
@@ -22,7 +22,7 @@ All'avvio il prototipo chiede al terminale una query kitty graphics più DA1; da
 `/img percorso [testo]` allega un PNG/JPEG al prompt; le immagini nei risultati dei tool (es. `read` su un PNG) vengono mostrate. Kitty o sixel secondo il rilevamento; JPEG e terminali senza immagini: riga segnaposto. Pesi misurati in `eval/ui/REPORT.md` (sezione Immagini).
 
 ## Lotto 1 di funzioni (goal: tutte le funzioni, prestazioni alte, via ciò che è pesante e poco utile)
-Aggiunti: suggerimenti 1-4 (blocco `<!--suggerimenti-->`, tasto 1-4 a prompt vuoto), diff colorato dei file per `edit`, link `file:riga` cliccabili (OSC 8, `vscode://file`), campanello a fine turno > 30 s, pensiero apribile (`ctrl+t`), send now (`alt+n`, `ctrl+enter`, invia `/now`). Tolto: sixel (decoder PNG + encoder, 2,5 s CPU su un'immagine grossa, ridisegno a ogni scorrimento); restano le immagini kitty.
+Aggiunti: suggerimenti 1-4 (blocco `<!--suggerimenti-->`, tasto 1-4 a prompt vuoto), diff colorato dei file per `edit`, link `file:riga` cliccabili (OSC 8, `vscode://file`), campanello a fine turno > 30 s, pensiero apribile (`ctrl+t`), send now (`alt+n`, `ctrl+enter`, invia `/now`: porta a `steer` i follow-up rimasti in coda; in RPC pi-ui registra la sessione apposta). Tolto: sixel (decoder PNG + encoder, 2,5 s CPU su un'immagine grossa, ridisegno a ogni scorrimento); restano le immagini kitty.
 
 ## Come si lancia
 È la UI predefinita: `pi` (funzione di shell di `install.sh`; PowerShell su Windows via `scripts/setup.mjs`) esegue `bin/pi.mjs`, che avvia questa chat. `pi --classic` o `PI_UI_CLASSIC=1` danno la UI classica con `pi-ui` (con `/custom-reload`). Restano classici gli usi non interattivi (`-p`, `--mode`, `--version`, sottocomandi come `install`) e gli stream non TTY. `-d` = `PI_YOLO=1`.
@@ -32,11 +32,11 @@ Fatto:
 - sessioni: `/resume`, `/model [nome]` (selettore o nome parziale, via `set_model` RPC), `/name`, `/new`, nome nella barra; `/compact`; usage 5h/7g nella barra.
 - barra di stato (modello, contesto, costo, intent, goal, loop, team, memoria via `setStatus`); monitor dei test e barra timeout/sleep (widget testuali in RPC, `extensions/widget-compat.ts`).
 - pannello laterale (`alt+s` lo nasconde/mostra; sotto 110 colonne si apre sopra la barra): intent con outcome, goal, piano `todo`, test (ok/falliti e test che falliscono), git, contesto, estensioni.
-- passi dei tool con ✓/✗ e durata, diff colorato di `edit`, pensiero (`ctrl+t`), suggerimenti 1-4, link `file:riga`, campanello a fine turno lungo, send now (`alt+n`).
+- passi dei tool con ✓/✗ e durata, diff colorato di `edit`, pensiero (`ctrl+t`), suggerimenti 1-4, link `file:riga`, campanello a fine turno lungo, send now come Claude Code (`alt+n`, `alt+i`, `ctrl+enter` o `/now`, tutti su `/now` di pi-ui): i comandi bash in corso passano in background e continuano, il tool ritorna subito con l'output finora e il log, il modello legge la coda nello stesso turno e riceve un messaggio quando il comando finisce; se non c'è un bash da spostare (il modello sta scrivendo) interrompe e manda coda + testo dell'editor come prossimo prompt. Provato con haiku: `sleep 40` staccato a 9 s, risposta subito; via RPC `sleep 25` staccato a 15 s, messaggio di fine a 31 s. Senza pi-ui resta l'invio forzato locale (`clear_queue` + `abort`). I messaggi scritti mentre Pi lavora restano in fondo alla chat, attenuati, con «↳ in coda · alt+i invia ora», finché Pi non li passa al modello (`message_start` del messaggio utente); poi prendono il loro posto nella conversazione. `pty.py` ha il passo `snap` (schermo a metà prova, via `SIGUSR1`). `alt+s`/`alt+v` prima non arrivavano (la regex dei tasti riconosceva solo `alt+n`): corretto.
 - immagini (kitty): risultati dei tool, `/img`, incolla di un percorso PNG/JPEG o `alt+v` dagli appunti (anteprima 📎 sopra il prompt, `ctrl+u` a prompt vuoto le toglie).
 - completamento `/comandi` e `@file`, Markdown, tabelle, grafici, incolla multiriga.
 - questionari (`ask_user_question`): una card sola con schede per domanda, caselle ☑ per la scelta multipla, anteprima, risposta libera e pagina «Rivedi»; il client risponde da solo ai dialog `select`/`input` che l'estensione invia in sequenza (se la sequenza non torna, mostra i dialog normali);
-- dialog `select`/`confirm`/`input`/`editor`; `/bugreport` come serie di dialog; `/archivio [id|testo]` come testo in un pager.
+- dialog `select`/`confirm`/`input`/`editor`; `/bugreport` come serie di dialog; `/archive [id|testo]` come testo in un pager.
 - grafica: messaggi di Pi con barra `▍` e aria tra i turni; passi dei tool come schede sottili (barra di stato a sinistra, durata a destra); toast animato in alto al centro con livelli (`SEV`); cornice solo sul prompt; blocchi di codice con etichetta del linguaggio; barra di stato a voci con priorità (toglie le meno importanti quando è stretta).
 - pannello destro adattivo (36/34/28 colonne, nascosto sotto 100; `alt+s`): INTENT, GOAL, PIANO, TEST, ATTIVITÀ (barre dei timer `▰▱` con etichetta a sinistra e orologio a destra), GIT, CONTEXT, USO (5h/7g), MEMORIA, ESTENSIONI, log del team (`team-log`).
 - `/custom-reload` (riavvia il processo Pi tenendo la sessione), `/no-permissions`, `ctrl+v`/`alt+v` per immagini e testo dagli appunti, messaggi in coda («N in coda»), badge consigli (max 3).
@@ -50,7 +50,7 @@ Scartato, con motivo:
 - colonna browser, widget voce: componenti `custom()`, inesistenti in RPC; restano gli stati testuali.
 - `alt+b` per `/bugreport`: usa il comando.
 - notifica toast di Windows: resta il campanello.
-- `/archivio` a schermo intero con ricerca interattiva: `custom()` assente in RPC; sostituito da riepilogo e ricerca testuale.
+- `/archive` a schermo intero con ricerca interattiva: `custom()` assente in RPC; sostituito da riepilogo e ricerca testuale.
 - pannello float (`PI_UI_PANEL=float`): il pannello è fisso.
 
 ## Prove e prestazioni

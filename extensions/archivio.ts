@@ -189,7 +189,7 @@ export function semanticRecall(chunks: readonly Chunk[], vectors: ReadonlyMap<st
 	return `${HEADER()}\n${renderHits(hits, limit)}`;
 }
 
-/** Every embedded chunk ranked by similarity, with its z-score (what the /archivio test tab shows; nothing is filtered). */
+/** Every embedded chunk ranked by similarity, with its z-score (what the /archive test tab shows; nothing is filtered). */
 export function rankSemantic(chunks: readonly Chunk[], vectors: ReadonlyMap<string, Float32Array>, query: Float32Array, limit = 20): Hit[] {
 	const scored: Hit[] = [];
 	let sum = 0;
@@ -208,7 +208,7 @@ export function rankSemantic(chunks: readonly Chunk[], vectors: ReadonlyMap<stri
 	return scored.sort((a, b) => b.score - a.score).slice(0, limit);
 }
 
-/** What the /archivio view shows: the archived entries and the recalls that rode along with prompts. */
+/** What the /archive view shows: the archived entries and the recalls that rode along with prompts. */
 export interface ArchiveOverview {
 	entries: { id: string; role: string; label: string; chars: number; preview: string; injected: number }[];
 	injections: { at: string; prompt: string; method: string; hits: { id: string; label: string; z?: number }[]; text: string }[];
@@ -244,7 +244,7 @@ export function archiveText(overview: ArchiveOverview): string {
 	const lines = [`Archivio: ${overview.entries.length} voci, ${overview.compactions} compattazioni, ${overview.injections.length} iniezioni`, "", "Iniezioni:"];
 	for (const injection of overview.injections.slice(-10)) lines.push(`  ${injection.method === "semantic" ? "sem" : "lex"} ${injection.hits.map((hit) => `#${hit.id}`).join(" ") || "-"} ← ${injection.prompt.replace(/\s+/g, " ").slice(0, 70)}`);
 	if (!overview.injections.length) lines.push("  nessuna");
-	lines.push("", "Voci (/archivio <id> le apre, /archivio <testo> cerca):");
+	lines.push("", "Voci (/archive <id> le apre, /archive <testo> cerca):");
 	for (const entry of overview.entries.slice(-40)) lines.push(`  #${entry.id.slice(0, 8)} ${entry.label} ${entry.chars}c${entry.injected ? ` ×${entry.injected}` : ""}  ${entry.preview.slice(0, 80)}`);
 	return lines.join("\n");
 }
@@ -402,10 +402,10 @@ export default function (pi: ExtensionAPI) {
 			return undefined;
 		}
 	});
-	pi.registerCommand("archivio", {
+	pi.registerCommand("archive", {
 		description: "Apri l'archivio della storia compattata: iniezioni, voci e prova di recupero",
 		handler: async (_args, ctx) => {
-			if (ctx.mode !== "tui" && ctx.mode !== "rpc") return ctx.ui.notify("/archivio serve il terminale interattivo.", "warning");
+			if (ctx.mode !== "tui" && ctx.mode !== "rpc") return ctx.ui.notify("/archive serve il terminale interattivo.", "warning");
 			const branch = ctx.sessionManager.getBranch() as Entry[];
 			const overview = archiveOverview(branch);
 			if (overview.entries.length === 0) return ctx.ui.notify("Archivio vuoto: nulla \u00e8 stato ancora compattato in questa sessione.", "info");

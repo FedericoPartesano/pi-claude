@@ -1,5 +1,5 @@
 /**
- * The /archivio full-screen view: three tabs over the history that compaction took out of the live context.
+ * The /archive full-screen view: three tabs over the history that compaction took out of the live context.
  * Injections (what rode along with each prompt, and why), Entries (everything archived), Test (type a question and see
  * the semantic ranking with the z-score the automatic recall would use). Tab/shift+tab switch, ↑↓ move,
  * PgUp/PgDn scroll the detail, Esc closes.

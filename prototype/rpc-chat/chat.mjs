@@ -59,10 +59,10 @@ const readUsage = () => {
 };
 let model = "", ctxPct, cost, toast = "", dialog, title = "pi";
 const statuses = new Map(), widgets = new Map();
-let expandSteps = false, showThinking = false, suggestions = [], queued = 0, sigAt = 0, sigWhat = ""; // sigAt/sigWhat = last Pi signal; queued = follow-ups sent while a turn runs (shown in the status bar)
+let expandSteps = false, showThinking = false, suggestions = [], queued = 0, sigAt = 0, sigWhat = ""; // sigAt/sigWhat = last Pi signal; queued = messages waiting in Pi's queue (queue_update) (shown in the status bar)
 const SUG = "<!--suggerimenti-->";
 const git = { branch: "", files: [] };
-let commands = [{ name: "resume", description: "riprendi una sessione" }, { name: "model", description: "cambia modello (/model [nome])" }, { name: "name", description: "nome della sessione" }, { name: "quit", description: "esci" }, { name: "clear", description: "pulisci la vista" }, { name: "new", description: "nuova sessione" }, { name: "compact", description: "compatta il contesto" }, { name: "img", description: "invia un'immagine: /img percorso testo" }];
+let commands = [{ name: "resume", description: "riprendi una sessione" }, { name: "model", description: "cambia modello (/model [nome])" }, { name: "name", description: "nome della sessione" }, { name: "now", description: "invia subito la coda: i comandi bash in corso passano in background, altrimenti interrompe (alt+i)" }, { name: "quit", description: "esci" }, { name: "clear", description: "pulisci la vista" }, { name: "new", description: "nuova sessione" }, { name: "compact", description: "compatta il contesto" }, { name: "img", description: "invia un'immagine: /img percorso testo" }];
 let projectFiles = [];
 const hist = []; let hIdx = 0, draft = "";
 let popSel = 0, popDismissed = "";
@@ -427,6 +427,26 @@ const blockLines = (block, width) => {
 	return lines;
 };
 
+// Messages sent while Pi works wait at the bottom of the chat, dimmed, with the send-now key, until Pi hands them to
+// the model (message_start of a user message carrying their text): then they take their place in the conversation.
+const queuedMsgs = [];
+const queue = (text, sent) => { queuedMsgs.push({ kind: "user", text, sent: sent ?? text }); };
+const deliver = (t) => {
+	let moved = false;
+	for (let i = 0; i < queuedMsgs.length; ) {
+		if (t === queuedMsgs[i].sent || t.includes(queuedMsgs[i].sent)) { blocks.push({ kind: "user", text: queuedMsgs.splice(i, 1)[0].text }); moved = true; }
+		else i++;
+	}
+	if (moved) open = undefined;
+};
+const pendingLines = (width) => {
+	if (!queuedMsgs.length) return [];
+	const body = [""];
+	for (const p of queuedMsgs) for (const l of hardWrap(p.text, width - 3)) body.push(`${S.faint}▌ ${S.dim}${pad(l, width - 2)}${R}`);
+	body.push(`${S.dim}  ↳ in coda · ${S.warn}alt+i${S.dim} invia ora${R}`, "");
+	return body;
+};
+
 // Consecutive tool blocks collapse into one summary line once they are done (ctrl+o expands).
 const bodyLines = (width) => {
 	const body = [];
@@ -452,6 +472,7 @@ const bodyLines = (width) => {
 		body.push("");
 		i = j;
 	}
+	body.push(...pendingLines(width));
 	return body;
 };
 
@@ -810,7 +831,7 @@ const frame = () => {
 	const bitem = [
 		[5, `${bg(P.codeBg)}${S.mag}\x1b[1m ${bootVersion ? `v${bootVersion} · ` : ""}${cut(process.cwd().split(/[\\/]/).filter(Boolean).pop() || "/", 24)}${git.branch && !side ? ` ⎇ ${cut(git.branch, 20)}` : ""} ${R}`],
 		[0, yolo ? `${S.err}\x1b[1mSENZA PERMESSI${R}${S.dim}` : ""],
-		[0, running ? `${S.mag}${ANIM ? SPIN[tickNow() % SPIN.length] : "●"} working ${elapsed}s${S.dim}${sigAt ? ` · ${Math.max(0, Math.floor((Date.now() - sigAt) / 1000))}s since ${sigWhat}` : ""}${queued ? ` · ${S.warn}${queued} in coda${S.dim}` : ""}${S.mag}` : `${S.ok}●${S.dim} idle`],
+		[0, running ? `${S.mag}${ANIM ? SPIN[tickNow() % SPIN.length] : "●"} working ${elapsed}s${S.dim}${sigAt ? ` · ${Math.max(0, Math.floor((Date.now() - sigAt) / 1000))}s since ${sigWhat}` : ""}${queued ? ` · ${S.warn}${queued} in coda (alt+i now)${S.dim}` : ""}${S.mag}` : `${S.ok}●${S.dim} idle`],
 		[1, model],
 		[6, sessionName ? sessionName.slice(0, 30) : ""],
 		[2, !side && ctxPct != null ? `${heat(ctxPct)}ctx ${Math.round(ctxPct)}%${S.dim}` : ""],
@@ -920,15 +941,15 @@ const refreshGit = () =>
 	});
 execFile("git", ["ls-files", "-co", "--exclude-standard"], { maxBuffer: 32 << 20, timeout: 8000 }, (err, so) => { if (!err) projectFiles = so.split("\n").filter(Boolean); });
 
-let pending = "";
+let rxBuf = "";
 child.stdout.setEncoding("utf8");
 child.stdout.on("data", (chunk) => {
 	if (booting && !bootSeen) bootNote("Pi attivo, carico le estensioni");
-	pending += chunk;
+	rxBuf += chunk;
 	let at;
-	while ((at = pending.indexOf("\n")) >= 0) {
-		const line = pending.slice(0, at).replace(/\r$/, "");
-		pending = pending.slice(at + 1);
+	while ((at = rxBuf.indexOf("\n")) >= 0) {
+		const line = rxBuf.slice(0, at).replace(/\r$/, "");
+		rxBuf = rxBuf.slice(at + 1);
 		if (line) onRecord(JSON.parse(line));
 	}
 });
@@ -937,6 +958,9 @@ const onRecord = (r) => {
 	switch (r.type) {
 		case "agent_start":
 			running = true; startedAt = Date.now(); sigAt = Date.now(); sigWhat = "start"; open = undefined;
+			break;
+		case "message_start":
+			if (queuedMsgs.length && r.message?.role === "user") deliver(textOf(r.message.content));
 			break;
 		case "message_update": {
 			const e = r.assistantMessageEvent;
@@ -962,16 +986,20 @@ const onRecord = (r) => {
 		}
 		case "response":
 			sideVer++;
-			if (r.id === "stats" && r.success) { ctxPct = r.data?.contextUsage?.percent ?? ctxPct; cost = r.data?.cost ?? cost; }
+			if (r.id === "flushq" || r.id === "flusha") flushReply(r);
+			else if (r.id === "stats" && r.success) { ctxPct = r.data?.contextUsage?.percent ?? ctxPct; cost = r.data?.cost ?? cost; }
 			else if (r.id === "state" && r.success) { if (booting) { booting = false; try { writeFileSync(bootFile, JSON.stringify({ ms: Date.now() - bootAt })); } catch {} previous = []; out.write(`${ESC}2J${ESC}?25h`); } if (running && r.data && r.data.isStreaming === false && !r.data.isCompacting && !r.data.pendingMessageCount && Date.now() - Math.max(startedAt, pollFrom) > 2500) { running = false; queued = 0; open = undefined; } // Pi is idle but we never saw agent_settled: unstick
 				model = r.data?.model?.id ?? model; sessionFile = r.data?.sessionFile ?? sessionFile; sessionName = r.data?.sessionName ?? ""; }
 			else if (r.id === "models") modelsReply(r);
 			else if (r.command === "set_model" || r.id === "setmodel") { if (r.success) { model = r.data?.id ?? model; toast = `modello: ${model}`; } else toast = `errore: ${r.error ?? "modello non cambiato"}`; }
 			else if (r.id === "switch" && r.success) { send({ id: "state", type: "get_state" }); send({ id: "msgs", type: "get_messages" }); }
 			else if (r.id === "msgs" && r.success) loadMessages(r.data?.messages ?? []);
-			else if (r.id === "cmds" && r.success) commands = [...commands, ...(r.data?.commands ?? [])].filter((c, i, a) => a.findIndex((x) => x.name === c.name) === i);
-			else if (r.command === "prompt" && r.success === false && /streamingBehavior/.test(r.error ?? "") && sentPrompts.has(r.id)) { running = true; pollFrom = Date.now(); queued++; send({ ...sentPrompts.get(r.id), id: `${r.id}r`, streamingBehavior: "followUp" }); }
+			else if (r.id === "cmds" && r.success) piHasNow = (r.data?.commands ?? []).some((c) => c.name === "now"), commands = [...commands, ...(r.data?.commands ?? [])].filter((c, i, a) => a.findIndex((x) => x.name === c.name) === i);
+			else if (r.command === "prompt" && r.success === false && /streamingBehavior/.test(r.error ?? "") && sentPrompts.has(r.id)) { running = true; pollFrom = Date.now(); queued++; send({ ...sentPrompts.get(r.id), id: `${r.id}r`, streamingBehavior: "steer" }); }
 			else if (r.command === "prompt" && r.success === false) toast = `errore: ${r.error ?? "prompt rifiutato"}`;
+			break;
+		case "queue_update": // Pi's own count of messages still waiting: drops to 0 when the model has them
+			queued = (r.steering?.length ?? 0) + (r.followUp?.length ?? 0); sideVer++;
 			break;
 		case "extension_ui_request": {
 			const m = r.method;
@@ -992,6 +1020,7 @@ const onRecord = (r) => {
 		}
 		case "agent_settled": {
 			running = false; open = undefined; queued = 0;
+			for (const p of queuedMsgs.splice(0)) blocks.push({ kind: "user", text: p.text });
 			const last = blocks.findLast((b) => b.kind === "assistant");
 			suggestions = last && last.text.includes(SUG) ? last.text.slice(last.text.indexOf(SUG) + SUG.length).split("\n").map((l) => /^\s*[-*•]\s+(.+?)\s*$/.exec(l)?.[1]).filter(Boolean).slice(0, 3) : [];
 			if (Date.now() - startedAt > 30000) out.write("\x07"); // long turn over: bell
@@ -1067,7 +1096,7 @@ const readIntent = () => {
 };
 const loadMessages = (msgs) => {
 	plan = [];
-	blocks.length = 0; open = undefined; previous = []; out.write(`${ESC}2J`);
+	blocks.length = 0; queuedMsgs.length = 0; open = undefined; previous = []; out.write(`${ESC}2J`);
 	for (const m of msgs) {
 		if (m.role === "user") { const t = textOf(m.content); if (t) blocks.push({ kind: "user", text: t }); }
 		else if (m.role === "assistant") {
@@ -1123,6 +1152,7 @@ const restart = () => {
 	const next = spawn(process.execPath, [process.argv[1], ...args], { stdio: "inherit", env });
 	next.on("exit", (c) => process.exit(c ?? 0));
 };
+if (process.env.PROTO_DUMP) process.on("SIGUSR1", () => writeFileSync(process.env.PROTO_DUMP, previous.join("\n").replace(STRIP, ""))); // pty.py `snap`
 let quitting = false;
 const quit = () => {
 	quitting = true;
@@ -1146,7 +1176,58 @@ const sendPrompt = (cmd) => {
 	sentPrompts.set(id, cmd);
 	if (sentPrompts.size > 20) sentPrompts.delete(sentPrompts.keys().next().value);
 	if (running) { queued++; sideVer++; }
-	send({ ...cmd, id, ...(running ? { streamingBehavior: "followUp" } : {}) });
+	// While Pi works, a message is a steer (like Claude Code): the model reads it after the current tool calls, without
+	// stopping the run. A follow-up would wait for the whole run to end.
+	send({ ...cmd, id, ...(running ? { streamingBehavior: "steer" } : {}) });
+};
+// Steers wait for the running tool to end (a bash can last minutes). alt+i or /now (without pi-ui) takes Pi's queue back
+// (clear_queue), aborts the run (the running tool is cancelled) and sends the queue plus the editor text as one prompt.
+let flushExtra = "", flushImages = [], flushMsgs;
+const flushNow = () => {
+	const text = input.trim();
+	if (!running) { if (text || attached.length) submit(); return; }
+	if (!queued && !text && !attached.length) { toast = "niente in coda"; return; }
+	if (text || attached.length) {
+		if (text && hist[hist.length - 1] !== text) hist.push(text);
+		hIdx = hist.length; draft = ""; input = ""; cursor = 0; scroll = 0; popDismissed = "";
+		queue(text || "(immagine)", text || "Describe this image.");
+		flushImages = attached.splice(0).map((a) => { addImage(a.data, a.mime); return { type: "image", data: a.data, mimeType: a.mime }; });
+	}
+	flushExtra = text;
+	toast = "interrompo e invio subito…";
+	send({ id: "flushq", type: "clear_queue" });
+};
+const flushReply = (r) => {
+	if (r.id === "flushq") {
+		const msgs = r.success ? [...(r.data?.steering ?? []), ...(r.data?.followUp ?? [])] : [];
+		if (flushExtra) msgs.push(flushExtra);
+		flushExtra = ""; queued = 0;
+		if (!msgs.length && !flushImages.length) { toast = "coda già letta dal modello"; return; }
+		flushMsgs = msgs;
+		send({ id: "flusha", type: "abort" });
+	} else if (r.id === "flusha") {
+		const message = flushMsgs?.join("\n\n") || "Describe this image.", images = flushImages;
+		flushMsgs = undefined; flushImages = [];
+		running = false; // abort answers once Pi is idle: a plain prompt, not a steer
+		sendPrompt({ type: "prompt", message, ...(images.length ? { images } : {}) });
+	}
+};
+// Send now, like Claude Code: Pi's /now (pi-ui) moves running bash commands to the background and hands the queue
+// over in the same turn, or interrupts when nothing can move. The editor text rides along as the command argument.
+// Without pi-ui (no /now command) flushNow above does the interrupting version on its own.
+let piHasNow = false;
+const nowKey = () => {
+	const text = input.trim();
+	if (!running) { if (text || attached.length) submit(); return; }
+	if (!piHasNow) { flushNow(); return; }
+	if (attached.length) submit(); // images travel as a steer, /now then takes them with the queue
+	else if (text) {
+		if (hist[hist.length - 1] !== text) hist.push(text);
+		hIdx = hist.length; draft = ""; input = ""; cursor = 0; scroll = 0; popDismissed = "";
+		queue(text);
+	} else if (!queued) { toast = "niente in coda"; return; }
+	send({ type: "prompt", message: attached.length || !text ? "/now" : `/now ${text}` });
+	toast = "invio subito…";
 };
 const submit = () => {
 	const text = input.trim();
@@ -1155,8 +1236,8 @@ const submit = () => {
 	hIdx = hist.length; draft = "";
 	input = ""; cursor = 0; scroll = 0; popDismissed = ""; suggestions = [];
 	if (/^\/(quit|exit)$/.test(text)) return quit();
-	if (text === "/clear") { blocks.length = 0; open = undefined; previous = []; out.write(`${ESC}2J`); return; }
-	if (text === "/new") { send({ type: "new_session" }); sessionName = ""; send({ id: "state", type: "get_state" }); blocks.length = 0; open = undefined; previous = []; out.write(`${ESC}2J`); return; }
+	if (text === "/clear") { blocks.length = 0; queuedMsgs.length = 0; open = undefined; previous = []; out.write(`${ESC}2J`); return; }
+	if (text === "/new") { send({ type: "new_session" }); sessionName = ""; send({ id: "state", type: "get_state" }); blocks.length = 0; queuedMsgs.length = 0; open = undefined; previous = []; out.write(`${ESC}2J`); return; }
 	if (text === "/resume") { resume(); return; }
 	const np0 = /^\/model(?:\s+(.+))?$/.exec(text);
 	if (np0) { modelCmd = np0[1]?.trim() ?? ""; send({ id: "models", type: "get_available_models" }); return; }
@@ -1170,20 +1251,21 @@ const submit = () => {
 	}
 	let nm;
 	if ((nm = /^\/name\s+(.+)$/.exec(text))) { send({ type: "set_session_name", name: nm[1] }); sessionName = nm[1]; sideVer++; return; }
+	if (text === "/now") { input = ""; nowKey(); return; }
 	if (text === "/compact") { send({ type: "compact" }); toast = "compatto…"; return; }
 	let m;
 	if ((m = /^\/img\s+(\S+)\s*(.*)$/.exec(text))) {
 		try {
 			const path = m[1].replace(/^@/, ""), data = readFileSync(path).toString("base64");
 			const mime = /\.jpe?g$/i.test(path) ? "image/jpeg" : "image/png";
-			blocks.push({ kind: "user", text: m[2] || path });
+			if (running) queue(m[2] || path, m[2] || "Describe this image."); else blocks.push({ kind: "user", text: m[2] || path });
 			addImage(data, mime);
 			sendPrompt({ type: "prompt", message: m[2] || "Describe this image.", images: [{ type: "image", data, mimeType: mime }] });
 		} catch (e) { toast = `img: ${e.code ?? e.message}`; }
 		return;
 	}
-	blocks.push({ kind: "user", text: text || "(immagine)" });
-	open = undefined;
+	if (running) queue(text || "(immagine)", text || "Describe this image.");
+	else { blocks.push({ kind: "user", text: text || "(immagine)" }); open = undefined; }
 	const images = attached.splice(0).map((a) => { addImage(a.data, a.mime); return { type: "image", data: a.data, mimeType: a.mime }; });
 	sendPrompt({ type: "prompt", message: text || "Describe this image.", ...(images.length ? { images } : {}) });
 };
@@ -1200,7 +1282,7 @@ const histMove = (dir) => {
 process.stdin.setRawMode(true);
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (data) => {
-	const re = /\x1b_G([^\x1b]*)\x1b\\|\x1b\[\?([0-9;]*)c|\x1b\[200~([\s\S]*?)\x1b\[201~|\x1b\[<(\d+);\d+;\d+[Mm]|\x1b\[([0-9;]*)([A-Za-z~])|(\x1b[\r\nn])|([\s\S])/gu;
+	const re = /\x1b_G([^\x1b]*)\x1b\\|\x1b\[\?([0-9;]*)c|\x1b\[200~([\s\S]*?)\x1b\[201~|\x1b\[<(\d+);\d+;\d+[Mm]|\x1b\[([0-9;]*)([A-Za-z~])|(\x1b[\r\nnvsi])|([\s\S])/gu;
 	let m;
 	while ((m = re.exec(data))) {
 		if (m[1] !== undefined) { // kitty graphics reply to our query: it understands the protocol
@@ -1235,10 +1317,10 @@ process.stdin.on("data", (data) => {
 			else if (k === "5~") scroll += page();
 			else if (k === "6~") scroll = Math.max(0, scroll - page());
 			else if (k === "13;2u" || k === "13;3u") insert("\n");
-			else if (k === "13;5u") { send({ type: "prompt", message: "/now" }); toast = "invio subito…"; }
+			else if (k === "13;5u") nowKey();
 			else if (k === "A") { if (items) popSel = (popSel + items.length - 1) % items.length; else if (!input.includes("\n")) histMove(-1); else cursor = Math.max(0, input.lastIndexOf("\n", cursor - 1)); }
 			else if (k === "B") { if (items) popSel = (popSel + 1) % items.length; else if (!input.includes("\n")) histMove(1); else { const n = input.indexOf("\n", cursor); cursor = n < 0 ? input.length : n + 1; } }
-		} else if (m[7] !== undefined) { if (m[7][1] === "n") { send({ type: "prompt", message: "/now" }); toast = "invio subito…"; } else if (m[7][1] === "v") pasteClipboardImage();
+		} else if (m[7] !== undefined) { if (m[7][1] === "n" || m[7][1] === "i") nowKey(); else if (m[7][1] === "v") pasteClipboardImage();
 		else if (m[7][1] === "s") { panelOff = !panelOff; previous = []; out.write(`${ESC}2J`); } else insert("\n"); }
 		else {
 			const key = m[8];
