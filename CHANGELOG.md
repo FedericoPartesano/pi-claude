@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.27.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.26.0...pi-claude-v0.27.0) (2026-11-11)
+
+
+### Features
+
+* **auto:** documenti di progetto, skill e strumenti di Pi nei passi, pannello AUTO ([bc9596a](https://github.com/FedericoPartesano/pi-claude/commit/bc9596ad2b7212eae9c964d37eda089ae6553c52))
+
 ## [0.26.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.25.0...pi-claude-v0.26.0) (2026-11-11)
 
 
