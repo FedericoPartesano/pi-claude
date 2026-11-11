@@ -2,6 +2,10 @@
 
 Convenzione: [llm_wiki](https://github.com/nashsu/llm_wiki). Tre livelli: fonti grezze immutabili (`raw/`), wiki scritta e mantenuta dal modello (`wiki/`), regole (questo file e `purpose.md`). L'umano cura le fonti e fa le domande; il modello mantiene la wiki.
 
+## Documenti di progetto (`progetto/`)
+
+`progetto/` contiene i sei documenti che `/auto` controlla prima di pianificare: `prd.md`, `trd.md`, `flusso.md`, `design.md`, `schema.md`, `piano.md`. Non sono pagine della wiki: se mancano `/auto` li scrive come bozza (`stato: bozza` nel frontmatter) e prosegue; l'umano li rivede e toglie la riga. Durante build sono di sola lettura. Le pagine della wiki possono citarli.
+
 ## Page Types
 
 | Type | Directory | Purpose |

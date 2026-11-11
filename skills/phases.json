@@ -1,11 +1,23 @@
 {
-  "_doc": "Auto mode contract: phase -> skills it reads (SKILL.md path under skills/). Editable. Outside auto mode nothing loads: all skills are disable-model-invocation.",
-  "define":   ["agent-skills/skills/idea-refine", "agent-skills/skills/spec-driven-development", "ecc/skills/loop-design-check"],
-  "plan":     ["agent-skills/skills/planning-and-task-breakdown", "agent-skills/skills/constraint-driven-development"],
-  "build":    ["agent-skills/skills/incremental-implementation", "agent-skills/skills/test-driven-development", "agent-skills/skills/context-engineering"],
-  "verify":   ["agent-skills/skills/debugging-and-error-recovery", "agent-skills/skills/security-and-hardening"],
-  "review":   ["agent-skills/skills/code-review-and-quality", "agent-skills/skills/code-simplification"],
-  "ship":     ["agent-skills/skills/git-workflow-and-versioning"],
-  "gate":     ["agent-skills/skills/doubt-driven-development"],
-  "index":    ["agent-skills/skills/using-agent-skills"]
+  "_doc": "Auto mode contract (extensions/auto/skills.ts). Per step kind: `inline` skills go into the child's system prompt in full, `list` ones as path + when to use. `triggers`: a skill whose regex (case-insensitive) matches the step context (goal, requirement, changed files) is recommended for that step: in full while there is room under `maxInline`, else listed as recommended. The design document (progetto/design.md) joins the context of build and review unless it says the design does not apply. using-agent-skills is left out on purpose: in auto mode the code picks the skills. Step kinds: define (intent), docs (project documents), plan, build, retry (build after a failed check), review, ship. Outside auto mode nothing loads: all skills are disable-model-invocation.",
+  "maxInline": 2,
+  "define": { "inline": ["agent-skills/skills/spec-driven-development"], "list": ["agent-skills/skills/idea-refine", "ecc/skills/loop-design-check"] },
+  "docs": { "inline": ["agent-skills/skills/spec-driven-development"], "list": ["agent-skills/skills/documentation-and-adrs"] },
+  "plan": { "inline": ["agent-skills/skills/planning-and-task-breakdown", "agent-skills/skills/doubt-driven-development"], "list": ["ecc/skills/loop-design-check", "agent-skills/skills/constraint-driven-development"] },
+  "build": { "inline": ["agent-skills/skills/incremental-implementation"], "list": ["agent-skills/skills/test-driven-development", "agent-skills/skills/context-engineering"] },
+  "retry": { "inline": ["agent-skills/skills/debugging-and-error-recovery"] },
+  "review": { "inline": ["agent-skills/skills/code-review-and-quality"], "list": ["agent-skills/skills/code-simplification", "agent-skills/skills/doubt-driven-development", "agent-skills/skills/security-and-hardening"] },
+  "ship": { "inline": ["agent-skills/skills/git-workflow-and-versioning"], "list": ["agent-skills/skills/shipping-and-launch"] },
+  "triggers": [
+    { "skill": "agent-skills/skills/security-and-hardening", "steps": ["build", "retry", "review", "plan"], "match": "\\b(login|auth\\w*|password|token|segret\\w*|secret\\w*|credenzial\\w*|permess\\w*|upload|sql|cookie|sessioni?|cifr\\w*|crittogra\\w*|sanitiz\\w*|injection|xss|csrf)\\b" },
+    { "skill": "agent-skills/skills/frontend-ui-engineering", "steps": ["docs", "build", "retry", "review"], "match": "\\b(ui|interfaccia grafica|schermat\\w*|pagin[ae] web|frontend|html|css|react|vue|svelte|tailwind|layout|pulsant\\w*|form|accessibilit\\w*)\\b|\\.(html|css|scss|tsx|jsx|vue|svelte)\\b" },
+    { "skill": "agent-skills/skills/api-and-interface-design", "steps": ["docs", "plan", "build", "retry", "review"], "match": "\\b(api|endpoint\\w*|rest|graphql|grpc|webhook\\w*|rott[ae]|route\\w*|http|interfaccia pubblica|contratt\\w*)\\b" },
+    { "skill": "agent-skills/skills/performance-optimization", "steps": ["plan", "build", "retry", "review"], "match": "\\b(prestazion\\w*|performance|latenza|lent[oaie]|veloc\\w*|benchmark|ottimizz\\w*|cpu|memoria|n\\+1)\\b" },
+    { "skill": "agent-skills/skills/observability-and-instrumentation", "steps": ["build", "retry"], "match": "\\b(logging|log strutturat\\w*|metric\\w*|tracing|tracce|telemetri\\w*|monitoraggio|alert\\w*)\\b" },
+    { "skill": "agent-skills/skills/ci-cd-and-automation", "steps": ["plan", "build", "retry"], "match": "\\b(ci|cd|pipeline|github actions|workflow|deploy\\w*)\\b|\\.github/workflows" },
+    { "skill": "agent-skills/skills/deprecation-and-migration", "steps": ["plan", "build", "retry"], "match": "\\b(migra\\w*|deprecat\\w*|deprecar\\w*|dismett\\w*|sostituisc\\w*|rinomin\\w*)\\b" },
+    { "skill": "agent-skills/skills/browser-testing-with-devtools", "steps": ["build", "retry"], "match": "\\b(browser|dom|playwright|puppeteer|devtools)\\b" },
+    { "skill": "agent-skills/skills/source-driven-development", "steps": ["build", "retry"], "match": "\\b(sdk|framework|librer\\w*|library|documentazione ufficiale|next\\.js|nuxt|django|rails|spring|express|fastapi|flask|laravel)\\b" },
+    { "skill": "agent-skills/skills/documentation-and-adrs", "steps": ["plan", "build", "review"], "match": "\\b(adr|documentazion\\w*|readme|decision[ei] architettural\\w*)\\b" }
+  ]
 }

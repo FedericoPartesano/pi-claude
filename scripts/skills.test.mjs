@@ -7,10 +7,12 @@ const root = new URL("../skills/", import.meta.url).pathname;
 const phases = JSON.parse(readFileSync(join(root, "phases.json"), "utf8"));
 
 test("phases.json points to existing skills", () => {
-  for (const [k, list] of Object.entries(phases)) {
-    if (k.startsWith("_")) continue;
+  for (const [k, v] of Object.entries(phases)) {
+    if (k.startsWith("_") || k === "maxInline") continue;
+    const list = k === "triggers" ? v.map((t) => t.skill) : [...(v.inline ?? []), ...(v.list ?? [])];
     for (const s of list) assert.ok(existsSync(join(root, s, "SKILL.md")), s);
   }
+  for (const t of phases.triggers) new RegExp(t.match, "i");
 });
 test("every bundled skill is hidden from the model and has unique name", () => {
   const names = new Set();

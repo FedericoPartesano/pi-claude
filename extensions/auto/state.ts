@@ -54,6 +54,10 @@ export interface AutoState {
 	errorFor?: string;
 	sameError: number;
 	reviewed: boolean;
+	/** Skills given in full / SKILL.md read by the children, name → steps. */
+	skills?: { given: Record<string, number>; read: Record<string, number> };
+	/** Extra tool groups given / extra tools called by the children, name → steps. */
+	tools?: { given: Record<string, number>; used: Record<string, number> };
 	checksHash?: string;
 	/** Worktree-relative paths read-only from build on (requisiti.json and the plan's test files). */
 	frozen: string[];

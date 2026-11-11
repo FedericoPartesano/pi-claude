@@ -12,7 +12,11 @@ if (!ads || !ecc) { console.error("usage: sync-skills.mjs <agent-skills> <ecc>")
 const ADS = ["using-agent-skills", "idea-refine", "spec-driven-development", "planning-and-task-breakdown",
   "incremental-implementation", "test-driven-development", "debugging-and-error-recovery", "code-review-and-quality",
   "doubt-driven-development", "context-engineering", "security-and-hardening", "git-workflow-and-versioning",
-  "code-simplification", "constraint-driven-development"];
+  "code-simplification", "constraint-driven-development",
+  // Conditional (auto/triggers.ts): read only when the run needs them.
+  "frontend-ui-engineering", "api-and-interface-design", "performance-optimization", "documentation-and-adrs",
+  "source-driven-development", "browser-testing-with-devtools", "observability-and-instrumentation",
+  "ci-cd-and-automation", "deprecation-and-migration", "shipping-and-launch"];
 const ECC = ["loop-design-check"];
 
 function hide(file) {

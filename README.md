@@ -91,11 +91,26 @@ giri al modello; con `--target` il goal si chiude quando il numero ci arriva.
 
 `/auto <goal>` porta un goal fino in fondo senza intervento: scrive l'intent, pianifica requisiti con un check ciascuno,
 implementa, verifica, fa la review e consegna un branch `auto/<slug>` in una worktree accanto al repo (`<repo>-auto/<slug>`).
-Non fa mai push né merge: il branch lo integri tu con `/land`. Ogni passo è un processo `pi` figlio leggero
-(`--no-extensions`, la skill della fase iniettata una volta); a decidere quando è finito sono i check, congelati dopo il
+Non fa mai push né merge: il branch lo integri tu con `/land`.
+Prima del piano controlla ogni volta i sei documenti di progetto nel vault (`<vault>/progetto/`, altrimenti
+`vault/progetto/`): PRD, TRD, flusso, design system, schema dati, piano di implementazione. Quelli mancanti li
+scrive (`stato: bozza`, scelte da confermare in `auto/da-approvare.md`) e prosegue senza fermarsi: a fine corsa li
+rivedi e togli `stato: bozza`. Durante build i documenti sono di sola lettura. Ogni passo è un processo `pi` figlio leggero
+(`--no-extensions`). Le skill di agent-skills le sceglie il codice per ogni passo (`skills/phases.json`): al massimo due
+intere nel prompt, per esempio debugging quando un check è rosso e sicurezza se il requisito parla di login o password;
+le altre come percorso con il «quando usarla». Allo stesso modo il codice accende gli strumenti
+di Pi solo nei passi che li usano: `browser` (Chrome visibile; su WSL2 l'Electron di terminal-browser senza finestra,
+perché lì Chrome non completa le navigazioni) e `lancia` quando il requisito tocca UI o pagine web, con solo `localhost`
+apribile e la rete locale lasciata aperta a bash in quel passo; `lancia` da solo per server e job lunghi; `search`,
+`outline` e `graph_*` nei repo con almeno 150 file di codice (`PI_AUTO_BIG_REPO`), con il grafo costruito prima a 0 token.
+I comandi di `lancia` passano per la stessa lista nera e sandbox di bash. L'esito dell'intent riporta quali skill sono
+state date e quali lette, e quali strumenti dati e usati. A decidere quando è finito sono i check, congelati dopo il
 piano, non il modello. Su Linux i comandi girano in `bwrap` (sola lettura fuori dalla worktree, rete spenta da build in
 poi), altrove resta la lista nera. Si ferma su stallo (3 passi senza progresso), stesso errore 5 volte, 50% della finestra
 di 5 ore, 3 ore (`PI_AUTO_HOURS`) o 60 passi; le azioni irreversibili finiscono in `auto/da-approvare.md`.
+Nella chat predefinita la corsa compare in cima al pannello di destra (sezione AUTO: fase, passi, requisiti, requisito
+in lavorazione, ora limite e quota 5h spesa, stallo o errore ripetuto, ultimo evento) e l'esito resta lì fino al prossimo
+`/auto`; nella UI classica c'è la riga di stato.
 
 ```
 /auto aggiungi l'export CSV alla pagina ordini

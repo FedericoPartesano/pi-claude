@@ -18,7 +18,9 @@ const APPROVAL = "azione irreversibile o costosa: scrivila in auto/da-approvare.
 // Each rule: pattern on the whole command, reason shown to the model. Derived from Claude Code auto mode's
 // soft_deny rules, narrowed to what a coding step on a branch never needs.
 const ALWAYS: [RegExp, string][] = [
-	[/(^|[\s;&|(])(sudo|su|doas|pkexec)\s/, "privilegi di root vietati"],
+	// Command position only: Italian prose in a heredoc says "su" all the time.
+	[/(^|[;&|(\n`]|\$\()\s*(sudo|su|doas|pkexec)(\s|$)/, "privilegi di root vietati"],
+	[/(^|[;&|(\n`]|\$\()\s*find\s+(\/|~|\$HOME|\$\{HOME\}|\/home|\/usr|\/mnt(\/[a-z])?)\/?(\s|$)/, "ricerca sul disco intero vietata: cerca solo nel worktree (find . …)"],
 	[/(^|[\s;&|(])(mkfs|fdisk|parted|shutdown|reboot|halt|poweroff)\b|\bdd\s+[^;&|\n]*\bof=/, "comando di sistema distruttivo vietato"],
 	[/\b(curl|wget)\b[^;&\n]*\|\s*(sudo\s+)?(ba|z|da)?sh\b/, "eseguire codice scaricato è vietato"],
 	[/\b(npm|pnpm|yarn|bun)\s+(i|install|add)\s+[^-\s]/, `dipendenza nuova: ${APPROVAL}`],
@@ -89,7 +91,20 @@ function outsideTargets(command: string, worktree: string): string[] {
 	const destructive = /(^|[\s;&|(])(rm|rmdir|mv|cp|truncate|shred|unlink|ln|tee|install)\s([^;&|\n]*)/g;
 	const redirect = />{1,2}\s*([^\s;&|]+)/g;
 	const candidates: string[] = [];
-	for (const match of command.matchAll(destructive)) candidates.push(...match[3].split(/\s+/));
+	for (const match of command.matchAll(destructive)) {
+		const words = match[3].trim().split(/\s+/).filter(Boolean);
+		if (!["cp", "ln", "install"].includes(match[2])) {
+			candidates.push(...words);
+			continue;
+		}
+		// Copies read their sources: only the destination is written.
+		const target = words.findIndex((word) => word === "-t" || word.startsWith("--target-directory"));
+		if (target >= 0) candidates.push(words[target] === "-t" ? words[target + 1] ?? "" : words[target].split("=")[1] ?? "");
+		else {
+			const operands = words.filter((word) => !word.startsWith("-"));
+			if (operands.length > 1) candidates.push(operands[operands.length - 1]);
+		}
+	}
 	for (const match of command.matchAll(redirect)) candidates.push(match[1]);
 	for (const raw of candidates) {
 		const token = raw.replace(/^['"]|['"]$/g, "");

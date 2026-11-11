@@ -544,6 +544,14 @@ const sideLines = (w) => {
 	const head = (t) => L.push(`${S.b}${S.dim}${t}${R} ${S.faint}${"─".repeat(Math.max(0, w - 1 - width_(t)))}${R}`);
 	const bar = (label, pct) => { const n = Math.max(4, w - 10), f = Math.round((Math.max(0, Math.min(100, pct)) / 100) * n); return `${S.dim}${label.padEnd(3)}${R} ${heat(pct, S.ok)}${"▰".repeat(f)}${S.faint}${"▱".repeat(n - f)}${R} ${S.dim}${String(Math.round(pct)).padStart(3)}%${R}`; };
 	const kv = (k, v) => `${S.dim}${k}${R}${" ".repeat(Math.max(1, w - k.length - width_(v)))}${S.text}${v}${R}`;
+	// Auto mode first: a run going on its own must be visible at a glance (lines from extensions/auto/loop.ts panelLines).
+	const auto = widgets.get("auto");
+	if (auto?.length) {
+		const stopped = auto[0].startsWith("■"), ok = / · completato$/.test(auto[0]);
+		head(stopped ? "AUTO" : `${S.mag}AUTO ● attivo`);
+		auto.forEach((l, i) => L.push(...wrap(i === 0 ? `${S.b}${stopped ? (ok ? S.ok : S.warn) : S.mag}${l}${R}` : l.startsWith("⚠") ? `${S.warn}${l}${R}` : /^[▰▱]+$/.test(l) ? `${S.ok}${l.replace(/▱/, `${S.faint}▱`)}${R}` : l.startsWith("→") ? `${S.text}${l}${R}` : `${S.dim}${l}${R}`, w)));
+		L.push("");
+	}
 	const intent = statuses.get("intent");
 	if (intent) { head("INTENT"); L.push(...wrap(`${S.text}${intent}${R}`, w)); if (intentInfo) L.push(`${S.dim}${intentInfo.done}/${intentInfo.total} outcome${R}`); L.push(""); }
 	if (statuses.get("goal")) { head("GOAL"); L.push(...wrap(`${S.text}${statuses.get("goal")}${R}`, w)); L.push(""); }
@@ -576,13 +584,13 @@ const sideLines = (w) => {
 		if (usage.h5 != null) L.push(bar("5h", usage.h5 * 100));
 		if (usage.d7 != null) L.push(bar("7g", usage.d7 * 100));
 	}
-	const wk = [...widgets].filter(([k]) => k !== "btw");
+	const wk = [...widgets].filter(([k]) => k !== "btw" && k !== "auto");
 	if (wk.length) {
 		L.push(""); head("ATTIVITÀ");
 		let first = true;
 		for (const [, lines] of wk) { if (!first) L.push(""); first = false; for (const l of lines) for (const x of wrapAnsi(`${S.text}${l}${R}`, w, 2)) L.push(x); }
 	}
-	const others = [...statuses].filter(([k]) => k !== "intent" && k !== "goal" && k !== "memory" && k !== "archivio" && k !== "claude-code");
+	const others = [...statuses].filter(([k]) => k !== "intent" && k !== "goal" && k !== "memory" && k !== "archivio" && k !== "claude-code" && !(k === "auto" && auto?.length));
 	if (others.length) { L.push(""); head("ESTENSIONI"); for (const [k, v] of others) L.push(...wrap(`${S.dim}${new RegExp(k, "i").test(v) ? v : `${k} ${v}`}${R}`, w)); }
 	return L;
 };

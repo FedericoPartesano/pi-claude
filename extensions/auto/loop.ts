@@ -8,7 +8,9 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { setStatus } from "../intent.ts";
 import { denyReason, type Phase } from "./policy.ts";
-import { buildPrompt, definePrompt, planPrompt, reviewPrompt } from "./prompts.ts";
+import type { StepKind } from "./skills.ts";
+import { docsDir, docsStatus, PROJECT_DOCS } from "./docs.ts";
+import { buildPrompt, definePrompt, docsPrompt, planPrompt, reviewPrompt } from "./prompts.ts";
 import { APPROVALS_FILE, checksHash, DECISIONS_FILE, parsePlan, REQUIREMENTS_FILE, type AutoState, type StopReason } from "./state.ts";
 
 export const LIMITS = {
@@ -28,6 +30,8 @@ export interface StepRequest {
 	prompt: string;
 	/** Absolute paths the child must not write (frozen files). */
 	readOnly: string[];
+	/** Skill selection input (auto/skills.ts): step kinds in priority order and the text triggers match on. */
+	skills?: { kinds: StepKind[]; context: string };
 }
 
 export interface StepResult {
@@ -35,6 +39,12 @@ export interface StepResult {
 	text: string;
 	tokens: number;
 	error?: string;
+	/** Skill names given in full, and SKILL.md files the child read on its own. */
+	skillsGiven?: string[];
+	skillsRead?: string[];
+	/** Extra tool groups given (auto/tools.ts) and extra tools actually called. */
+	toolsGiven?: string[];
+	toolsUsed?: string[];
 }
 
 export interface LoopDeps {
@@ -75,6 +85,30 @@ export function limitReason(state: AutoState, deps: Pick<LoopDeps, "usage" | "no
 	return undefined;
 }
 
+/**
+ * Side-panel lines of a run (prototype chat): plain text, rebuilt only on loop events. `usage` is the 5h-window
+ * utilization (0..1) if known; `last` the latest log line.
+ */
+export function panelLines(state: AutoState, usage: number | undefined, last = state.log[state.log.length - 1] ?? ""): string[] {
+	const done = passing(state);
+	const total = state.requirements.length;
+	const clock = (ms: number) => new Date(ms).toTimeString().slice(0, 5);
+	const lines = [state.stop ? `■ ${state.slug} · ${state.stop.reason}` : `▶ ${state.slug} · ${state.phase}`];
+	lines.push(`passo ${state.steps}/${LIMITS.maxSteps}${total ? ` · requisiti ${done}/${total}` : ""}`);
+	if (total) {
+		const n = 16, f = Math.round((done / total) * n);
+		lines.push(`${"▰".repeat(f)}${"▱".repeat(n - f)}`);
+	}
+	const next = state.requirements.find((item) => !item.passes);
+	if (!state.stop && next && (state.phase === "build" || state.phase === "verify")) lines.push(`→ ${next.id} ${next.descrizione}`);
+	const spent = usage !== undefined && state.fiveHourStart !== undefined ? ` · 5h +${Math.round((usage - state.fiveHourStart) * 100)}%/${Math.round(LIMITS.budget * 100)}%` : "";
+	lines.push(state.stop ? `${state.stop.detail}` : `fino alle ${clock(state.deadline)}${spent}`);
+	const risks = [state.stall ? `stallo ${state.stall}/${LIMITS.stall}` : "", state.sameError > 1 ? `stesso errore ${state.sameError}/${LIMITS.sameError}` : ""].filter(Boolean);
+	if (risks.length) lines.push(`⚠ ${risks.join(" · ")}`);
+	if (last && !state.stop) lines.push(last.replace(/^\d\d:\d\d:\d\d /, "").slice(0, 160));
+	return lines;
+}
+
 function noProgress(state: AutoState, deps: LoopDeps, detail: string, reason: StopReason = "stallo"): void {
 	state.stall++;
 	note(state, deps, `nessun progresso (${state.stall}/${LIMITS.stall}): ${detail}`);
@@ -93,13 +127,21 @@ async function commitAll(state: AutoState, deps: LoopDeps, message: string): Pro
 	return (await deps.git(state.worktree, ["commit", "-q", "--no-verify", "-m", message])).ok;
 }
 
-async function runStep(state: AutoState, deps: LoopDeps, phase: Phase, prompt: string): Promise<StepResult> {
+async function runStep(state: AutoState, deps: LoopDeps, phase: Phase, prompt: string, kinds: StepKind[] = [phase as StepKind], context = state.goal): Promise<StepResult> {
 	state.steps++;
 	note(state, deps, `passo ${state.steps}: ${phase}`);
 	deps.save(state);
 	const readOnly = phase === "define" || phase === "plan" ? [] : state.frozen.map((path) => join(state.worktree, path)).filter((path) => existsSync(path));
-	const result = await deps.step(state, { phase, prompt, readOnly });
+	const result = await deps.step(state, { phase, prompt, readOnly, skills: { kinds, context } });
 	state.tokens += result.tokens;
+	const skills = (state.skills ??= { given: {}, read: {} });
+	for (const name of result.skillsGiven ?? []) skills.given[name] = (skills.given[name] ?? 0) + 1;
+	for (const name of result.skillsRead ?? []) skills.read[name] = (skills.read[name] ?? 0) + 1;
+	if (result.toolsGiven?.length || result.toolsUsed?.length) {
+		const tools = (state.tools ??= { given: {}, used: {} });
+		for (const name of result.toolsGiven ?? []) tools.given[name] = (tools.given[name] ?? 0) + 1;
+		for (const name of result.toolsUsed ?? []) tools.used[name] = (tools.used[name] ?? 0) + 1;
+	}
 	if (!result.ok) note(state, deps, `passo ${state.steps} fallito: ${result.error ?? "nessuna risposta"}`);
 	return result;
 }
@@ -125,19 +167,38 @@ function writeRequirements(state: AutoState): void {
 }
 
 async function define(state: AutoState, deps: LoopDeps): Promise<void> {
-	const result = await runStep(state, deps, "define", definePrompt(state));
 	const file = join(state.worktree, state.intent);
-	if (existsSync(file) && /^## Outcome atteso/m.test(readFileSync(file, "utf8"))) {
+	const written = () => existsSync(file) && /^## Outcome atteso/m.test(readFileSync(file, "utf8"));
+	// Resumable: an intent already written is not written again.
+	if (!written()) {
+		const result = await runStep(state, deps, "define", definePrompt(state));
+		if (!written()) return noProgress(state, deps, `intent ${state.intent} non scritto${result.error ? `: ${result.error}` : ""}`);
 		await commitAll(state, deps, "docs(auto): intent");
-		state.phase = "plan";
 		state.stall = 0;
-		return;
 	}
-	noProgress(state, deps, `intent ${state.intent} non scritto${result.error ? `: ${result.error}` : ""}`);
+	await projectDocs(state, deps);
+}
+
+/**
+ * The six project documents (docs.ts), checked on every run before planning. Missing ones are drafted by one step
+ * (`stato: bozza`, choices in da-approvare.md) and the run goes on: the user reviews them at the end.
+ */
+async function projectDocs(state: AutoState, deps: LoopDeps): Promise<void> {
+	const dir = docsDir(state.worktree);
+	const missing = docsStatus(state.worktree, dir).manca;
+	if (missing.length) {
+		const result = await runStep(state, deps, "define", docsPrompt(state, dir, missing), ["docs"]);
+		const still = docsStatus(state.worktree, dir).manca;
+		if (still.length) return noProgress(state, deps, `documenti non scritti: ${still.map((doc) => doc.file).join(", ")}${result.error ? ` (${result.error})` : ""}`);
+		await commitAll(state, deps, "docs(auto): bozze dei documenti di progetto");
+		note(state, deps, `documenti scritti: ${missing.map((doc) => doc.file).join(", ")}`);
+	}
+	state.phase = "plan";
+	state.stall = 0;
 }
 
 async function plan(state: AutoState, deps: LoopDeps): Promise<void> {
-	const result = await runStep(state, deps, "plan", planPrompt(state, state.lastError));
+	const result = await runStep(state, deps, "plan", planPrompt(state, state.lastError, docsDir(state.worktree)));
 	const file = join(state.worktree, REQUIREMENTS_FILE);
 	const parsed = existsSync(file) ? parsePlan(readFileSync(file, "utf8")) : ({ ok: false, reason: `${REQUIREMENTS_FILE} non scritto${result.error ? ` (${result.error})` : ""}` } as const);
 	const denied = parsed.ok ? parsed.value.requirements.map((item) => [item.id, denyReason(item.check, "build", state.worktree)]).find(([, reason]) => reason) : undefined;
@@ -152,7 +213,9 @@ async function plan(state: AutoState, deps: LoopDeps): Promise<void> {
 		return;
 	}
 	state.requirements = parsed.value.requirements;
-	state.frozen = [REQUIREMENTS_FILE, ...parsed.value.frozen.filter((path) => path !== REQUIREMENTS_FILE)];
+	// The project documents are frozen with the checks: a build step that disagrees writes da-approvare.md instead.
+	const docs = PROJECT_DOCS.map((doc) => join(docsDir(state.worktree), doc.file)).filter((path) => existsSync(join(state.worktree, path)));
+	state.frozen = [...new Set([REQUIREMENTS_FILE, ...parsed.value.frozen, ...docs])];
 	state.checksHash = checksHash(state.requirements, state.worktree, hashedFiles(state));
 	await refreshPasses(state, deps);
 	await commitAll(state, deps, "chore(auto): piano e check congelati");
@@ -172,7 +235,10 @@ async function build(state: AutoState, deps: LoopDeps): Promise<void> {
 		return;
 	}
 	const before = await head(state, deps);
-	await runStep(state, deps, "build", buildPrompt(state, pending, state.errorFor === pending.id ? state.lastError : undefined));
+	const retry = state.errorFor === pending.id && state.lastError !== undefined;
+	const failure = retry ? state.lastError || "(il check è fallito senza output)" : undefined;
+	const context = [state.goal, pending.descrizione, pending.prova, pending.check, designContext(state)].join("\n");
+	await runStep(state, deps, "build", buildPrompt(state, pending, failure, docsDir(state.worktree)), retry ? ["retry", "build"] : ["build"], context);
 	await commitAll(state, deps, `feat(auto): ${pending.id}`);
 	if (tampered(state)) return stop(state, deps, "check-manomessi", `il passo su ${pending.id} ha cambiato check o file congelati`);
 	const result = await deps.check(pending.check, state.worktree);
@@ -209,7 +275,9 @@ async function verify(state: AutoState, deps: LoopDeps): Promise<void> {
 
 async function review(state: AutoState, deps: LoopDeps): Promise<void> {
 	state.reviewed = true;
-	await runStep(state, deps, "review", reviewPrompt(state, state.base));
+	const changed = (await deps.git(state.worktree, ["diff", "--name-only", `${state.base}..HEAD`])).out;
+	const context = [state.goal, ...state.requirements.map((item) => item.descrizione), changed, designContext(state)].join("\n");
+	await runStep(state, deps, "review", reviewPrompt(state, state.base), ["review"], context);
 	await commitAll(state, deps, "refactor(auto): revisione");
 	state.phase = "verify";
 }
@@ -229,6 +297,18 @@ function readOptional(path: string): string {
 	}
 }
 
+/** The design document as trigger context (UI skill), unless it says the design does not apply. */
+function designContext(state: AutoState): string {
+	try {
+		const text = readFileSync(join(state.worktree, docsDir(state.worktree), "design.md"), "utf8").slice(0, 4000);
+		return /non si applica/i.test(text) ? "" : text;
+	} catch {
+		return "";
+	}
+}
+
+const counts = (map: Record<string, number>) => Object.entries(map).map(([name, n]) => `${name}×${n}`).join(", ") || "nessuna";
+
 /** The run's outcome written into the intent on the branch (status done only when completed). */
 export function reportSection(state: AutoState, approvals: string, now: number): string {
 	const minutes = Math.round((now - state.started) / 60_000);
@@ -238,6 +318,8 @@ export function reportSection(state: AutoState, approvals: string, now: number):
 		`- Passi: ${state.steps} · token: ${state.tokens} · durata: ${minutes} min · branch \`${state.branch}\``,
 		...state.requirements.map((item) => `- [${item.passes ? "x" : " "}] ${item.id}: ${item.descrizione} — check: \`${item.check}\``),
 		`- Decisioni: \`${DECISIONS_FILE}\`${approvals ? ` · da approvare: \`${APPROVALS_FILE}\`` : ""}`,
+		...(state.skills ? [`- Skill: date ${counts(state.skills.given)} · lette ${counts(state.skills.read)}`] : []),
+		...(state.tools ? [`- Strumenti: dati ${counts(state.tools.given)} · usati ${counts(state.tools.used)}`] : []),
 	];
 	return lines.join("\n");
 }

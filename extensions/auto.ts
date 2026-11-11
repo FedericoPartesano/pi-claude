@@ -16,7 +16,8 @@ import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { killAllChildren, runChild } from "./auto/child.ts";
-import { runAuto, type LoopDeps } from "./auto/loop.ts";
+import { docsDir, docsStatus } from "./auto/docs.ts";
+import { panelLines, runAuto, type LoopDeps } from "./auto/loop.ts";
 import { sandboxCommand } from "./auto/policy.ts";
 import { loadState, newState, saveState, stateFile, type AutoState } from "./auto/state.ts";
 import { runCheck } from "./goal.ts";
@@ -100,6 +101,13 @@ export default function (pi: ExtensionAPI) {
 			if (ctx.hasUI) ctx.ui.setStatus("auto", text);
 		} catch {}
 	};
+	// Side panel of the prototype chat (RPC): a few plain lines, rebuilt on loop events only. The classic TUI would show
+	// a widget above the editor, so there the status line stays the only sign.
+	const panel = (ctx: ExtensionCommandContext, state: AutoState | undefined, line?: string) => {
+		try {
+			if (ctx.hasUI && ctx.mode === "rpc") ctx.ui.setWidget("auto", state ? panelLines(state, readUsage(), line) : undefined);
+		} catch {}
+	};
 
 	async function repoInfo(cwd: string): Promise<{ repo: string; gitDir: string; home: string } | undefined> {
 		const top = await git(cwd, ["rev-parse", "--show-toplevel"]);
@@ -128,18 +136,26 @@ export default function (pi: ExtensionAPI) {
 			progress: (s, line) => {
 				const done = s.requirements.filter((item) => item.passes).length;
 				status(ctx, `auto ${s.phase}${s.requirements.length ? ` ${done}/${s.requirements.length}` : ""} · passo ${s.steps}`);
+				panel(ctx, s, line);
 				if (/^stop:|verde|^piano:/.test(line)) tell(ctx, `auto ${s.slug}: ${line}`);
 			},
 		};
 		status(ctx, `auto ${state.phase} · avvio`);
+		panel(ctx, state, "avvio");
 		runAuto(state, deps)
 			.then((final) => {
 				const reason = final.stop?.reason ?? "?";
+				panel(ctx, final); // the outcome stays in the panel until the next /auto
 				const approvals = join(final.worktree, "auto/da-approvare.md");
-				const extra = existsSync(approvals) && statSync(approvals).size > 0 ? `\nDa approvare: ${approvals}` : "";
+				const drafts = docsStatus(final.worktree).bozza.map((doc) => doc.file);
+				const extra = `${existsSync(approvals) && statSync(approvals).size > 0 ? `\nDa approvare: ${approvals}` : ""}${drafts.length ? `\nBozze da rivedere in ${join(final.worktree, docsDir(final.worktree))}: ${drafts.join(", ")} (togli \`stato: bozza\` quando vanno bene)` : ""}`;
 				tell(
 					ctx,
-					`auto ${final.slug}: ${reason} — ${final.stop?.detail ?? ""}\nBranch ${final.branch} in ${final.worktree} · ${final.steps} passi · ${final.tokens} token${extra}\n${reason === "completato" ? "Rivedi il branch e integralo con /land dal worktree." : "Riprendi con /auto resume " + final.slug}`,
+					`auto ${final.slug}: ${reason} — ${final.stop?.detail ?? ""}\nBranch ${final.branch} in ${final.worktree} · ${final.steps} passi · ${final.tokens} token${extra}\n${
+						reason === "completato"
+							? "Rivedi il branch e integralo con /land dal worktree."
+								: "Riprendi con /auto resume " + final.slug
+					}`,
 					reason === "completato" ? "info" : "warning",
 				);
 			})

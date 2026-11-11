@@ -53,6 +53,8 @@ export default function (pi: ExtensionAPI) {
 	const confirmSite = async (url: string, ctx: ExtensionContext): Promise<string | undefined> => {
 		const site = siteOf(url);
 		if (!site || allowed.has(site) || allowed.has("*")) return undefined;
+		// Auto mode step: no one to ask; the app under test on this machine opens, the rest of the web does not.
+		if (process.env.PI_AUTO_PHASE) return /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(site) ? undefined : `Auto mode: solo pagine locali (localhost), non ${site}.`;
 		if (!ctx.hasUI) return `Il sito ${site} non è tra quelli permessi (PI_BROWSER_ALLOW). Senza interfaccia non posso chiedere conferma.`;
 		const ok = await ctx.ui.confirm("pi-browser", `Aprire ${site} nel browser pilotato da Pi?`);
 		if (!ok) return `L'utente non ha permesso di aprire ${site}.`;
