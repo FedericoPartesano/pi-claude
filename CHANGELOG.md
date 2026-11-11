@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.28.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.27.0...pi-claude-v0.28.0) (2026-11-11)
+
+
+### Features
+
+* **prototype:** invio immediato su alt+d (PI_NOW_KEY), tolti alt+i e alt+n in conflitto con whkd ([95de2f3](https://github.com/FedericoPartesano/pi-claude/commit/95de2f36ab722a1825b09ab49517197343086588))
+
 ## [0.27.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.26.0...pi-claude-v0.27.0) (2026-11-11)
 
 
