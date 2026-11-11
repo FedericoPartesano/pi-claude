@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.25.0...pi-claude-v0.26.0) (2026-11-11)
+
+
+### Features
+
+* invia subito come Claude Code, coda in fondo alla chat, comandi in inglese ([df3bd0d](https://github.com/FedericoPartesano/pi-claude/commit/df3bd0da23c0f9bb620e99ee622469af20266869))
+
 ## [0.25.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.24.0...pi-claude-v0.25.0) (2026-11-09)
 
 
