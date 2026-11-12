@@ -40,7 +40,7 @@
 			"descrizione": "Stati vuoti e anomali: nessuna corsa, stato illeggibile (feed.problem), diario assente, corsa finita; messaggio in italiano col tasto utile",
 			"check": "node --test --test-name-pattern \"^R6:\" extensions/auto-cockpit-v2.test.ts",
 			"prova": "createFeed su file mancante, corrotto e poi valido; cockpitRows senza stato",
-			"passes": false
+			"passes": true
 		},
 		{
 			"id": "R7",
