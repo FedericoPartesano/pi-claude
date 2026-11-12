@@ -142,10 +142,22 @@ export function cockpitRows({ state, events, now, W, H, usage, ui }) {
 	const g = live ? groups[groups.length - 1] : groups[ui.sel];
 	const done = state.requirements.filter((r) => r.passes).length, total = state.requirements.length;
 	const rows = [];
-	const mode = live ? `${C.ok}IN DIRETTA` : `${C.cyan}RIVEDI passo ${g.n || "0"}/${groups.length}`;
-	rows.push(`${C.mag}${C.b}AUTO${R} ${C.text}${fit(state.slug, Math.max(8, W - 48))}${C.dim} · fase ${state.phase} · passo ${state.steps}/${MAX_STEPS} · ${R}${mode}${R}`);
+	// One header row: phase comes from the diary (last step event), falling back to the state, never "undefined".
+	let phase = state.phase || "";
+	for (let i = events.length - 1; i >= 0; i--) if (events[i].t === "step" && events[i].phase) { phase = events[i].phase; break; }
+	phase = phase || "?";
 	const idle = events.length ? now - events[events.length - 1].at : now - state.started;
-	rows.push(`${toneColor(h.tone)}${C.b}● ${h.word}${R}${C.dim} ${fit(h.why, W - 14)}${running && !state.paused && W >= 60 ? ` · fermo da ${fmtDur(idle)}` : ""}${R}`);
+	const narrowH = W < 80;
+	const stuck = running && !state.paused ? `fermo ${narrowH ? "" : "da "}${fmtDur(idle)}` : "";
+	const modeT = live ? (narrowH ? "DIRETTA" : "IN DIRETTA") : `RIVEDI ${narrowH ? "" : "passo "}${g.n || "0"}/${groups.length}`;
+	const wideH = W >= 100;
+	const fixed = [wideH ? `fase ${phase}` : phase, narrowH ? `${state.steps}/${MAX_STEPS}` : `passo ${state.steps}/${MAX_STEPS}`, `● ${h.word}`, stuck, modeT].filter(Boolean);
+	const slugW = Math.min(state.slug.length, W >= 80 ? 16 : W >= 66 ? 8 : 4);
+	const used = 5 + slugW + fixed.reduce((n, p) => n + 3 + p.length, 0);
+	const whyW = W - used - 1;
+	const whyT = whyW >= 8 ? ` ${fit(h.why, whyW)}` : "";
+	const sep = `${C.dim} · `;
+	rows.push(`${C.mag}${C.b}AUTO${R} ${C.text}${fit(state.slug, slugW)}${sep}${C.dim}${fixed[0]}${sep}${fixed[1]}${sep}${toneColor(h.tone)}${C.b}${fixed[2]}${R}${C.dim}${whyT}${stuck ? `${sep}${stuck}` : ""}${sep}${R}${live ? C.ok : C.cyan}${modeT}${R}`);
 	const bar = total ? `${"▰".repeat(Math.round((done / total) * 16))}${"▱".repeat(16 - Math.round((done / total) * 16))} ${done}/${total} requisiti` : "piano non ancora scritto";
 	const spent = usage !== undefined && state.fiveHourStart !== undefined ? ` · 5h +${Math.round((usage - state.fiveHourStart) * 100)}%/50%` : "";
 	rows.push(`${C.ok}${fit(`${bar}${C.dim}${spent} · fino alle ${clock(state.deadline)} (${fmtDur(state.deadline - now)}) · ${Math.round(state.tokens / 1000)}k token`, W)}${R}`);
