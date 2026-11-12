@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.30.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.29.0...pi-claude-v0.30.0) (2026-11-12)
+
+
+### Features
+
+* **auto:** cockpit a quattro schede, chat a scomparsa, studio con critici ([cba2655](https://github.com/FedericoPartesano/pi-claude/commit/cba26555edc15bed1b31258f8250ccec3b3b241e))
+* **auto:** cockpit a schermo intero per seguire e guidare /auto ([446858c](https://github.com/FedericoPartesano/pi-claude/commit/446858c2d7ab3b8bd51c0685bd4cae5db539127a))
+* **auto:** cockpit con fasi, pensiero live, studio e prassi; chat sempre aperta ([75907a5](https://github.com/FedericoPartesano/pi-claude/commit/75907a5ea4830138deff39bdb375c69f3802fde3))
+* **auto:** contatori locali del cockpit per il falsificatore della forma ([aa4f7a0](https://github.com/FedericoPartesano/pi-claude/commit/aa4f7a0d7e98ac6e60a794decd0fe253cc20d050))
+* **auto:** tool auto per il modello e chat nel cockpit ([a6b3c8f](https://github.com/FedericoPartesano/pi-claude/commit/a6b3c8f258ff6403edcc970a28f79d040e03e6c2))
+* il timer del cockpit ridisegna solo la testata (cockpitHead) ([1eddff0](https://github.com/FedericoPartesano/pi-claude/commit/1eddff0228903d5086704e05aa14556c0604c641))
+* layout del cockpit adattivo a 40 colonne, testata e tasti mai oltre il terminale ([34de7f2](https://github.com/FedericoPartesano/pi-claude/commit/34de7f24e340b017bd4aba97bfe2a9f49289eda4))
+* passo in diretta del cockpit con ultimi 5 tool e conteggio dei precedenti ([358bf30](https://github.com/FedericoPartesano/pi-claude/commit/358bf30d0dfa554ad5a0e1f8309cb9bceac8278a))
+* requisiti con ultimo check fallito in rosso nell'elenco del cockpit ([9a8825c](https://github.com/FedericoPartesano/pi-claude/commit/9a8825c4c5f2919ebd26139af5e325135546ebd3))
+* riga dei tasti contestuale con «in attesa» (keyHints) ([febf92f](https://github.com/FedericoPartesano/pi-claude/commit/febf92fd4f6b1409ae28eef5c8622a2afe21fea0))
+* RIVEDI con «passo k di n», esito e navigate condivisa con la chat ([ddfbad5](https://github.com/FedericoPartesano/pi-claude/commit/ddfbad52ee3a33259ceb0bfca322eace503c3d48))
+* stati vuoti e anomali del cockpit (assente, illeggibile) con messaggio e tasto utile ([2a7b45e](https://github.com/FedericoPartesano/pi-claude/commit/2a7b45e1d1514e32711770b8074efc0fd65e90a5))
+* testata del cockpit di auto a una riga con fase dal diario, salute e fermo da ([17f59b2](https://github.com/FedericoPartesano/pi-claude/commit/17f59b23c6b58c30d96147d71b66b9a88ceb6e4f))
+
+
+### Bug Fixes
+
+* la riga di avanzamento del cockpit non spezza le sequenze ANSI ([c59a08f](https://github.com/FedericoPartesano/pi-claude/commit/c59a08fa4221311d3d5b1d81e78565d5a865c4b3))
+
 ## [0.29.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.28.0...pi-claude-v0.29.0) (2026-11-11)
 
 
