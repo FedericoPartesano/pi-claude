@@ -26,7 +26,7 @@
 			"descrizione": "Layout adattivo: sotto 70 colonne blocchi impilati, da 80 in colonne, mai righe oltre il terminale, output deterministico",
 			"check": "node --test --test-name-pattern \"^R4:\" extensions/auto-cockpit-v2.test.ts",
 			"prova": "render a 9 larghezze da 40 a 200 con stato in pausa e note",
-			"passes": false
+			"passes": true
 		},
 		{
 			"id": "R5",
