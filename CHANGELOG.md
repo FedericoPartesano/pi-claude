@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.31.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.30.0...pi-claude-v0.31.0) (2026-11-12)
+
+
+### Features
+
+* **chat:** copia dei blocchi di codice, dell'ultima risposta e selezione di righe con il mouse ([2c47e76](https://github.com/FedericoPartesano/pi-claude/commit/2c47e7695c1bd0113464582c0a35a94580e40fe4))
+
 ## [0.30.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.29.0...pi-claude-v0.30.0) (2026-11-12)
 
 
