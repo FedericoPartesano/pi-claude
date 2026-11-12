@@ -54,7 +54,7 @@
 			"descrizione": "Costo: cockpitHead esportata, il timer da 1 s ridisegna solo la testata se nient'altro cambia, un solo setInterval, cockpit.mjs senza timer né chiamate al modello",
 			"check": "node --test --test-name-pattern \"^R8:\" extensions/auto-cockpit-v2.test.ts",
 			"prova": "test di cockpitHead contro cockpitRows[0] e ispezione del ciclo di vita in chat.mjs",
-			"passes": false
+			"passes": true
 		},
 		{
 			"id": "R9",
