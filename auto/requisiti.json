@@ -68,7 +68,7 @@
 			"descrizione": "Documentazione: README del prototipo, README, chat-rpc.md e log.md descrivono RIVEDI «k di n», esc e il lavoro fatto",
 			"check": "node --test --test-name-pattern \"^R10:\" extensions/auto-cockpit-docs.test.ts",
 			"prova": "controllo di contenuto sui quattro file",
-			"passes": false
+			"passes": true
 		}
 	],
 	"congelati": [
