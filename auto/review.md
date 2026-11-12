@@ -1,7 +1,7 @@
 # Review del diff 446858c..HEAD
 
 ## Corretto
-- `cockpit.mjs`, riga di avanzamento: `fit()` applicato a una stringa con codici ANSI contava i codici come colonne (troncava in anticipo) e a larghezze strette poteva spezzare una sequenza di escape. Ora `cutAnsi`; test di regressione in `auto-cockpit-v2.test.ts`.
+- `cockpit.mjs`, riga di avanzamento: `fit()` applicato a una stringa con codici ANSI contava i codici come colonne (troncava in anticipo) e a larghezze strette poteva spezzare una sequenza di escape. Ora `cutAnsi`. Test di regressione non aggiunto: `extensions/*.test.ts` è in sola lettura (file system protetto) in questo passo; da aggiungere (W=30, nessuna escape troncata).
 
 ## Lasciato
 - «in attesa» compare sia nella riga 3 sia nei tasti: ridondanza voluta dall'intent (riga tasti contestuale), costo nullo.
