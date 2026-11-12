@@ -44,5 +44,5 @@ Scelta: **B modificata**, implementata in `prototype/rpc-chat/cockpit.mjs`.
 - Pensiero: storico completo per passo, ↑ risale; scorrimento limitato al contenuto.
 - Studio e prassi: tutta la corsa, senza doppioni, con conteggi (`×3`), `•` = passo guardato.
 - Alternativa D (A + zoom sul pannello) non confrontata: B con schede fa già da zoom.
-- Falsificatore ancora da rendere misurabile (contatori locali: cambi scheda, tempo alla risposta; soglia da fissare prima della prima corsa). Diff del commit: fuori lotto.
+- Falsificatore misurabile: alla chiusura il cockpit aggiunge una riga a `<repo>-auto/<slug>.cockpit-stats.jsonl` (`createStats`): `switches`, `over2`, `ms` per scheda, `keys`, `firstKeyMs`, `chat`, `note`. Regola scritta prima della prima corsa: nelle prime 3 corse vere, **B cade** (si torna ad A con più righe al pensiero) se almeno 2 delle 3 corse hanno aperture con `over2: true` in più della metà delle aperture, oppure se l'utente apre ancora il JSON/diario a mano. Il tempo «≤5 s» resta una prova a cronometro dell'utente, non un contatore. Diff del commit: fuori lotto.
 - Critico 2 (opus, `claude -p`): difetti 1-7 e 9 corretti; non committato.

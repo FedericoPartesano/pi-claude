@@ -432,3 +432,20 @@ export function createFeed(stateFile) {
 		},
 	};
 }
+
+/**
+ * Local usage counters for the falsifier of the view shape (docs/architetto/auto-mode-cockpit/30-forma-vista.md).
+ * Counts only; nothing leaves the machine and nothing costs tokens. One summary line per opening.
+ */
+export function createStats(now) {
+	const s = { opened: now, tab: 0, since: now, ms: [0, 0, 0, 0], switches: 0, keys: 0, firstKeyMs: undefined, chat: 0, note: 0 };
+	return {
+		key(name, at) { s.keys++; if (s.firstKeyMs === undefined) s.firstKeyMs = at - s.opened; if (name === "chat") s.chat++; else if (name === "note") s.note++; },
+		tab(i, at) { if (i === s.tab) return; s.ms[s.tab] += at - s.since; s.tab = i; s.since = at; s.switches++; },
+		/** Summary at close; `override` is the verdict rule: more than 2 tab switches in one opening. */
+		summary(at) {
+			const ms = [...s.ms]; ms[s.tab] += at - s.since;
+			return { at, openMs: at - s.opened, switches: s.switches, over2: s.switches > 2, ms, keys: s.keys, firstKeyMs: s.firstKeyMs ?? null, chat: s.chat, note: s.note };
+		},
+	};
+}

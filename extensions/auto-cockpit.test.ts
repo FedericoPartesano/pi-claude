@@ -262,3 +262,18 @@ test("cockpit tabs: reason on its own row, tab strip, each tab fits the screen",
 		assert.match(rows[3], /1 Panoramica/);
 	}
 });
+
+test("cockpit stats: tab switches, time per tab, first key, over2 verdict", async () => {
+	const { createStats } = await import("../prototype/rpc-chat/cockpit.mjs");
+	const st = createStats(1000);
+	st.key("k", 1400);
+	st.tab(1, 2000); st.tab(1, 2500); st.tab(0, 4000);
+	const a = st.summary(5000);
+	assert.equal(a.switches, 2);
+	assert.equal(a.over2, false);
+	assert.equal(a.firstKeyMs, 400);
+	assert.deepEqual(a.ms, [1000 + 1000, 2000, 0, 0]);
+	st.tab(2, 5000); st.tab(0, 5100);
+	assert.equal(st.summary(6000).over2, true);
+	assert.equal(createStats(0).summary(10).firstKeyMs, null);
+});
