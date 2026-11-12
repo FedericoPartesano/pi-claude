@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 created: 2026-11-12
 source: auto
 ---
@@ -39,3 +39,20 @@ La schermata di `/auto` è la vista a schermo intero (cockpit) del prototipo (`p
 - `cd pi-claude-code && npx tsc -p .` e `cd pi-ui && npx tsc -p .` puliti.
 - `python3 -I prototype/rpc-chat/pty.py --fake <eventi.jsonl> --cols 60|80|110 …` per IN DIRETTA, RIVEDI, stati vuoti.
 - `prototype/rpc-chat/perf.test.mjs` con report in `eval/ui/REPORT.md`.
+
+## Esito auto mode
+- Arresto: completato — 10/10 requisiti verdi
+- Passi: 14 · token: 3328606 · durata: 11 min · branch `auto/migliora-la-schermata-di-auto`
+- [x] R1: Testata a una riga: fase (dal diario, mai «undefined»), passo, salute con motivo, tempo e «fermo da Ns», anche a 60 colonne — check: `node --test --test-name-pattern "^R1:" extensions/auto-cockpit-v2.test.ts`
+- [x] R2: Elenco requisiti con n/m, stato per riga (✓ ▸ ✖ ○) e scorrimento che tiene visibile il requisito in corso con 40 requisiti — check: `node --test --test-name-pattern "^R2:" extensions/auto-cockpit-v2.test.ts`
+- [x] R3: Passo in diretta: ultimi tool (nome + argomento) e testo finale a capo pulito, senza parole spezzate né righe oltre la larghezza — check: `node --test --test-name-pattern "^R3:" extensions/auto-cockpit-v2.test.ts`
+- [x] R4: Layout adattivo: sotto 70 colonne blocchi impilati, da 80 in colonne, mai righe oltre il terminale, output deterministico — check: `node --test --test-name-pattern "^R4:" extensions/auto-cockpit-v2.test.ts`
+- [x] R5: RIVEDI: «passo k di n», esito, durata, token; esc o → oltre l'ultimo torna IN DIRETTA (navigate esportata e usata da chat.mjs) — check: `node --test --test-name-pattern "^R5:" extensions/auto-cockpit-v2.test.ts`
+- [x] R6: Stati vuoti e anomali: nessuna corsa, stato illeggibile (feed.problem), diario assente, corsa finita; messaggio in italiano col tasto utile — check: `node --test --test-name-pattern "^R6:" extensions/auto-cockpit-v2.test.ts`
+- [x] R7: Riga dei tasti contestuale (keyHints esportata): solo tasti validi nello stato, «in attesa: …» accanto ai tasti, p riprendi↔pausa — check: `node --test --test-name-pattern "^R7:" extensions/auto-cockpit-v2.test.ts`
+- [x] R8: Costo: cockpitHead esportata, il timer da 1 s ridisegna solo la testata se nient'altro cambia, un solo setInterval, cockpit.mjs senza timer né chiamate al modello — check: `node --test --test-name-pattern "^R8:" extensions/auto-cockpit-v2.test.ts`
+- [x] R9: Prestazioni: misura di base e dopo, 5 giri alternati con mediana, entro +10% o risultato negativo dichiarato in eval/ui/REPORT.md — check: `node --test --test-name-pattern "^R9:" extensions/auto-cockpit-docs.test.ts`
+- [x] R10: Documentazione: README del prototipo, README, chat-rpc.md e log.md descrivono RIVEDI «k di n», esc e il lavoro fatto — check: `node --test --test-name-pattern "^R10:" extensions/auto-cockpit-docs.test.ts`
+- Decisioni: `auto/decisioni.md` · da approvare: `auto/da-approvare.md`
+- Skill: date spec-driven-development×2, frontend-ui-engineering×10, planning-and-task-breakdown×1, doubt-driven-development×1, incremental-implementation×10, security-and-hardening×2, code-review-and-quality×1 · lette nessuna
+- Strumenti: dati search×12, graph×12, browser×11, lancia×11 · usati nessuna
