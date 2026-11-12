@@ -7,7 +7,7 @@ import { readFileSync, writeFileSync, readdirSync, statSync, watch as fsWatch } 
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { checkOutcome, failingTests } from "../../pi-ui/src/test-output.ts";
-import { cockpitRows, createFeed, groupSteps } from "./cockpit.mjs";
+import { cockpitRows, createFeed, groupSteps, navigate } from "./cockpit.mjs";
 import { readUsage as readUsageFile, forecastLines, resetLabel } from "../../pi-ui/src/usage.ts";
 
 const FPS = Number(process.env.PROTO_FPS) || 30;
@@ -765,15 +765,16 @@ const cockpitKey = (key, csi) => {
 		return true;
 	}
 	const live = ui.sel < 0;
-	if (csi === "D") { if (live ? groups > 1 : true) { ui.sel = live ? groups - 2 : Math.max(0, ui.sel - 1); ui.top = 0; if (live) ui.seen = groups; } }
-	else if (csi === "C") { if (!live) { ui.sel++; ui.top = 0; if (ui.sel >= groups - 1) ui.sel = -1; } }
-	else if (csi === "F" || csi === "4~") { ui.sel = -1; ui.top = 0; }
+	if (csi === "D") navigate(ui, groups, "left");
+	else if (csi === "C") navigate(ui, groups, "right");
+	else if (csi === "F" || csi === "4~") navigate(ui, groups, "end");
 	else if (csi === "A") ui.top = Math.max(0, ui.top - 1);
 	else if (csi === "B") ui.top += 1;
 	else if (csi === "5~") ui.top = Math.max(0, ui.top - 10);
 	else if (csi === "6~") ui.top += 10;
 	else if (csi) return true;
-	else if (key === "q" || key === "\x1b") return cockpitClose(), true;
+	else if (key === "\x1b") { if (navigate(ui, groups, "esc") === "close") cockpitClose(); }
+	else if (key === "q") return cockpitClose(), true;
 	else if (key === "p" && !c.feed.state.stop) send({ type: "prompt", message: c.feed.state.paused ? "/auto riprendi" : "/auto pausa" });
 	else if (key === "s" && !c.feed.state.stop) send({ type: "prompt", message: "/auto stop" });
 	else if (key === ":" && !c.feed.state.stop) ui.note = "";

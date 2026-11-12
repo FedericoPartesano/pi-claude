@@ -8,3 +8,4 @@
 - Requisito con ultimo check fallito (e non corrente) in rosso ✖; il corrente resta ▸ — il test vuole ▸ R2 e ✖ R2 in stati diversi
 - Passo in diretta: ultimi 5 tool, i precedenti in un conteggio — la colonna resta leggibile con corse lunghe
 - Sotto 50 colonne la testata perde la fase e la riga tasti perde «← passi»; cutAnsi come rete finale su testata e tasti — salvano salute e «q chiudi» e garantiscono righe ≤ W
+- RIVEDI stretto (<80 col) resta «RIVEDI k/n», largo «passo k di n»; navigate prende tasti nominali (left|right|end|esc) — la vista traduce i CSI

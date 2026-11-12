@@ -52,6 +52,21 @@ export function groupSteps(events) {
 	return steps;
 }
 
+/**
+ * Review navigation shared with the chat. key: left|right|end|esc; mutates ui ({sel, top, seen}).
+ * Returns "review" (reviewing a step), "live" (back to live) or "close" (esc while live).
+ */
+export function navigate(ui, groups, key) {
+	const live = ui.sel < 0;
+	if (key === "left") {
+		if (live ? groups > 1 : true) { ui.sel = live ? groups - 2 : Math.max(0, ui.sel - 1); ui.top = 0; if (live) ui.seen = groups; }
+	} else if (key === "right") {
+		if (!live) { ui.sel++; ui.top = 0; if (ui.sel >= groups - 1) ui.sel = -1; }
+	} else if (key === "end" || (key === "esc" && !live)) { ui.sel = -1; ui.top = 0; }
+	else if (key === "esc") return "close";
+	return ui.sel < 0 ? "live" : "review";
+}
+
 /** Commands asked but not yet applied: pause waits for the step boundary, notes for the next step. */
 export function pending(state, events) {
 	let pauseApplied = false;
@@ -121,7 +136,7 @@ const MAX_TOOLS = 5;
 function stepLines(g, w, running) {
 	if (!g) return [`${C.dim}nessun passo ancora${R}`];
 	const lines = [];
-	const state = !g.end ? (running ? `${C.mag}in corso…` : `${C.dim}interrotto`) : g.end.ok ? `${C.ok}✓ ${fmtDur(g.end.ms)} · ${Math.round(g.end.tokens / 1000)}k token` : `${C.err}✖ ${fit(g.end.error ?? "fallito", w - 24)}`;
+	const state = !g.end ? (running ? `${C.mag}in corso…` : `${C.dim}interrotto`) : g.end.ok ? `${C.ok}✓ esito: riuscito · ${fmtDur(g.end.ms)} · ${Math.round(g.end.tokens / 1000)}k token` : `${C.err}✖ esito: ${fit(g.end.error ?? "fallito", Math.max(8, w - 24))} · ${fmtDur(g.end.ms ?? 0)} · ${Math.round((g.end.tokens ?? 0) / 1000)}k token`;
 	lines.push(`${C.b}${C.text}${g.n ? `passo ${g.n} · ${g.phase}` : "controlli"}${R}  ${state}${R}`);
 	// Only the last MAX_TOOLS tools: older ones collapse into a count.
 	if (g.tools.length > MAX_TOOLS) lines.push(`${C.faint}… ${g.tools.length - MAX_TOOLS} tool prima${R}`);
@@ -155,7 +170,7 @@ export function cockpitRows({ state, events, now, W, H, usage, ui }) {
 	const idle = events.length ? now - events[events.length - 1].at : now - state.started;
 	const narrowH = W < 80;
 	const stuck = running && !state.paused ? `fermo ${narrowH ? "" : "da "}${fmtDur(idle)}` : "";
-	const modeT = live ? (narrowH ? "DIRETTA" : "IN DIRETTA") : `RIVEDI ${narrowH ? "" : "passo "}${g.n || "0"}/${groups.length}`;
+	const modeT = live ? (narrowH ? "DIRETTA" : "IN DIRETTA") : (narrowH ? `RIVEDI ${g.n || "0"}/${groups.length}` : `RIVEDI passo ${g.n || "0"} di ${groups.length}`);
 	const wideH = W >= 100;
 	const phaseT = W < 50 ? "" : wideH ? `fase ${phase}` : phase;
 	const fixed = [narrowH ? `${state.steps}/${MAX_STEPS}` : `passo ${state.steps}/${MAX_STEPS}`, `● ${h.word}`, stuck, modeT].filter(Boolean);

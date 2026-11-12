@@ -175,7 +175,7 @@ test("cockpit review: previous step with end text and failing check output; new 
 	const state = baseState({ requirements: reqs(3, 1), steps: 2 });
 	const rows = plain(cockpitRows({ state, events: evs(), now: 14_000, W: 100, H: 30, usage: undefined, ui: { sel: 0, top: 0, seen: 1, note: null } }));
 	const all = rows.join("\n");
-	assert.match(all, /RIVEDI passo 1\/2/);
+	assert.match(all, /RIVEDI passo 1 di 2/);
 	assert.match(all, /✖ R2/);
 	assert.match(all, /atteso 2/);
 	assert.match(all, /Ho scritto il modulo/);
