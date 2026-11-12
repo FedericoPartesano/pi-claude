@@ -1,68 +1,78 @@
 {
- "requisiti": [
-  {
-   "id": "R1",
-   "descrizione": "Testata a una riga: fase (dal diario, mai «undefined»), passo, salute con motivo, tempo e «fermo da Ns», anche a 60 colonne",
-   "check": "node --test --test-name-pattern \"^R1:\" extensions/auto-cockpit-v2.test.ts",
-   "prova": "cockpitRows su stato e diario reali, riga 0 a 110 e 60 colonne"
-  },
-  {
-   "id": "R2",
-   "descrizione": "Elenco requisiti con n/m, stato per riga (✓ ▸ ✖ ○) e scorrimento che tiene visibile il requisito in corso con 40 requisiti",
-   "check": "node --test --test-name-pattern \"^R2:\" extensions/auto-cockpit-v2.test.ts",
-   "prova": "render con 3 e 40 requisiti a 110 e 60 colonne, H=20"
-  },
-  {
-   "id": "R3",
-   "descrizione": "Passo in diretta: ultimi tool (nome + argomento) e testo finale a capo pulito, senza parole spezzate né righe oltre la larghezza",
-   "check": "node --test --test-name-pattern \"^R3:\" extensions/auto-cockpit-v2.test.ts",
-   "prova": "render a 60/80/110 con 12 tool e testo lungo, parole verificate una per una"
-  },
-  {
-   "id": "R4",
-   "descrizione": "Layout adattivo: sotto 70 colonne blocchi impilati, da 80 in colonne, mai righe oltre il terminale, output deterministico",
-   "check": "node --test --test-name-pattern \"^R4:\" extensions/auto-cockpit-v2.test.ts",
-   "prova": "render a 9 larghezze da 40 a 200 con stato in pausa e note"
-  },
-  {
-   "id": "R5",
-   "descrizione": "RIVEDI: «passo k di n», esito, durata, token; esc o → oltre l'ultimo torna IN DIRETTA (navigate esportata e usata da chat.mjs)",
-   "check": "node --test --test-name-pattern \"^R5:\" extensions/auto-cockpit-v2.test.ts",
-   "prova": "render con sel=0 e sequenza di tasti su navigate, come la vista"
-  },
-  {
-   "id": "R6",
-   "descrizione": "Stati vuoti e anomali: nessuna corsa, stato illeggibile (feed.problem), diario assente, corsa finita; messaggio in italiano col tasto utile",
-   "check": "node --test --test-name-pattern \"^R6:\" extensions/auto-cockpit-v2.test.ts",
-   "prova": "createFeed su file mancante, corrotto e poi valido; cockpitRows senza stato"
-  },
-  {
-   "id": "R7",
-   "descrizione": "Riga dei tasti contestuale (keyHints esportata): solo tasti validi nello stato, «in attesa: …» accanto ai tasti, p riprendi↔pausa",
-   "check": "node --test --test-name-pattern \"^R7:\" extensions/auto-cockpit-v2.test.ts",
-   "prova": "render di corsa attiva, in pausa con note, pausa applicata, finita, RIVEDI; ultime righe"
-  },
-  {
-   "id": "R8",
-   "descrizione": "Costo: cockpitHead esportata, il timer da 1 s ridisegna solo la testata se nient'altro cambia, un solo setInterval, cockpit.mjs senza timer né chiamate al modello",
-   "check": "node --test --test-name-pattern \"^R8:\" extensions/auto-cockpit-v2.test.ts",
-   "prova": "test di cockpitHead contro cockpitRows[0] e ispezione del ciclo di vita in chat.mjs"
-  },
-  {
-   "id": "R9",
-   "descrizione": "Prestazioni: misura di base e dopo, 5 giri alternati con mediana, entro +10% o risultato negativo dichiarato in eval/ui/REPORT.md",
-   "check": "node --test --test-name-pattern \"^R9:\" extensions/auto-cockpit-docs.test.ts",
-   "prova": "il report deve contenere la sezione con le due misure da perf.test.mjs e il verdetto; la misura si fa davvero"
-  },
-  {
-   "id": "R10",
-   "descrizione": "Documentazione: README del prototipo, README, chat-rpc.md e log.md descrivono RIVEDI «k di n», esc e il lavoro fatto",
-   "check": "node --test --test-name-pattern \"^R10:\" extensions/auto-cockpit-docs.test.ts",
-   "prova": "controllo di contenuto sui quattro file"
-  }
- ],
- "congelati": [
-  "extensions/auto-cockpit-v2.test.ts",
-  "extensions/auto-cockpit-docs.test.ts"
- ]
+	"requisiti": [
+		{
+			"id": "R1",
+			"descrizione": "Testata a una riga: fase (dal diario, mai «undefined»), passo, salute con motivo, tempo e «fermo da Ns», anche a 60 colonne",
+			"check": "node --test --test-name-pattern \"^R1:\" extensions/auto-cockpit-v2.test.ts",
+			"prova": "cockpitRows su stato e diario reali, riga 0 a 110 e 60 colonne",
+			"passes": false
+		},
+		{
+			"id": "R2",
+			"descrizione": "Elenco requisiti con n/m, stato per riga (✓ ▸ ✖ ○) e scorrimento che tiene visibile il requisito in corso con 40 requisiti",
+			"check": "node --test --test-name-pattern \"^R2:\" extensions/auto-cockpit-v2.test.ts",
+			"prova": "render con 3 e 40 requisiti a 110 e 60 colonne, H=20",
+			"passes": false
+		},
+		{
+			"id": "R3",
+			"descrizione": "Passo in diretta: ultimi tool (nome + argomento) e testo finale a capo pulito, senza parole spezzate né righe oltre la larghezza",
+			"check": "node --test --test-name-pattern \"^R3:\" extensions/auto-cockpit-v2.test.ts",
+			"prova": "render a 60/80/110 con 12 tool e testo lungo, parole verificate una per una",
+			"passes": false
+		},
+		{
+			"id": "R4",
+			"descrizione": "Layout adattivo: sotto 70 colonne blocchi impilati, da 80 in colonne, mai righe oltre il terminale, output deterministico",
+			"check": "node --test --test-name-pattern \"^R4:\" extensions/auto-cockpit-v2.test.ts",
+			"prova": "render a 9 larghezze da 40 a 200 con stato in pausa e note",
+			"passes": false
+		},
+		{
+			"id": "R5",
+			"descrizione": "RIVEDI: «passo k di n», esito, durata, token; esc o → oltre l'ultimo torna IN DIRETTA (navigate esportata e usata da chat.mjs)",
+			"check": "node --test --test-name-pattern \"^R5:\" extensions/auto-cockpit-v2.test.ts",
+			"prova": "render con sel=0 e sequenza di tasti su navigate, come la vista",
+			"passes": false
+		},
+		{
+			"id": "R6",
+			"descrizione": "Stati vuoti e anomali: nessuna corsa, stato illeggibile (feed.problem), diario assente, corsa finita; messaggio in italiano col tasto utile",
+			"check": "node --test --test-name-pattern \"^R6:\" extensions/auto-cockpit-v2.test.ts",
+			"prova": "createFeed su file mancante, corrotto e poi valido; cockpitRows senza stato",
+			"passes": false
+		},
+		{
+			"id": "R7",
+			"descrizione": "Riga dei tasti contestuale (keyHints esportata): solo tasti validi nello stato, «in attesa: …» accanto ai tasti, p riprendi↔pausa",
+			"check": "node --test --test-name-pattern \"^R7:\" extensions/auto-cockpit-v2.test.ts",
+			"prova": "render di corsa attiva, in pausa con note, pausa applicata, finita, RIVEDI; ultime righe",
+			"passes": false
+		},
+		{
+			"id": "R8",
+			"descrizione": "Costo: cockpitHead esportata, il timer da 1 s ridisegna solo la testata se nient'altro cambia, un solo setInterval, cockpit.mjs senza timer né chiamate al modello",
+			"check": "node --test --test-name-pattern \"^R8:\" extensions/auto-cockpit-v2.test.ts",
+			"prova": "test di cockpitHead contro cockpitRows[0] e ispezione del ciclo di vita in chat.mjs",
+			"passes": false
+		},
+		{
+			"id": "R9",
+			"descrizione": "Prestazioni: misura di base e dopo, 5 giri alternati con mediana, entro +10% o risultato negativo dichiarato in eval/ui/REPORT.md",
+			"check": "node --test --test-name-pattern \"^R9:\" extensions/auto-cockpit-docs.test.ts",
+			"prova": "il report deve contenere la sezione con le due misure da perf.test.mjs e il verdetto; la misura si fa davvero",
+			"passes": false
+		},
+		{
+			"id": "R10",
+			"descrizione": "Documentazione: README del prototipo, README, chat-rpc.md e log.md descrivono RIVEDI «k di n», esc e il lavoro fatto",
+			"check": "node --test --test-name-pattern \"^R10:\" extensions/auto-cockpit-docs.test.ts",
+			"prova": "controllo di contenuto sui quattro file",
+			"passes": false
+		}
+	],
+	"congelati": [
+		"extensions/auto-cockpit-v2.test.ts",
+		"extensions/auto-cockpit-docs.test.ts"
+	]
 }
