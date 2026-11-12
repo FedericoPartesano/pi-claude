@@ -12,3 +12,4 @@
 - Stati vuoti: cockpitRows(state undefined) disegna un blocco dedicato; in chat.mjs restano i toast all'apertura (vista non aperta senza stato) — evita di toccare i gestori dei tasti che assumono feed.state
 - keyHints estratta in cockpit.mjs, «in attesa» ricavato da pending() senza il suffisso «per il prossimo passo» — riga corta, una sola fonte
 - cockpitHead condivide headRow con cockpitRows; il tick ridisegna solo la riga 1 se feed.refresh() non cambia nulla — evita il ricalcolo e la scrittura dell'intero schermo ogni secondo
+- R9: verdetto negativo (+21,8%, oltre il 10%) dichiarato com'è, con la dispersione — misura alternata 5 giri via git archive di 446858c, il worktree extra è vietato

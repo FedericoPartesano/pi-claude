@@ -200,3 +200,15 @@ Lettura: nessun degrado; rispetto al lotto 3b la CPU scende (3,88 → 2,67 s tes
 
 ### Cockpit di `/auto` — 2026-11-12
 Non misurato sul Proxmox (LXC 301): nessun carico replay con vista aperta eseguito, quindi la soglia 1/4 non è dimostrata per questo lotto. Micro-misura locale (WSL2, 2000 giri): `cockpitRows` a 110×30 con 5 passi e 8 requisiti = **0,049 ms per frame**; con un solo ridisegno al secondo (timer attivo solo a vista aperta e corsa in atto) ≈0,005% di un core. Vista chiusa: costo zero (nessun timer, nessun watch).
+
+### Schermata di auto — 2026-11-12
+Misura con `prototype/rpc-chat/perf.test.mjs` (micro-benchmark per componente, `PERF_VERBOSE=1`, `--test-concurrency=1`), metrica = somma dei µs per operazione di tutti i componenti. **Prima** = `446858c` (cockpit di `/auto` prima di questo lotto, estratto con `git archive`), **dopo** = HEAD del lotto. 5 giri alternati prima/dopo, locale WSL2 (non il Proxmox LXC 301: macchina rumorosa, un solo host).
+
+| Versione | Somma µs (per giro) | Mediana |
+|---|---|---|
+| prima | 1062 · 1041 · 1243 · 1554 · 1086 | **1086** |
+| dopo | 1178 · 1104 · 1628 · 1323 · 1782 | **1323** |
+
+Variazione della mediana: **+21,8%** → **oltre il 10%**: risultato negativo dichiarato sulla somma.
+
+Lettura: la dispersione tra giri è alta (prima 1041–1554, dopo 1104–1782: ±30–40%), quindi +22% sta nel rumore della macchina e non è attribuibile con certezza al lotto. Il lotto non tocca i percorsi misurati da `perf.test.mjs` (markdown, wrap, fuzzy, frame) se non per `chat.mjs` che ospita il cockpit; il costo del cockpit è a parte: 0,049 ms per frame (sezione precedente), timer solo a vista aperta. Limiti: locale e non Proxmox; metrica aggregata; 5 giri; da rimisurare sul banco isolato per chiudere la questione.
