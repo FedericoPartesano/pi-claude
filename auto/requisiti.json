@@ -19,7 +19,7 @@
 			"descrizione": "Passo in diretta: ultimi tool (nome + argomento) e testo finale a capo pulito, senza parole spezzate né righe oltre la larghezza",
 			"check": "node --test --test-name-pattern \"^R3:\" extensions/auto-cockpit-v2.test.ts",
 			"prova": "render a 60/80/110 con 12 tool e testo lungo, parole verificate una per una",
-			"passes": false
+			"passes": true
 		},
 		{
 			"id": "R4",
