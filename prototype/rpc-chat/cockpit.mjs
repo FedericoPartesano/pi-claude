@@ -104,11 +104,14 @@ export function nextKey(state, h) {
 
 const toneColor = (tone) => ({ ok: C.ok, warn: C.warn, err: C.err }[tone] ?? C.dim);
 
-function reqLines(state, w) {
+function reqLines(state, w, events) {
+	// Last check result per requirement: a failed one (not current) is red.
+	const failed = new Set();
+	for (const e of events) if (e.t === "check") e.ok ? failed.delete(e.id) : failed.add(e.id);
 	const next = state.requirements.find((r) => !r.passes);
 	const lines = [];
 	for (const r of state.requirements) {
-		const mark = r.passes ? `${C.ok}✓` : r === next ? `${C.cyan}▸` : `${C.faint}○`;
+		const mark = r.passes ? `${C.ok}✓` : r === next ? `${C.cyan}▸` : failed.has(r.id) ? `${C.err}✖` : `${C.faint}○`;
 		lines.push({ focus: r === next, text: `${mark} ${r.passes ? C.dim : C.text}${fit(`${r.id} ${r.descrizione}`, w - 2)}${R}` });
 	}
 	return lines;
@@ -166,7 +169,7 @@ export function cockpitRows({ state, events, now, W, H, usage, ui }) {
 	const room = Math.max(3, H - rows.length - 2);
 	const wide = W >= 80;
 	const lw = wide ? Math.min(46, Math.floor(W * 0.4)) : W, rw = wide ? W - lw - 3 : W;
-	const reqs = reqLines(state, lw);
+	const reqs = reqLines(state, lw, events);
 	let left;
 	if (reqs.length <= (wide ? room : Math.min(6, room - 3))) left = reqs.map((r) => r.text);
 	else {
