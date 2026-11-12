@@ -15,11 +15,12 @@ import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { appendEvent, diaryFile, type DiaryEvent } from "./auto/diary.ts";
 import { killAllChildren, runChild } from "./auto/child.ts";
 import { docsDir, docsStatus } from "./auto/docs.ts";
 import { panelLines, runAuto, type LoopDeps } from "./auto/loop.ts";
 import { sandboxCommand } from "./auto/policy.ts";
-import { loadState, newState, saveState, stateFile, type AutoState } from "./auto/state.ts";
+import { DECISIONS_FILE, loadState, newState, saveState, stateFile, type AutoState } from "./auto/state.ts";
 import { runCheck } from "./goal.ts";
 import { slugify } from "./intent.ts";
 
@@ -77,6 +78,8 @@ interface Run {
 	state: AutoState;
 	controller: AbortController;
 	file: string;
+	/** Wakes the loop waiting in the pause gate (resume or stop). */
+	wake?: () => void;
 }
 
 export default function (pi: ExtensionAPI) {
@@ -120,12 +123,30 @@ export default function (pi: ExtensionAPI) {
 		return { repo, gitDir, home: join(dirname(repo), `${basename(repo)}-auto`) };
 	}
 
+	/** A guidance command: diary line plus a line in auto/decisioni.md, so the run can be understood afterwards. */
+	function guide(run: Run, event: DiaryEvent): void {
+		appendEvent(diaryFile(run.file), event);
+		if (event.t !== "cmd") return;
+		try {
+			const file = join(run.state.worktree, DECISIONS_FILE);
+			mkdirSync(dirname(file), { recursive: true });
+			appendFileSync(file, `- guida dell'utente: ${event.cmd}${event.text ? ` «${event.text}»` : ""} — chiesto con /auto\n`);
+		} catch {}
+	}
+
 	function launch(ctx: ExtensionCommandContext, state: AutoState, file: string, gitDir: string): void {
 		const controller = new AbortController();
 		const run: Run = { state, controller, file };
 		current = run;
+		const diary = diaryFile(file);
 		const deps: LoopDeps = {
-			step: (s, request) => runChild(s, request, { gitDir, skillsDir: SKILLS_DIR }, controller.signal),
+			step: (s, request) => runChild(s, request, { gitDir, skillsDir: SKILLS_DIR, onTool: (name, arg) => appendEvent(diary, { t: "tool", at: Date.now(), n: s.steps, name, arg }) }, controller.signal),
+			event: (event) => appendEvent(diary, event),
+			gate: async (s) => {
+				if (s.paused && !controller.signal.aborted) appendEvent(diary, { t: "cmd", at: Date.now(), cmd: "pausa", applied: true });
+				while (s.paused && !controller.signal.aborted) await new Promise<void>((resolve) => (run.wake = resolve));
+				run.wake = undefined;
+			},
 			check: (command, cwd) =>
 				runCheck(sandboxCommand(command, { worktree: cwd, gitDir, network: false, readOnly: [], bwrap, unshare }), cwd, controller.signal),
 			git,
@@ -142,6 +163,10 @@ export default function (pi: ExtensionAPI) {
 		};
 		status(ctx, `auto ${state.phase} · avvio`);
 		panel(ctx, state, "avvio");
+		// The cockpit of the prototype reads the state file and the diary from disk: only the path travels over RPC.
+		try {
+			if (ctx.hasUI && ctx.mode === "rpc") ctx.ui.setStatus("auto-run", file);
+		} catch {}
 		runAuto(state, deps)
 			.then((final) => {
 				const reason = final.stop?.reason ?? "?";
@@ -210,6 +235,7 @@ export default function (pi: ExtensionAPI) {
 		if (!existsSync(state.worktree)) return tell(ctx, `auto: il worktree ${state.worktree} non esiste più.`, "error");
 		state.stall = 0;
 		state.sameError = 0;
+		state.paused = false; // a run stopped while paused must not wait for a resume that already happened
 		state.deadline = Math.max(state.deadline, Date.now() + HOURS * 3_600_000);
 		state.fiveHourStart = readUsage();
 		linkNodeModules(state.repo, state.worktree);
@@ -218,14 +244,35 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	pi.registerCommand("auto", {
-		description: "Porta a termine un goal in autonomia su un branch auto/<slug> in un worktree (/auto <goal> | resume | stop | status)",
+		description: "Porta a termine un goal in autonomia su un branch auto/<slug> in un worktree (/auto <goal> | resume | stop | status | pausa | riprendi | nota <testo>)",
 		handler: async (args, ctx) => {
 			const text = args.trim();
 			const [word, ...rest] = text.split(/\s+/);
 			if (word === "stop") {
 				if (!current) return tell(ctx, "auto: nessun lavoro in corso.");
+				guide(current, { t: "cmd", at: Date.now(), cmd: "stop", applied: true });
 				current.controller.abort();
+				current.wake?.();
 				return tell(ctx, `auto ${current.state.slug}: fermo il passo in corso…`);
+			}
+			if (word === "pausa" || word === "riprendi") {
+				if (!current) return tell(ctx, "auto: nessun lavoro in corso.");
+				const pause = word === "pausa";
+				current.state.paused = pause;
+				saveState(current.file, current.state);
+				guide(current, { t: "cmd", at: Date.now(), cmd: word, applied: !pause });
+				panel(ctx, current.state);
+				if (!pause) current.wake?.();
+				return tell(ctx, pause ? `auto ${current.state.slug}: in pausa al prossimo confine di passo (/auto riprendi).` : `auto ${current.state.slug}: riprendo.`);
+			}
+			if (word === "nota") {
+				if (!current) return tell(ctx, "auto: nessun lavoro in corso.");
+				const text = rest.join(" ").trim().slice(0, 500);
+				if (!text) return tell(ctx, "auto: uso /auto nota <testo>", "warning");
+				(current.state.notes ??= []).push(text);
+				saveState(current.file, current.state);
+				guide(current, { t: "cmd", at: Date.now(), cmd: "nota", text, applied: false });
+				return tell(ctx, `auto ${current.state.slug}: nota in coda, entra nel prossimo passo.`);
 			}
 			if (word === "status" || !text) {
 				if (!current) return tell(ctx, "auto: nessun lavoro in corso. Uso: /auto <goal> · /auto resume [slug]");

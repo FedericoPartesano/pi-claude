@@ -63,6 +63,9 @@ export interface AutoState {
 	frozen: string[];
 	requirements: Requirement[];
 	model?: { provider: string; id: string };
+	/** Cockpit guidance: paused at the next step boundary; user notes waiting for the next step prompt. */
+	paused?: boolean;
+	notes?: string[];
 	stop?: { reason: StopReason; detail: string; at: number };
 	log: string[];
 }

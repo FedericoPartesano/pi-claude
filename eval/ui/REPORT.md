@@ -197,3 +197,6 @@ Stesso banco (LXC 301, core 1, replay), `chat.mjs` finale, 5 giri alternati test
 | Ricco | 3,56 · 3,59 · 3,61 · 3,77 · 3,82 | **3,61** | 11,1× | ≤ 10,0: rispettata |
 
 Lettura: nessun degrado; rispetto al lotto 3b la CPU scende (3,88 → 2,67 s testo, 5,17 → 3,61 s ricco), per i 15 fps in streaming e la cache `width_`/`cut`. Il primo giro del testo (7,03 s) è l'anomalia di avvio già vista. Limiti: Pi non rimisurato; replay, non modello vero.
+
+### Cockpit di `/auto` — 2026-11-12
+Non misurato sul Proxmox (LXC 301): nessun carico replay con vista aperta eseguito, quindi la soglia 1/4 non è dimostrata per questo lotto. Micro-misura locale (WSL2, 2000 giri): `cockpitRows` a 110×30 con 5 passi e 8 requisiti = **0,049 ms per frame**; con un solo ridisegno al secondo (timer attivo solo a vista aperta e corsa in atto) ≈0,005% di un core. Vista chiusa: costo zero (nessun timer, nessun watch).

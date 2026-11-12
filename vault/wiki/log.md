@@ -1,5 +1,8 @@
 # Log
 
+## [2026-11-12] update | cockpit di auto mode
+- Aggiornato [[chat-rpc]]: vista a schermo intero di `/auto`, diario, guida, canale dati su file.
+
 ## [2026-11-09] ingest | ASD-STE100
 - Creato [[asd-ste100]]: regole, dizionario, evidenza HN (debole), Karpathy non confermato, relazione con Pi.
 

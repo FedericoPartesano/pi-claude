@@ -10,7 +10,7 @@ while a:
     if x == "--": chat = a; break
     if x.startswith("--") and x[2:] in ("fake", "cols", "rows", "wait", "exit", "err", "log"): opt[x[2:]] = a.pop(0)
     else: steps.append(x)
-KEYS = {"down": b"\x1b[B", "up": b"\x1b[A", "enter": b"\r", "esc": b"\x1b", "tab": b"\t", "ctrl-c": b"\x03", "ctrl-d": b"\x04", "alt-d": b"\x1bd"}
+KEYS = {"down": b"\x1b[B", "up": b"\x1b[A", "enter": b"\r", "esc": b"\x1b", "tab": b"\t", "ctrl-c": b"\x03", "ctrl-d": b"\x04", "alt-d": b"\x1bd", "alt-a": b"\x1ba", "left": b"\x1b[D", "right": b"\x1b[C"}
 dump = tempfile.mktemp(suffix=".txt")
 env = dict(os.environ, TERM="xterm-256color", PROTO_DUMP=dump)
 if "fake" in opt or "exit" in opt:

@@ -8,6 +8,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
+import { toolArg } from "./diary.ts";
 import type { StepRequest, StepResult } from "./loop.ts";
 import { selectSkills, skillName, type SkillSet, type StepKind } from "./skills.ts";
 import type { AutoState } from "./state.ts";
@@ -22,6 +23,8 @@ const BASIC = new Set(TOOLS.split(","));
 export interface ChildEnv {
 	gitDir: string;
 	skillsDir: string;
+	/** Every tool call of the child (cockpit diary): name and short argument. */
+	onTool?: (name: string, arg: string) => void;
 }
 
 const NO_TOOLS: StepTools = toolsFor([]);
@@ -112,6 +115,7 @@ export async function runChild(state: AutoState, request: StepRequest, env: Chil
 				settled = setTimeout(() => killGroup(child), Number(process.env.PI_AUTO_SETTLE_MS) || 15_000);
 				return;
 			}
+			if (event.type === "tool_execution_start") env.onTool?.(String(event.toolName), toolArg(event.args));
 			if (event.type === "tool_execution_start" && !BASIC.has(event.toolName) && !result.toolsUsed!.includes(event.toolName)) result.toolsUsed!.push(event.toolName);
 			if (event.type === "tool_execution_start" && event.toolName === "read" && /(^|\/)SKILL\.md$/.test(String(event.args?.path ?? ""))) {
 				const name = skillName(String(event.args.path));

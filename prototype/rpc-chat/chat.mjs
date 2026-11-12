@@ -3,10 +3,11 @@
 // Differential rendering: only the rows that changed are written; streaming redraws are capped (PROTO_FPS, default 30; 15 while a turn is running),
 // key presses redraw at once. Usage: node chat.mjs [pi options, e.g. --model haiku]
 import { spawn, execFile } from "node:child_process";
-import { readFileSync, writeFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, writeFileSync, readdirSync, statSync, watch as fsWatch } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { checkOutcome, failingTests } from "../../pi-ui/src/test-output.ts";
+import { cockpitRows, createFeed, groupSteps } from "./cockpit.mjs";
 import { readUsage as readUsageFile, forecastLines, resetLabel } from "../../pi-ui/src/usage.ts";
 
 const FPS = Number(process.env.PROTO_FPS) || 30;
@@ -714,8 +715,74 @@ const quizLines = (z, bar, iw, leftW, H) => {
 	return L;
 };
 let previous = [], toastText = "", toastSeen = "", toastT0 = 0, toastOut = 0;
+// --- Cockpit of /auto (alt+a, or /auto alone): full-screen view of the run, read from the state file and the diary on disk.
+// Closed: no cost. Open: one 1 s tick only while the run is active (the "stalled for Ns" counter), plus fs.watch on the run directory.
+let cockpit; // {feed, ui: {sel, top, seen, note}, tick, watch}
+const cockpitFrame = () => {
+	const W = out.columns || 80, H = out.rows || 24;
+	const c = cockpit, st = c.feed.state;
+	if (!st) return;
+	const next = cockpitRows({ state: st, events: c.feed.events, now: Date.now(), W, H, usage: typeof usage.h5 === "number" ? usage.h5 : undefined, ui: c.ui });
+	let buf = "";
+	for (let i = 0; i < next.length; i++) if (previous[i] !== next[i]) buf += `${ESC}${i + 1};1H${next[i]}${ESC}K`;
+	for (let i = next.length; i < previous.length; i++) buf += `${ESC}${i + 1};1H${ESC}K`;
+	previous = next;
+	if (buf) out.write(`${ESC}?25l${buf}`);
+};
+const cockpitOpen = () => {
+	const file = statuses.get("auto-run");
+	if (!file) { toast = "nessuna corsa /auto in questa sessione (avviala con /auto <goal>)"; schedule(); return; }
+	const feed = createFeed(file);
+	feed.refresh();
+	if (!feed.state) { toast = "stato della corsa non leggibile"; schedule(); return; }
+	cockpit = { feed, ui: { sel: -1, top: 0, seen: 0, note: null }, tick: undefined, watch: undefined };
+	try { cockpit.watch = fsWatch(dirname(file), { persistent: false }, () => { if (cockpit?.feed.refresh()) schedule(); }); cockpit.watch.on("error", () => {}); } catch {}
+	cockpit.tick = setInterval(() => {
+		const changed = cockpit.feed.refresh();
+		if (cockpit.feed.state.stop) clearInterval(cockpit.tick); // a finished run needs no clock
+		if (changed || !cockpit.feed.state.stop) schedule();
+	}, 1000);
+	cockpit.tick.unref();
+	previous = []; out.write(`${ESC}2J`); drawNow();
+};
+const cockpitClose = () => {
+	if (!cockpit) return;
+	clearInterval(cockpit.tick); cockpit.watch?.close(); cockpit = undefined;
+	previous = []; shownKitty = new Set(); out.write(`${ESC}?25h${ESC}2J`); sideVer++; drawNow();
+};
+// Guidance goes to the supervisor as /auto subcommands: the extension owns the state and logs every command.
+const cockpitKey = (key, csi) => {
+	const c = cockpit;
+	if (!c) return false;
+	const groups = groupSteps(c.feed.events).length;
+	const ui = c.ui;
+	if (ui.note !== null) {
+		if (csi) return true;
+		if (key === "\x1b") ui.note = null;
+		else if (key === "\r" || key === "\n") { const t = ui.note.trim(); ui.note = null; if (t) { send({ type: "prompt", message: `/auto nota ${t}` }); toast = "nota in coda per il prossimo passo"; } }
+		else if (key === "\x7f") ui.note = ui.note.slice(0, -1);
+		else if (key >= " ") ui.note += key;
+		return true;
+	}
+	const live = ui.sel < 0;
+	if (csi === "D") { if (live ? groups > 1 : true) { ui.sel = live ? groups - 2 : Math.max(0, ui.sel - 1); ui.top = 0; if (live) ui.seen = groups; } }
+	else if (csi === "C") { if (!live) { ui.sel++; ui.top = 0; if (ui.sel >= groups - 1) ui.sel = -1; } }
+	else if (csi === "F" || csi === "4~") { ui.sel = -1; ui.top = 0; }
+	else if (csi === "A") ui.top = Math.max(0, ui.top - 1);
+	else if (csi === "B") ui.top += 1;
+	else if (csi === "5~") ui.top = Math.max(0, ui.top - 10);
+	else if (csi === "6~") ui.top += 10;
+	else if (csi) return true;
+	else if (key === "q" || key === "\x1b") return cockpitClose(), true;
+	else if (key === "p" && !c.feed.state.stop) send({ type: "prompt", message: c.feed.state.paused ? "/auto riprendi" : "/auto pausa" });
+	else if (key === "s" && !c.feed.state.stop) send({ type: "prompt", message: "/auto stop" });
+	else if (key === ":" && !c.feed.state.stop) ui.note = "";
+	return true;
+};
+
 const frame = () => {
 	if (booting) return bootFrame();
+	if (cockpit) return cockpitFrame();
 	frames++;
 	const W = out.columns || 80, H = out.rows || 24;
 	const side = panelOff ? 0 : W >= 140 ? 36 : W >= 120 ? 34 : W >= 100 ? 28 : 0; // narrower on medium terminals, hidden below 100 columns
@@ -1232,7 +1299,7 @@ const flushReply = (r) => {
 // Without pi-ui (no /now command) flushNow above does the interrupting version on its own.
 let piHasNow = false;
 // Send-now key: alt+<letter>, PI_NOW_KEY overrides (alt+n/alt+i clash with window managers like komorebi). ctrl+enter and /now always work.
-const NOW_ALT = /^[a-z]$/.test(process.env.PI_NOW_KEY ?? "") && !"vs".includes(process.env.PI_NOW_KEY) ? process.env.PI_NOW_KEY : "d";
+const NOW_ALT = /^[a-z]$/.test(process.env.PI_NOW_KEY ?? "") && !"vsa".includes(process.env.PI_NOW_KEY) ? process.env.PI_NOW_KEY : "d";
 const nowKey = () => {
 	const text = input.trim();
 	if (!running) { if (text || attached.length) submit(); return; }
@@ -1256,6 +1323,7 @@ const submit = () => {
 	if (text === "/clear") { blocks.length = 0; queuedMsgs.length = 0; open = undefined; previous = []; out.write(`${ESC}2J`); return; }
 	if (text === "/new") { send({ type: "new_session" }); sessionName = ""; send({ id: "state", type: "get_state" }); blocks.length = 0; queuedMsgs.length = 0; open = undefined; previous = []; out.write(`${ESC}2J`); return; }
 	if (text === "/resume") { resume(); return; }
+	if (text === "/auto" && statuses.get("auto-run")) { cockpitOpen(); return; }
 	const np0 = /^\/model(?:\s+(.+))?$/.exec(text);
 	if (np0) { modelCmd = np0[1]?.trim() ?? ""; send({ id: "models", type: "get_available_models" }); return; }
 	if (text === "/custom-reload") { if (running) { toast = "reload rifiutato: Pi sta lavorando (ctrl+c per fermarlo, poi riprova)"; schedule(); return; } restart(); return; }
@@ -1297,7 +1365,7 @@ const histMove = (dir) => {
 };
 
 process.stdin.setRawMode(true);
-const re = new RegExp(/\x1b_G([^\x1b]*)\x1b\\|\x1b\[\?([0-9;]*)c|\x1b\[200~([\s\S]*?)\x1b\[201~|\x1b\[<(\d+);\d+;\d+[Mm]|\x1b\[([0-9;]*)([A-Za-z~])|(\x1b[\r\nvs])|([\s\S])/.source.replace("vs]", `vs${NOW_ALT}]`), "gu");
+const re = new RegExp(/\x1b_G([^\x1b]*)\x1b\\|\x1b\[\?([0-9;]*)c|\x1b\[200~([\s\S]*?)\x1b\[201~|\x1b\[<(\d+);\d+;\d+[Mm]|\x1b\[([0-9;]*)([A-Za-z~])|(\x1b[\r\nvs])|([\s\S])/.source.replace("vs]", `vsa${NOW_ALT}]`), "gu");
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (data) => {
 	re.lastIndex = 0;
@@ -1314,13 +1382,15 @@ process.stdin.on("data", (data) => {
 		}
 		if (m[3] !== undefined) { // bracketed paste: literal text, newlines kept
 			const t = m[3].replace(/\r\n?/g, "\n");
-			if (dialog?.text !== undefined) dialog.text += t.replace(/\n/g, " ");
+			if (cockpit) { if (cockpit.ui.note !== null) { cockpit.ui.note += t.replace(/\n/g, " "); drawNow(); } }
+			else if (dialog?.text !== undefined) dialog.text += t.replace(/\n/g, " ");
 			else if (!dialog && !t.trim()) pasteClipboardImage(); // image-only clipboard: terminals paste nothing, read the image
 			else if (!dialog && !attachFile(t)) insert(t);
 		} else if (m[4] !== undefined) { // SGR mouse: 64 wheel up, 65 wheel down
 			if (m[4] === "64") scroll += 3;
 			else if (m[4] === "65") scroll = Math.max(0, scroll - 3);
 		} else if (m[6] !== undefined) {
+			if (cockpit) { cockpitKey(undefined, m[5] + m[6]); drawNow(); continue; }
 			if (dialogKey(undefined, m[5] + m[6])) continue;
 			const k = m[5] + m[6];
 			if (m[6] === "t") { const q = /^6;(\d+);(\d+)$/.exec(m[5]); if (q) { cellH = Number(q[1]) || cellH; cellW = Number(q[2]) || cellW; } continue; }
@@ -1338,11 +1408,12 @@ process.stdin.on("data", (data) => {
 			else if (k === "13;5u") nowKey();
 			else if (k === "A") { if (items) popSel = (popSel + items.length - 1) % items.length; else if (!input.includes("\n")) histMove(-1); else cursor = Math.max(0, input.lastIndexOf("\n", cursor - 1)); }
 			else if (k === "B") { if (items) popSel = (popSel + 1) % items.length; else if (!input.includes("\n")) histMove(1); else { const n = input.indexOf("\n", cursor); cursor = n < 0 ? input.length : n + 1; } }
-		} else if (m[7] !== undefined) { if (m[7][1] === NOW_ALT) nowKey(); else if (m[7][1] === "v") pasteClipboardImage();
+		} else if (m[7] !== undefined) { if (cockpit) continue; if (m[7][1] === "a") cockpitOpen(); else if (m[7][1] === NOW_ALT) nowKey(); else if (m[7][1] === "v") pasteClipboardImage();
 		else if (m[7][1] === "s") { panelOff = !panelOff; previous = []; out.write(`${ESC}2J`); } else insert("\n"); }
 		else {
 			const key = m[8];
 			if (booting) { if (key === "\x03") return quit(); continue; } // nothing to type into yet
+			if (cockpit) { if (key === "\x03") return quit(); cockpitKey(key); drawNow(); continue; }
 			if (dialogKey(key)) continue;
 			const items = popup();
 			if (key === "\x03") {

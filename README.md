@@ -111,10 +111,15 @@ di 5 ore, 3 ore (`PI_AUTO_HOURS`) o 60 passi; le azioni irreversibili finiscono 
 Nella chat predefinita la corsa compare in cima al pannello di destra (sezione AUTO: fase, passi, requisiti, requisito
 in lavorazione, ora limite e quota 5h spesa, stallo o errore ripetuto, ultimo evento) e l'esito resta lì fino al prossimo
 `/auto`; nella UI classica c'è la riga di stato.
+Il cockpit (solo nella chat predefinita) è la vista a schermo intero della corsa: `alt+a` o `/auto` senza argomenti. Mostra
+salute (PROCEDE, A RISCHIO, FERMA, SERVE TE) con il motivo, requisiti, passo in diretta e, con ←/→, i passi passati; legge
+stato e diario (`<repo>-auto/<slug>.eventi.jsonl`) dai file, senza token. Tasti: `p` pausa/riprendi, `:` nota al prossimo
+passo, `s` stop, `q` chiude.
 
 ```
 /auto aggiungi l'export CSV alla pagina ordini
 /auto status · /auto stop · /auto resume [slug]
+/auto pausa · /auto riprendi · /auto nota <testo>
 ```
 
 Scelta e limiti: [ADR 0001](docs/adr/0001-auto-mode-processo-figlio-per-passo.md).

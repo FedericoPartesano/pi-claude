@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { setStatus } from "../intent.ts";
 import { denyReason, type Phase } from "./policy.ts";
 import type { StepKind } from "./skills.ts";
+import type { DiaryEvent } from "./diary.ts";
 import { docsDir, docsStatus, PROJECT_DOCS } from "./docs.ts";
 import { buildPrompt, definePrompt, docsPrompt, planPrompt, reviewPrompt } from "./prompts.ts";
 import { APPROVALS_FILE, checksHash, DECISIONS_FILE, parsePlan, REQUIREMENTS_FILE, type AutoState, type StopReason } from "./state.ts";
@@ -58,6 +59,10 @@ export interface LoopDeps {
 	stopped(): boolean;
 	/** Live progress line (status bar). */
 	progress?(state: AutoState, line: string): void;
+	/** Diary event (cockpit): step start/end, check results, applied guidance. */
+	event?(event: DiaryEvent): void;
+	/** Resolves at once, or waits while the run is paused (cockpit). Called between steps only. */
+	gate?(state: AutoState): Promise<void>;
 }
 
 const passing = (state: AutoState) => state.requirements.filter((item) => item.passes).length;
@@ -127,13 +132,26 @@ async function commitAll(state: AutoState, deps: LoopDeps, message: string): Pro
 	return (await deps.git(state.worktree, ["commit", "-q", "--no-verify", "-m", message])).ok;
 }
 
+/** User notes (cockpit `:`) waiting for the next step: appended once at the end of the prompt, so the fixed prefix keeps its cache. */
+export function withNotes(state: AutoState, deps: LoopDeps, prompt: string): string {
+	const notes = state.notes?.splice(0) ?? [];
+	if (!notes.length) return prompt;
+	deps.event?.({ t: "cmd", at: deps.now(), cmd: "nota", text: notes.join(" | "), applied: true });
+	note(state, deps, `nota dell'utente applicata (${notes.length})`);
+	return `${prompt}\n\nNota dell'utente per questo passo (rispettala, non cambia i check congelati):\n${notes.map((n) => `- ${n}`).join("\n")}`;
+}
+
 async function runStep(state: AutoState, deps: LoopDeps, phase: Phase, prompt: string, kinds: StepKind[] = [phase as StepKind], context = state.goal): Promise<StepResult> {
 	state.steps++;
 	note(state, deps, `passo ${state.steps}: ${phase}`);
+	prompt = withNotes(state, deps, prompt);
 	deps.save(state);
+	const started = deps.now();
+	deps.event?.({ t: "step", at: started, n: state.steps, phase });
 	const readOnly = phase === "define" || phase === "plan" ? [] : state.frozen.map((path) => join(state.worktree, path)).filter((path) => existsSync(path));
 	const result = await deps.step(state, { phase, prompt, readOnly, skills: { kinds, context } });
 	state.tokens += result.tokens;
+	deps.event?.({ t: "end", at: deps.now(), n: state.steps, ok: result.ok, ms: deps.now() - started, tokens: result.tokens, text: result.text, error: result.error });
 	const skills = (state.skills ??= { given: {}, read: {} });
 	for (const name of result.skillsGiven ?? []) skills.given[name] = (skills.given[name] ?? 0) + 1;
 	for (const name of result.skillsRead ?? []) skills.read[name] = (skills.read[name] ?? 0) + 1;
@@ -153,7 +171,11 @@ function tampered(state: AutoState): boolean {
 }
 
 async function refreshPasses(state: AutoState, deps: LoopDeps): Promise<void> {
-	for (const item of state.requirements) item.passes = (await deps.check(item.check, state.worktree)).ok;
+	for (const item of state.requirements) {
+		const result = await deps.check(item.check, state.worktree);
+		item.passes = result.ok;
+		deps.event?.({ t: "check", at: deps.now(), id: item.id, ok: result.ok, ...(result.ok ? {} : { out: result.output.slice(-600) }) });
+	}
 	writeRequirements(state);
 }
 
@@ -337,6 +359,7 @@ async function writeReport(state: AutoState, deps: LoopDeps): Promise<void> {
 export async function runAuto(state: AutoState, deps: LoopDeps): Promise<AutoState> {
 	state.stop = undefined;
 	while (!state.stop) {
+		await deps.gate?.(state);
 		const limit = limitReason(state, deps);
 		if (limit) {
 			stop(state, deps, limit[0], limit[1]);
