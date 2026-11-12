@@ -1,2 +1,3 @@
 - «Schermata di auto» interpretata come il cockpit di /auto (prototype/rpc-chat/cockpit.mjs) — è l'unica vista dedicata; l'intent del cockpit esiste già, questo copre rifinitura e robustezza.
 - Soglia prestazioni «non oltre +10%» invece di 1/4 di Pi — il limite 1/4 resta nell'intent del cockpit, qui serve solo evitare regressioni.
+- Sei documenti scritti in vault/progetto/ come bozza dal repository com'è — la cartella mancava, schema.md del vault lo prevede.
