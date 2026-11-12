@@ -117,6 +117,17 @@ export function nextKey(state, h) {
 	return "Niente da fare: lascia andare. : aggiunge una nota al prossimo passo.";
 }
 
+/** No readable state: say what happened and which key helps (one short block, never wider than W). */
+function emptyRows(problem, W, H) {
+	const bad = problem === "illeggibile";
+	const lines = bad
+		? [`${C.err}Stato della corsa illeggibile.${R}`, `${C.dim}Il file di stato è incompleto o rovinato; riprova tra poco.${R}`, `${C.text}q${C.dim} chiude la vista · ${C.text}/auto status${C.dim} per controllare.${R}`]
+		: [`${C.warn}Nessuna corsa in questa sessione.${R}`, `${C.dim}Avviane una con ${C.text}/auto <obiettivo>${C.dim}; la vista si riempie da sola.${R}`, `${C.text}q${C.dim} chiude la vista.${R}`];
+	const rows = lines.map((l) => cutAnsi(l, W));
+	while (rows.length < H) rows.push("");
+	return rows.slice(0, Math.max(1, H));
+}
+
 const toneColor = (tone) => ({ ok: C.ok, warn: C.warn, err: C.err }[tone] ?? C.dim);
 
 function reqLines(state, w, events) {
@@ -154,7 +165,8 @@ function stepLines(g, w, running) {
  * Rows of the view (exactly H, each at most W visible columns).
  * ui: {sel: index of the reviewed step or -1 for live, top: scroll in review, seen: steps count when review began, note: text being typed or null}.
  */
-export function cockpitRows({ state, events, now, W, H, usage, ui }) {
+export function cockpitRows({ state, events, now, W, H, usage, ui, problem }) {
+	if (!state) return emptyRows(problem, W, H);
 	const groups = groupSteps(events);
 	const h = health(state, events, now, usage);
 	const pend = pending(state, events);
@@ -243,18 +255,24 @@ function cutAnsi(line, W) {
  */
 export function createFeed(stateFile) {
 	const diaryPath = stateFile.replace(/\.json$/, ".eventi.jsonl");
-	let state, mtime = 0, offset = 0;
+	let state, mtime = 0, offset = 0, problem = "assente";
 	const events = [];
 	return {
 		diaryPath,
 		get state() { return state; },
+		// Why there is no state: "assente" (no file yet) or "illeggibile" (not valid JSON); undefined once a state is loaded.
+		get problem() { return state ? undefined : problem; },
 		events,
 		refresh() {
 			let changed = false;
 			try {
 				const m = statSync(stateFile).mtimeMs;
-				if (m !== mtime) { mtime = m; state = JSON.parse(readFileSync(stateFile, "utf8")); changed = true; }
-			} catch { /* state mid-rename: keep the previous one */ }
+				if (m !== mtime) {
+					mtime = m;
+					try { state = JSON.parse(readFileSync(stateFile, "utf8")); problem = undefined; } catch { problem = "illeggibile"; }
+					changed = true;
+				}
+			} catch { if (!state) problem = "assente"; /* state mid-rename: keep the previous one */ }
 			if (existsSync(diaryPath)) {
 				try {
 					const size = statSync(diaryPath).size;

@@ -734,7 +734,7 @@ const cockpitOpen = () => {
 	if (!file) { toast = "nessuna corsa /auto in questa sessione (avviala con /auto <goal>)"; schedule(); return; }
 	const feed = createFeed(file);
 	feed.refresh();
-	if (!feed.state) { toast = "stato della corsa non leggibile"; schedule(); return; }
+	if (!feed.state) { toast = feed.problem === "illeggibile" ? "stato della corsa illeggibile: riprova tra poco (/auto status)" : "nessuna corsa /auto in questa sessione (avviala con /auto <goal>)"; schedule(); return; }
 	cockpit = { feed, ui: { sel: -1, top: 0, seen: 0, note: null }, tick: undefined, watch: undefined };
 	try { cockpit.watch = fsWatch(dirname(file), { persistent: false }, () => { if (cockpit?.feed.refresh()) schedule(); }); cockpit.watch.on("error", () => {}); } catch {}
 	cockpit.tick = setInterval(() => {
