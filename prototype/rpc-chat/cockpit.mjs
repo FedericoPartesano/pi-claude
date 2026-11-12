@@ -210,7 +210,7 @@ export function cockpitRows({ state, events, now, W, H, usage, ui, problem }) {
 	rows.push(headRow(state, events, now, W, usage, ui, groups, h, running, live, g));
 	const bar = total ? `${"▰".repeat(Math.round((done / total) * 16))}${"▱".repeat(16 - Math.round((done / total) * 16))} ${done}/${total} requisiti` : "piano non ancora scritto";
 	const spent = usage !== undefined && state.fiveHourStart !== undefined ? ` · 5h +${Math.round((usage - state.fiveHourStart) * 100)}%/50%` : "";
-	rows.push(`${C.ok}${fit(`${bar}${C.dim}${spent} · fino alle ${clock(state.deadline)} (${fmtDur(state.deadline - now)}) · ${Math.round(state.tokens / 1000)}k token`, W)}${R}`);
+	rows.push(cutAnsi(`${C.ok}${bar}${C.dim}${spent} · fino alle ${clock(state.deadline)} (${fmtDur(state.deadline - now)}) · ${Math.round(state.tokens / 1000)}k token${R}`, W)); // cutAnsi, not fit: the row holds color codes
 	rows.push(pend.list.length ? `${C.warn}in attesa: ${fit(pend.list.join(" · "), W - 12)}${R}` : "");
 	rows.push(`${C.faint}${"─".repeat(W)}${R}`);
 	const room = Math.max(3, H - rows.length - 2);
