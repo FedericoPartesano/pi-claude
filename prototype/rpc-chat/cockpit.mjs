@@ -161,20 +161,18 @@ function stepLines(g, w, running) {
 	return lines;
 }
 
-/**
- * Rows of the view (exactly H, each at most W visible columns).
- * ui: {sel: index of the reviewed step or -1 for live, top: scroll in review, seen: steps count when review began, note: text being typed or null}.
- */
-export function cockpitRows({ state, events, now, W, H, usage, ui, problem }) {
-	if (!state) return emptyRows(problem, W, H);
+/** Header row only (the 1 s tick redraws just this when nothing else changed). */
+export function cockpitHead({ state, events, now, W, usage, ui }) {
+	if (!state) return [emptyRows(undefined, W, 1)[0]];
 	const groups = groupSteps(events);
 	const h = health(state, events, now, usage);
 	const pend = pending(state, events);
 	const running = !state.stop && !(state.paused && pend.pauseApplied);
 	const live = ui.sel < 0 || ui.sel >= groups.length;
-	const g = live ? groups[groups.length - 1] : groups[ui.sel];
-	const done = state.requirements.filter((r) => r.passes).length, total = state.requirements.length;
-	const rows = [];
+	return [headRow(state, events, now, W, usage, ui, groups, h, running, live, live ? groups[groups.length - 1] : groups[ui.sel])];
+}
+
+function headRow(state, events, now, W, usage, ui, groups, h, running, live, g) {
 	// One header row: phase comes from the diary (last step event), falling back to the state, never "undefined".
 	let phase = state.phase || "";
 	for (let i = events.length - 1; i >= 0; i--) if (events[i].t === "step" && events[i].phase) { phase = events[i].phase; break; }
@@ -192,7 +190,24 @@ export function cockpitRows({ state, events, now, W, H, usage, ui, problem }) {
 	const whyT = whyW >= 8 ? ` ${fit(h.why, whyW)}` : "";
 	const sep = `${C.dim} · `;
 	// Below 50 columns the phase is dropped first.
-	rows.push(cutAnsi(`${C.mag}${C.b}AUTO${R} ${C.text}${fit(state.slug, slugW)}${phaseT ? `${sep}${C.dim}${phaseT}` : ""}${sep}${C.dim}${fixed[0]}${sep}${toneColor(h.tone)}${C.b}${fixed[1]}${R}${C.dim}${whyT}${stuck ? `${sep}${stuck}` : ""}${sep}${R}${live ? C.ok : C.cyan}${modeT}${R}`, W));
+	return cutAnsi(`${C.mag}${C.b}AUTO${R} ${C.text}${fit(state.slug, slugW)}${phaseT ? `${sep}${C.dim}${phaseT}` : ""}${sep}${C.dim}${fixed[0]}${sep}${toneColor(h.tone)}${C.b}${fixed[1]}${R}${C.dim}${whyT}${stuck ? `${sep}${stuck}` : ""}${sep}${R}${live ? C.ok : C.cyan}${modeT}${R}`, W);
+}
+
+/**
+ * Rows of the view (exactly H, each at most W visible columns).
+ * ui: {sel: index of the reviewed step or -1 for live, top: scroll in review, seen: steps count when review began, note: text being typed or null}.
+ */
+export function cockpitRows({ state, events, now, W, H, usage, ui, problem }) {
+	if (!state) return emptyRows(problem, W, H);
+	const groups = groupSteps(events);
+	const h = health(state, events, now, usage);
+	const pend = pending(state, events);
+	const running = !state.stop && !(state.paused && pend.pauseApplied);
+	const live = ui.sel < 0 || ui.sel >= groups.length;
+	const g = live ? groups[groups.length - 1] : groups[ui.sel];
+	const done = state.requirements.filter((r) => r.passes).length, total = state.requirements.length;
+	const rows = [];
+	rows.push(headRow(state, events, now, W, usage, ui, groups, h, running, live, g));
 	const bar = total ? `${"▰".repeat(Math.round((done / total) * 16))}${"▱".repeat(16 - Math.round((done / total) * 16))} ${done}/${total} requisiti` : "piano non ancora scritto";
 	const spent = usage !== undefined && state.fiveHourStart !== undefined ? ` · 5h +${Math.round((usage - state.fiveHourStart) * 100)}%/50%` : "";
 	rows.push(`${C.ok}${fit(`${bar}${C.dim}${spent} · fino alle ${clock(state.deadline)} (${fmtDur(state.deadline - now)}) · ${Math.round(state.tokens / 1000)}k token`, W)}${R}`);

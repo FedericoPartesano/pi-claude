@@ -7,7 +7,7 @@ import { readFileSync, writeFileSync, readdirSync, statSync, watch as fsWatch } 
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { checkOutcome, failingTests } from "../../pi-ui/src/test-output.ts";
-import { cockpitRows, createFeed, groupSteps, navigate } from "./cockpit.mjs";
+import { cockpitHead, cockpitRows, createFeed, groupSteps, navigate } from "./cockpit.mjs";
 import { readUsage as readUsageFile, forecastLines, resetLabel } from "../../pi-ui/src/usage.ts";
 
 const FPS = Number(process.env.PROTO_FPS) || 30;
@@ -729,6 +729,12 @@ const cockpitFrame = () => {
 	previous = next;
 	if (buf) out.write(`${ESC}?25l${buf}`);
 };
+const cockpitHeadOnly = () => {
+	const c = cockpit, st = c.feed.state;
+	if (!st || !previous.length) return;
+	const [row] = cockpitHead({ state: st, events: c.feed.events, now: Date.now(), W: out.columns || 80, usage: typeof usage.h5 === "number" ? usage.h5 : undefined, ui: c.ui });
+	if (row !== previous[0]) { previous[0] = row; out.write(`${ESC}?25l${ESC}1;1H${row}${ESC}K`); }
+};
 const cockpitOpen = () => {
 	const file = statuses.get("auto-run");
 	if (!file) { toast = "nessuna corsa /auto in questa sessione (avviala con /auto <goal>)"; schedule(); return; }
@@ -740,7 +746,8 @@ const cockpitOpen = () => {
 	cockpit.tick = setInterval(() => {
 		const changed = cockpit.feed.refresh();
 		if (cockpit.feed.state.stop) clearInterval(cockpit.tick); // a finished run needs no clock
-		if (changed || !cockpit.feed.state.stop) schedule();
+		if (changed) schedule();
+		else if (!cockpit.feed.state.stop) cockpitHeadOnly(); // nothing else changed: only the "stalled for Ns" header moves
 	}, 1000);
 	cockpit.tick.unref();
 	previous = []; out.write(`${ESC}2J`); drawNow();
