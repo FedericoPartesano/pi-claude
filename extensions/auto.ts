@@ -212,7 +212,7 @@ export default function (pi: ExtensionAPI) {
 		setTool(true);
 		const diary = diaryFile(file);
 		const deps: LoopDeps = {
-			step: (s, request) => runChild(s, request, { gitDir, skillsDir: SKILLS_DIR, onTool: (name, arg) => appendEvent(diary, { t: "tool", at: Date.now(), n: s.steps, name, arg }) }, controller.signal),
+			step: (s, request) => runChild(s, request, { gitDir, skillsDir: SKILLS_DIR, onTool: (name, arg) => appendEvent(diary, { t: "tool", at: Date.now(), n: s.steps, name, arg }), onSay: (kind, text) => appendEvent(diary, { t: "say", at: Date.now(), n: s.steps, kind, text }) }, controller.signal),
 			event: (event) => appendEvent(diary, event),
 			gate: async (s) => {
 				if (s.paused && !controller.signal.aborted) appendEvent(diary, { t: "cmd", at: Date.now(), cmd: "pausa", applied: true });

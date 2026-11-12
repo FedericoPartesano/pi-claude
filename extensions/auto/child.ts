@@ -25,6 +25,8 @@ export interface ChildEnv {
 	skillsDir: string;
 	/** Every tool call of the child (cockpit diary): name and short argument. */
 	onTool?: (name: string, arg: string) => void;
+	/** Live thought of the step: the tail of the text being streamed (throttled, a few hundred characters). */
+	onSay?: (kind: "think" | "text", text: string) => void;
 }
 
 const NO_TOOLS: StepTools = toolsFor([]);
@@ -34,6 +36,9 @@ export function stepTools(state: AutoState, request: StepRequest): StepTools {
 	const kinds = request.skills?.kinds ?? [request.phase as StepKind];
 	return toolsFor(chooseTools(kinds, request.skills?.context ?? state.goal, codeFiles(state.worktree)));
 }
+
+const SAY_MAX = 400; // live thought kept per message
+const SAY_MS = 1500; // at most one diary line per 1.5 s
 
 export function childArgs(state: AutoState, request: StepRequest, tools: StepTools = NO_TOOLS): string[] {
 	const args = ["--mode", "json", "-p", "--no-session", "--no-extensions", "-e", PROVIDER_PATH, "-e", WORKER_PATH];
@@ -101,6 +106,7 @@ export async function runChild(state: AutoState, request: StepRequest, env: Chil
 		running.add(child);
 		let stderrTail = "";
 		let settled: NodeJS.Timeout | undefined;
+		const say = { kind: "text" as "think" | "text", text: "", at: 0 };
 		child.stderr?.on("data", (chunk: Buffer) => (stderrTail = (stderrTail + chunk.toString("utf8")).slice(-2000)));
 		createInterface({ input: child.stdout! }).on("line", (line) => {
 			let event: any;
@@ -114,6 +120,22 @@ export async function runChild(state: AutoState, request: StepRequest, env: Chil
 			if (event.type === "agent_settled" && !settled) {
 				settled = setTimeout(() => killGroup(child), Number(process.env.PI_AUTO_SETTLE_MS) || 15_000);
 				return;
+			}
+			if (env.onSay && event.type === "message_update") {
+				const ev = event.assistantMessageEvent;
+				const kind = ev?.type === "thinking_delta" ? "think" : ev?.type === "text_delta" ? "text" : undefined;
+				if (kind && typeof ev.delta === "string") {
+					say.kind = kind;
+					say.text = (say.text + ev.delta).slice(-SAY_MAX);
+					const now = Date.now();
+					if (now - say.at >= SAY_MS) {
+						say.at = now;
+						env.onSay(kind, say.text);
+					}
+				}
+			} else if (env.onSay && event.type === "message_end") {
+				if (say.text) env.onSay(say.kind, say.text);
+				say.text = "";
 			}
 			if (event.type === "tool_execution_start") env.onTool?.(String(event.toolName), toolArg(event.args));
 			if (event.type === "tool_execution_start" && !BASIC.has(event.toolName) && !result.toolsUsed!.includes(event.toolName)) result.toolsUsed!.push(event.toolName);

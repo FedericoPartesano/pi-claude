@@ -224,3 +224,29 @@ test("cockpit chat strip: shows the conversation, keeps exactly H rows, absent w
 	assert.ok(!none.some((r: string) => r.includes("tu ›")));
 	for (const r of rows) assert.ok([...r].length <= 100);
 });
+
+test("cockpit live thought: FASI, PENSIERO, STUDIO e PRASSI", async () => {
+	const { groupSteps, phaseLines, thoughtLines, practiceLines } = await import("../prototype/rpc-chat/cockpit.mjs");
+	const strip = (t: string) => t.replace(/\x1b\[[0-9;]*m/g, "");
+	const events: any[] = [
+		{ t: "step", at: 1, n: 1, phase: "define" },
+		{ t: "end", at: 2, n: 1, ok: true, ms: 1000, tokens: 1, text: "" },
+		{ t: "step", at: 3, n: 2, phase: "build" },
+		{ t: "tool", at: 4, n: 2, name: "read", arg: "/s/skills/tdd/SKILL.md" },
+		{ t: "tool", at: 5, n: 2, name: "grep", arg: "foo" },
+		{ t: "tool", at: 6, n: 2, name: "edit", arg: "a.ts" },
+		{ t: "say", at: 7, n: 2, kind: "think", text: "prima penso" },
+		{ t: "say", at: 8, n: 2, kind: "text", text: "poi scrivo il codice" },
+	];
+	const groups = groupSteps(events);
+	assert.equal(groups[1].say.text, "poi scrivo il codice");
+	const phases = phaseLines({ phase: "build" }, groups, 40).map(strip);
+	assert.match(phases[0], /✓ definisci/);
+	assert.match(phases[2], /▸ costruisci/);
+	assert.match(phases[3], /○ verifica/);
+	assert.match(thoughtLines(groups[1], 40, 4, true).map(strip).join("\n"), /scrive[\s\S]*poi scrivo il codice/);
+	const prac = practiceLines(groups[1], 60).map(strip).join("\n");
+	assert.match(prac, /studio 1 letture/);
+	assert.match(prac, /prassi tdd/);
+	assert.match(prac, /edit×1/);
+});

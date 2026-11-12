@@ -47,6 +47,7 @@ export function groupSteps(events) {
 			else if (e.t === "end") cur.end = e;
 			else if (e.t === "check") cur.checks.push(e);
 			else if (e.t === "cmd") cur.cmds.push(e);
+			else if (e.t === "say") cur.say = e; // only the latest thought of the step is kept
 		}
 	}
 	return steps;
@@ -144,6 +145,55 @@ function reqLines(state, w, events) {
 }
 
 const MAX_TOOLS = 5;
+
+const PHASES = ["define", "plan", "build", "verify", "review", "ship"]; // PHASES in extensions/auto/policy.ts
+const PHASE_IT = { define: "definisci", plan: "pianifica", build: "costruisci", verify: "verifica", review: "rivedi", ship: "consegna" };
+const READ_TOOLS = new Set(["read", "grep", "glob", "find", "ls", "web_search", "web_fetch", "fetch"]);
+const skillOf = (arg) => (/(^|\/)SKILL\.md$/.test(arg) ? arg.split("/").slice(-2, -1)[0] : undefined);
+const section = (title, w, extra = "") => `${C.faint}── ${C.cyan}${title}${extra ? `${C.dim} ${extra}` : ""} ${C.faint}${"─".repeat(Math.max(0, w - title.length - visible(extra).length - 5))}${R}`;
+
+/** FASI: one row per phase with its steps and time; the current one is marked. */
+export function phaseLines(state, groups, w) {
+	const cur = PHASES.indexOf(state.phase);
+	const done = state.stop?.reason === "completato";
+	return PHASES.map((p, i) => {
+		const gs = groups.filter((g) => g.phase === p);
+		const ms = gs.reduce((a, g) => a + (g.end?.ms ?? 0), 0);
+		const mark = done || i < cur ? `${C.ok}✓` : i === cur ? `${C.mag}▸` : `${C.faint}○`;
+		const info = gs.length ? `${gs.length}p${ms ? ` ${fmtDur(ms)}` : ""}` : "";
+		const name = PHASE_IT[p];
+		return `${mark} ${i === cur && !done ? `${C.b}${C.text}` : i < cur || done ? C.dim : C.faint}${padTo(fit(name, Math.max(4, w - 9)), Math.min(10, Math.max(4, w - 9)))}${C.faint} ${fit(info, 8)}${R}`;
+	});
+}
+
+/** PENSIERO: what the model is writing/thinking right now (last diary "say" of the step), wrapped. */
+export function thoughtLines(g, w, max, running) {
+	const say = g?.say;
+	if (!say) return [`${C.faint}${running ? "in attesa del primo pensiero…" : "nessun pensiero registrato"}${R}`];
+	const tag = say.kind === "think" ? `${C.mag}◌ ragiona` : `${C.cyan}✎ scrive`;
+	const lines = wrapPlain(say.text.replace(/\s+/g, " ").trim(), Math.max(10, w - 2));
+	const shown = lines.slice(-max);
+	return [`${tag}${R}`, ...shown.map((l, i) => `${C.text}${i === 0 && lines.length > max ? "…" : " "}${l}${R}`)].slice(-max - 1);
+}
+
+/** STUDIO (files/sources read) and PRASSI (skills followed, tools used) of the viewed step. */
+export function practiceLines(g, w) {
+	if (!g) return [];
+	const reads = [], skills = [], counts = new Map();
+	for (const t of g.tools) {
+		counts.set(t.name, (counts.get(t.name) ?? 0) + 1);
+		const sk = t.name === "read" ? skillOf(t.arg) : undefined;
+		if (sk) { if (!skills.includes(sk)) skills.push(sk); }
+		else if (READ_TOOLS.has(t.name)) reads.push(t);
+	}
+	const out = [];
+	out.push(`${C.dim}studio ${C.text}${reads.length} letture${reads.length ? `${C.faint} · ultime: ${C.dim}${fit(reads.slice(-3).map((t) => t.arg.split("/").slice(-1)[0] || t.arg).join(", "), Math.max(8, w - 32))}` : ""}${R}`);
+	out.push(`${C.dim}prassi ${skills.length ? `${C.ok}${fit(skills.join(" · "), Math.max(8, w - 8))}` : `${C.faint}nessuna skill`}${R}`);
+	const acts = [...counts].filter(([n]) => !READ_TOOLS.has(n)).sort((a, b) => b[1] - a[1]).map(([n, c]) => `${n}×${c}`);
+	if (acts.length) out.push(`${C.dim}azioni ${C.text}${fit(acts.join(" "), Math.max(8, w - 8))}${R}`);
+	return out;
+}
+
 function stepLines(g, w, running) {
 	if (!g) return [`${C.dim}nessun passo ancora${R}`];
 	const lines = [];
@@ -199,7 +249,7 @@ function headRow(state, events, now, W, usage, ui, groups, h, running, live, g) 
  */
 export function cockpitRows({ state, events, now, W, H, usage, ui, problem, chat }) {
 	if (!state) return emptyRows(problem, W, H);
-	const chatRows = chatLines(chat, W, Math.min(7, Math.max(0, H - 16)));
+	const chatRows = chatLines(chat, W, Math.min(10, Math.max(0, H - 16)));
 	const groups = groupSteps(events);
 	const h = health(state, events, now, usage);
 	const pend = pending(state, events);
@@ -216,25 +266,33 @@ export function cockpitRows({ state, events, now, W, H, usage, ui, problem, chat
 	rows.push(`${C.faint}${"─".repeat(W)}${R}`);
 	const room = Math.max(3, H - rows.length - 2 - chatRows.length);
 	const wide = W >= 80;
-	const lw = wide ? Math.min(46, Math.floor(W * 0.4)) : W, rw = wide ? W - lw - 3 : W;
+	const lw = wide ? Math.min(40, Math.floor(W * 0.36)) : W, rw = wide ? W - lw - 3 : W;
+	// Left: FASI then REQUISITI (windowed around the first open one).
+	const phases = phaseLines(state, groups, lw);
 	const reqs = reqLines(state, lw, events);
-	let left;
-	if (reqs.length <= (wide ? room : Math.min(6, room - 3))) left = reqs.map((r) => r.text);
-	else {
-		const cap = wide ? room : Math.min(6, room - 3), at = Math.max(0, reqs.findIndex((r) => r.focus));
-		const from = Math.max(0, Math.min(at - Math.floor(cap / 2), reqs.length - cap));
-		left = reqs.slice(from, from + cap).map((r) => r.text);
+	const reqCap = Math.max(2, (wide ? room : Math.min(6, room - 3)) - phases.length - 2);
+	let reqRows = reqs.map((r) => r.text);
+	if (reqs.length > reqCap) {
+		const at = Math.max(0, reqs.findIndex((r) => r.focus));
+		const from = Math.max(0, Math.min(at - Math.floor(reqCap / 2), reqs.length - reqCap));
+		reqRows = reqs.slice(from, from + reqCap).map((r) => r.text);
 	}
-	let right = stepLines(g, rw, running);
-	let top = 0;
-	if (live) top = Math.max(0, right.length - (wide ? room : room - left.length - 1));
-	else top = Math.max(0, Math.min(ui.top ?? 0, right.length - 1));
-	right = right.slice(top);
+	const left = [section("FASI", lw), ...phases, section("REQUISITI", lw, `${done}/${total}`), ...reqRows];
+	// Right: PENSIERO, STUDIO/PRASSI, then the step (tools, checks, outcome) filling what is left.
+	const rroom = wide ? room : Math.max(6, room - left.length - 1);
+	const think = thoughtLines(g, rw, Math.max(2, Math.min(6, Math.floor(rroom / 3))), running);
+	const prac = practiceLines(g, rw);
+	const head = [section("PENSIERO", rw, live && running ? "in diretta" : ""), ...think, section("STUDIO E PRASSI", rw), ...prac, section("PASSO", rw)];
+	let steps = stepLines(g, rw, running);
+	const space = Math.max(2, rroom - head.length);
+	const top = live ? Math.max(0, steps.length - space) : Math.max(0, Math.min(ui.top ?? 0, steps.length - 1));
+	steps = steps.slice(top);
+	const right = [...head, ...steps];
 	const body = [];
 	if (wide) {
 		for (let i = 0; i < room; i++) body.push(`${padTo2(left[i] ?? "", lw)}${C.faint} │ ${R}${right[i] ?? ""}`);
 	} else {
-		body.push(...left, `${C.faint}${"─".repeat(W)}${R}`, ...right);
+		body.push(...left, ...right);
 		body.length = Math.min(body.length, room);
 	}
 	rows.push(...body.map((l) => cutAnsi(l, W)));
@@ -264,7 +322,7 @@ function chatLines(chat, W, max) {
 
 /** Last row: only the keys valid in the current state; pending commands ("in attesa") sit next to them. Pure. */
 export function keyHints({ state, events = [], ui, chat, W, live, newSteps }) {
-	if (chat?.typing !== null && chat?.typing !== undefined) return `${C.cyan}chat › ${C.text}${fit(chat.typing, W - 10)}${C.cyan}▌${C.dim}  ⏎ invia · esc annulla${R}`;
+	if (chat?.typing !== null && chat?.typing !== undefined) return `${C.cyan}chat › ${C.text}${fit(chat.typing, W - 10)}${C.cyan}▌${C.dim}  ⏎ invia · esc esci dalla chat${R}`;
 	if (ui.note !== null && ui.note !== undefined) return `${C.mag}nota › ${C.text}${fit(ui.note, W - 10)}${C.mag}▌${C.dim}  ⏎ invia · esc annulla${R}`;
 	if (!live) return `${C.text}←→${C.dim} passi · ${C.text}↑↓${C.dim} scorri · ${C.text}End${C.dim} in diretta${newSteps ? ` · ${C.warn}● nuovo passo${C.dim}` : ""} · ${C.text}q${C.dim} chiudi${R}`;
 	if (state.stop) return `${C.text}←${C.dim} passi · ${C.text}q${C.dim} chiudi${R}`;

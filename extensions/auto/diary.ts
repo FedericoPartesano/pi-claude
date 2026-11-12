@@ -10,6 +10,7 @@ export type DiaryEvent =
 	| { t: "step"; at: number; n: number; phase: string }
 	| { t: "tool"; at: number; n: number; name: string; arg: string }
 	| { t: "end"; at: number; n: number; ok: boolean; ms: number; tokens: number; text: string; error?: string }
+	| { t: "say"; at: number; n: number; kind: "think" | "text"; text: string }
 	| { t: "check"; at: number; id: string; ok: boolean; out?: string }
 	| { t: "cmd"; at: number; cmd: "pausa" | "riprendi" | "nota" | "stop"; text?: string; applied?: boolean };
 

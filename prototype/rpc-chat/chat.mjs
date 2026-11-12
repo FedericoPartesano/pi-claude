@@ -767,7 +767,7 @@ const cockpitKey = (key, csi) => {
 		if (csi) return true;
 		if (key === "\x1b") chat.typing = null;
 		else if (key === "\r" || key === "\n") {
-			const t = chat.typing.trim(); chat.typing = null;
+			const t = chat.typing.trim(); chat.typing = ""; // stays in chat: the conversation goes on
 			if (t) { chat.msgs.push({ role: "user", text: t }); chat.busy = true; send({ type: "prompt", message: t, ...(running ? { streamingBehavior: "followUp" } : {}) }); }
 		} else if (key === "\x7f") chat.typing = chat.typing.slice(0, -1);
 		else if (key >= " ") chat.typing += key;
