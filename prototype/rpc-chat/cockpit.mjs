@@ -225,13 +225,17 @@ export function cockpitRows({ state, events, now, W, H, usage, ui, problem }) {
 	while (rows.length < H - 2) rows.push("");
 	rows.length = Math.min(rows.length, H - 2);
 	rows.push(`${C.cyan}${fit(nextKey(state, h), W)}${R}`);
-	let keys;
-	if (ui.note !== null && ui.note !== undefined) keys = `${C.mag}nota › ${C.text}${fit(ui.note, W - 10)}${C.mag}▌${C.dim}  ⏎ invia · esc annulla${R}`;
-	else if (!live) keys = `${C.text}←→${C.dim} passi · ${C.text}↑↓${C.dim} scorri · ${C.text}End${C.dim} in diretta${groups.length > (ui.seen ?? groups.length) ? ` · ${C.warn}● nuovo passo${C.dim}` : ""} · ${C.text}q${C.dim} chiudi${R}`;
-	else if (state.stop) keys = `${C.text}←${C.dim} passi · ${C.text}q${C.dim} chiudi${R}`;
-	else keys = `${C.text}p${C.dim} ${state.paused ? "riprendi" : "pausa"} · ${C.text}:${C.dim} nota · ${C.text}s${C.dim} stop${W < 56 ? "" : ` · ${C.text}←${C.dim} passi`} · ${C.text}q${C.dim} chiudi${R}`;
-	rows.push(cutAnsi(keys, W));
+	rows.push(cutAnsi(keyHints({ state, events, ui, W, live, newSteps: groups.length > (ui.seen ?? groups.length) }), W));
 	return rows;
+}
+
+/** Last row: only the keys valid in the current state; pending commands ("in attesa") sit next to them. Pure. */
+export function keyHints({ state, events = [], ui, W, live, newSteps }) {
+	if (ui.note !== null && ui.note !== undefined) return `${C.mag}nota › ${C.text}${fit(ui.note, W - 10)}${C.mag}▌${C.dim}  ⏎ invia · esc annulla${R}`;
+	if (!live) return `${C.text}←→${C.dim} passi · ${C.text}↑↓${C.dim} scorri · ${C.text}End${C.dim} in diretta${newSteps ? ` · ${C.warn}● nuovo passo${C.dim}` : ""} · ${C.text}q${C.dim} chiudi${R}`;
+	if (state.stop) return `${C.text}←${C.dim} passi · ${C.text}q${C.dim} chiudi${R}`;
+	const wait = pending(state, events).list.map((l) => l.replace(" per il prossimo passo", ""));
+	return `${C.text}p${C.dim} ${state.paused ? "riprendi" : "pausa"} · ${C.text}:${C.dim} nota · ${C.text}s${C.dim} stop${W < 56 ? "" : ` · ${C.text}←${C.dim} passi`} · ${C.text}q${C.dim} chiudi${wait.length ? ` · ${C.warn}in attesa: ${wait.join(" · ")}${C.dim}` : ""}${R}`;
 }
 
 // Left cells hold ANSI codes: pad by visible width.

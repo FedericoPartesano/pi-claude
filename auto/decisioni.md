@@ -10,3 +10,4 @@
 - Sotto 50 colonne la testata perde la fase e la riga tasti perde «← passi»; cutAnsi come rete finale su testata e tasti — salvano salute e «q chiudi» e garantiscono righe ≤ W
 - RIVEDI stretto (<80 col) resta «RIVEDI k/n», largo «passo k di n»; navigate prende tasti nominali (left|right|end|esc) — la vista traduce i CSI
 - Stati vuoti: cockpitRows(state undefined) disegna un blocco dedicato; in chat.mjs restano i toast all'apertura (vista non aperta senza stato) — evita di toccare i gestori dei tasti che assumono feed.state
+- keyHints estratta in cockpit.mjs, «in attesa» ricavato da pending() senza il suffisso «per il prossimo passo» — riga corta, una sola fonte
