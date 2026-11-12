@@ -7,6 +7,7 @@ import { readFileSync, writeFileSync, appendFileSync, readdirSync, statSync, wat
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { checkOutcome, failingTests } from "../../pi-ui/src/test-output.ts";
+import { codeBlocks, osc52, clipCommands, rowText, rowsText } from "./copy.mjs";
 import { cockpitHead, cockpitRows, createFeed, groupSteps, navigate, TAB_COUNT, createStats } from "./cockpit.mjs";
 import { readUsage as readUsageFile, forecastLines, resetLabel } from "../../pi-ui/src/usage.ts";
 
@@ -317,8 +318,9 @@ const tableRows = (rowsText, width) => {
 	}).concat([]).flatMap((l, ri) => (ri === 0 ? [l, `${S.faint}${widths.map((w) => "─".repeat(w)).join("─┼─")}${R}`] : [l]));
 };
 
-const markdown = (text, width) => {
+const markdown = (text, width, start = 0) => {
 	const res = [];
+	let nth = start; // code block number shown in the header: alt+<n> copies it
 	const lines = text.split("\n");
 	let fence = false, lang = "";
 	for (let i = 0; i < lines.length; i++) {
@@ -335,7 +337,7 @@ const markdown = (text, width) => {
 		}
 		if ((m = /^```\s*(\S*)/.exec(raw))) {
 			fence = !fence;
-			if (fence) { lang = m[1]; const tag = ` ${lang || "code"} `; res.push(`${bg(P.codeBg)}${S.faint}╭${"─".repeat(Math.max(1, width - 1 - tag.length))}${S.dim}${tag}${R}`); }
+			if (fence) { lang = m[1]; const tag = ` ${lang || "code"} [${++nth}] `; res.push(`${bg(P.codeBg)}${S.faint}╭${"─".repeat(Math.max(1, width - 1 - tag.length))}${S.dim}${tag}${R}`); }
 			else res.push(`${bg(P.codeBg)}${S.faint}╰${"─".repeat(Math.max(0, width - 1))}${R}`);
 			continue;
 		}
@@ -399,7 +401,7 @@ const toolLine = (b, width) => {
 const GUT = `${S.faint}▍${R} `;
 const gutter = (lines) => lines.map((l) => GUT + l);
 const streamMarkdown = (block, text, width_in) => {
-	const width = width_in - 2, md = (t) => gutter(markdown(t, width));
+	const width = width_in - 2, md = (t, start = 0) => gutter(markdown(t, width, start));
 	const cut_ = text.lastIndexOf("\n\n");
 	if (cut_ <= 0) return md(text);
 	const head = text.slice(0, cut_);
@@ -407,8 +409,8 @@ const streamMarkdown = (block, text, width_in) => {
 	const memo = block.md;
 	if (!memo || memo.width !== width || !head.startsWith(memo.text)) block.md = { width, text: "", lines: [] };
 	const m = block.md;
-	if (m.text.length < head.length) { m.lines = m.lines.concat(md(m.text ? head.slice(m.text.length + 1) : head)); m.text = head; }
-	return m.lines.concat(md(text.slice(head.length + 1)));
+	if (m.text.length < head.length) { m.lines = m.lines.concat(md(m.text ? head.slice(m.text.length + 1) : head, codeBlocks(m.text).length)); m.text = head; }
+	return m.lines.concat(md(text.slice(head.length + 1), codeBlocks(m.text).length));
 };
 const blockLines = (block, width) => {
 	const done = block !== open && (block.kind !== "tool" || block.done !== undefined);
@@ -530,6 +532,47 @@ const pasteClipboardImage = () => {
 		});
 	};
 	next(0);
+};
+// Copy text: OSC 52 (terminal) and the first system tool that works; the toast says what was copied.
+const copyText = (text, what) => {
+	out.write(osc52(text));
+	const cmds = clipCommands();
+	const next = (i) => {
+		if (i >= cmds.length) { toast = `copiato ${what}`; schedule(); return; }
+		const p = spawn(cmds[i][0], cmds[i][1], { stdio: ["pipe", "ignore", "ignore"] });
+		p.on("error", () => next(i + 1));
+		p.on("close", (code) => { if (code) next(i + 1); else { toast = `copiato ${what}`; schedule(); } });
+		p.stdin.on("error", () => {});
+		p.stdin.end(text);
+	};
+	next(0);
+};
+// Mouse selection of chat rows: drag = highlight, release = copy. Rows are body indices, so scrolling keeps the anchor.
+let sel, chatGeom; // sel {a, b}; chatGeom {viewBase, rows, w, body}
+const selRange = () => (sel ? [Math.min(sel.a, sel.b), Math.max(sel.a, sel.b)] : undefined);
+const mouseRow = (y) => chatGeom ? chatGeom.viewBase + Math.max(1, Math.min(chatGeom.rows, y)) - 1 : 0;
+const mouse = (code, x, y, up) => {
+	if (cockpit || dialog || booting || !chatGeom) return;
+	const g = chatGeom;
+	if (code === 0 && !up) { sel = y >= 1 && y <= g.rows && x <= g.w ? { a: mouseRow(y), b: mouseRow(y), moved: false } : undefined; }
+	else if (code === 32 && sel) {
+		sel.b = mouseRow(y); sel.moved = true;
+		if (y <= 1) scroll += 1; else if (y >= g.rows && scroll > 0) scroll -= 1; // edge: autoscroll while dragging
+		schedule();
+	} else if (code === 0 && up && sel) {
+		const [lo, hi] = selRange(), moved = sel.moved, body = g.body;
+		sel = undefined; previous = []; schedule();
+		if (moved) { const t = rowsText(body, lo, hi); if (t) copyText(t, `${t.split("\n").length} righe`); }
+	}
+};
+const lastAssistant = () => { for (let i = blocks.length - 1; i >= 0; i--) if (blocks[i].kind === "assistant" && blocks[i].text) return blocks[i]; };
+const copyLast = (n) => {
+	const b = lastAssistant();
+	if (!b) { toast = "niente da copiare"; schedule(); return; }
+	if (!n) { copyText(b.text, `risposta (${b.text.split("\n").length} righe)`); return; }
+	const code = codeBlocks(b.text)[n - 1];
+	if (code === undefined) { toast = `nessun blocco [${n}] nell'ultima risposta`; schedule(); return; }
+	copyText(code, `blocco [${n}] (${code.split("\n").length} righe)`);
 };
 const CLIP_PS = "Add-Type -AssemblyName System.Windows.Forms; $i=[System.Windows.Forms.Clipboard]::GetImage(); if($i){$m=New-Object System.IO.MemoryStream; $i.Save($m,[System.Drawing.Imaging.ImageFormat]::Png); [Convert]::ToBase64String($m.ToArray())}";
 let panelOff = false; // alt+s hides / shows the panel (on narrow terminals it opens as a block above the status bar)
@@ -974,7 +1017,10 @@ const frame = () => {
 	const body = bodyLines(leftW);
 	scroll = Math.max(0, Math.min(scroll, Math.max(0, body.length - chatRows)));
 	const view = body.slice(Math.max(0, body.length - chatRows - scroll), body.length - scroll);
+	const viewBase = body.length - chatRows - scroll;
 	while (view.length < chatRows) view.unshift("");
+	chatGeom = { viewBase, rows: chatRows, w: leftW, body };
+	if (sel) { const [lo, hi] = selRange(); for (let r = 0; r < view.length; r++) { const i = viewBase + r; if (i >= lo && i <= hi && body[i] !== undefined) view[r] = `${ESC}7m${pad(rowText(body[i]) ?? "", leftW)}${R}`; } }
 
 	const left = [...view.map((l) => cut(l, leftW)), ...extra, status, sepLine, ...promptLines, endLine];
 	let next;
@@ -1253,7 +1299,7 @@ const restart = () => {
 	restarting = true;
 	try { child.kill(); } catch {}
 	process.stdin.pause(); process.stdin.removeAllListeners("data");
-	out.write(`${ESC}?2004l${ESC}?1006l${ESC}?1000l${ESC}?1049l${ESC}?25h`);
+	out.write(`${ESC}?2004l${ESC}?1006l${ESC}?1002l${ESC}?1049l${ESC}?25h`);
 	if (process.stdin.isTTY) process.stdin.setRawMode(false);
 	const next = spawn(process.execPath, [process.argv[1], ...args], { stdio: "inherit", env });
 	next.on("exit", (c) => process.exit(c ?? 0));
@@ -1269,7 +1315,7 @@ const quit = () => {
 		if (process.env.PROTO_CPU)
 			writeFileSync(process.env.PROTO_CPU, JSON.stringify({ frames, clientMs: Math.round((mine.user + mine.system) / 1000), rpcMs: Math.round(((Number(stat[11]) + Number(stat[12])) / 100) * 1000) }));
 	} catch {}
-	out.write(`${ESC}?2004l${ESC}?1006l${ESC}?1000l${ESC}?1049l${ESC}?25h`);
+	out.write(`${ESC}?2004l${ESC}?1006l${ESC}?1002l${ESC}?1049l${ESC}?25h`);
 	child.stdin.end();
 	setTimeout(() => process.exit(0), 200);
 };
@@ -1389,7 +1435,7 @@ const histMove = (dir) => {
 };
 
 process.stdin.setRawMode(true);
-const re = new RegExp(/\x1b_G([^\x1b]*)\x1b\\|\x1b\[\?([0-9;]*)c|\x1b\[200~([\s\S]*?)\x1b\[201~|\x1b\[<(\d+);\d+;\d+[Mm]|\x1b\[([0-9;]*)([A-Za-z~])|(\x1b[\r\nvs])|([\s\S])/.source.replace("vs]", `vsa${NOW_ALT}]`), "gu");
+const re = new RegExp(/\x1b_G([^\x1b]*)\x1b\\|\x1b\[\?([0-9;]*)c|\x1b\[200~([\s\S]*?)\x1b\[201~|\x1b\[<(\d+;\d+;\d+[Mm])|\x1b\[([0-9;]*)([A-Za-z~])|(\x1b[\r\nvs])|([\s\S])/.source.replace("vs]", `vsay1-9${NOW_ALT}]`), "gu");
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (data) => {
 	re.lastIndex = 0;
@@ -1410,9 +1456,11 @@ process.stdin.on("data", (data) => {
 			else if (dialog?.text !== undefined) dialog.text += t.replace(/\n/g, " ");
 			else if (!dialog && !t.trim()) pasteClipboardImage(); // image-only clipboard: terminals paste nothing, read the image
 			else if (!dialog && !attachFile(t)) insert(t);
-		} else if (m[4] !== undefined) { // SGR mouse: 64 wheel up, 65 wheel down
-			if (m[4] === "64") scroll += 3;
-			else if (m[4] === "65") scroll = Math.max(0, scroll - 3);
+		} else if (m[4] !== undefined) { // SGR mouse: 64 wheel up, 65 wheel down, 0 press/release, 32 drag
+			const [code, mx, my] = m[4].slice(0, -1).split(";").map(Number);
+			if (code === 64) scroll += 3;
+			else if (code === 65) scroll = Math.max(0, scroll - 3);
+			else mouse(code, mx, my, m[4].endsWith("m"));
 		} else if (m[6] !== undefined) {
 			if (cockpit) { cockpitKey(undefined, m[5] + m[6]); drawNow(); continue; }
 			if (dialogKey(undefined, m[5] + m[6])) continue;
@@ -1432,7 +1480,7 @@ process.stdin.on("data", (data) => {
 			else if (k === "13;5u") nowKey();
 			else if (k === "A") { if (items) popSel = (popSel + items.length - 1) % items.length; else if (!input.includes("\n")) histMove(-1); else cursor = Math.max(0, input.lastIndexOf("\n", cursor - 1)); }
 			else if (k === "B") { if (items) popSel = (popSel + 1) % items.length; else if (!input.includes("\n")) histMove(1); else { const n = input.indexOf("\n", cursor); cursor = n < 0 ? input.length : n + 1; } }
-		} else if (m[7] !== undefined) { if (cockpit) continue; if (m[7][1] === "a") cockpitOpen(); else if (m[7][1] === NOW_ALT) nowKey(); else if (m[7][1] === "v") pasteClipboardImage();
+		} else if (m[7] !== undefined) { if (cockpit) continue; if (m[7][1] === "a") cockpitOpen(); else if (m[7][1] === NOW_ALT) nowKey(); else if (m[7][1] === "v") pasteClipboardImage(); else if (m[7][1] === "y") copyLast(0); else if (m[7][1] >= "1" && m[7][1] <= "9") copyLast(+m[7][1]);
 		else if (m[7][1] === "s") { panelOff = !panelOff; previous = []; out.write(`${ESC}2J`); } else insert("\n"); }
 		else {
 			const key = m[8];
@@ -1478,7 +1526,7 @@ child.on("exit", (code, sig) => {
 		return;
 	}
 });
-out.write(`${ESC}?1049h${ESC}?1000h${ESC}?1006h${ESC}?2004h${ESC}2J`);
+out.write(`${ESC}?1049h${ESC}?1002h${ESC}?1006h${ESC}?2004h${ESC}2J`);
 drawNow();
 // Ask the terminal: kitty graphics query (1x1 pixel) then device attributes; the replies set imageProto.
 out.write("\x1b[16t\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c");
