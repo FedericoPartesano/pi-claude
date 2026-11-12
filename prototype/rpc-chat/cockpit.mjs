@@ -117,12 +117,15 @@ function reqLines(state, w, events) {
 	return lines;
 }
 
+const MAX_TOOLS = 5;
 function stepLines(g, w, running) {
 	if (!g) return [`${C.dim}nessun passo ancora${R}`];
 	const lines = [];
 	const state = !g.end ? (running ? `${C.mag}in corso…` : `${C.dim}interrotto`) : g.end.ok ? `${C.ok}✓ ${fmtDur(g.end.ms)} · ${Math.round(g.end.tokens / 1000)}k token` : `${C.err}✖ ${fit(g.end.error ?? "fallito", w - 24)}`;
 	lines.push(`${C.b}${C.text}${g.n ? `passo ${g.n} · ${g.phase}` : "controlli"}${R}  ${state}${R}`);
-	for (const t of g.tools) lines.push(`${C.dim}▸ ${C.text}${t.name}${C.faint} ${fit(t.arg, w - t.name.length - 3)}${R}`);
+	// Only the last MAX_TOOLS tools: older ones collapse into a count.
+	if (g.tools.length > MAX_TOOLS) lines.push(`${C.faint}… ${g.tools.length - MAX_TOOLS} tool prima${R}`);
+	for (const t of g.tools.slice(-MAX_TOOLS)) lines.push(`${C.dim}▸ ${C.text}${t.name}${C.faint} ${fit(t.arg, w - t.name.length - 3)}${R}`);
 	for (const c of g.checks) {
 		lines.push(`${c.ok ? `${C.ok}✓` : `${C.err}✖`} ${C.text}${c.id}${R}`);
 		if (!c.ok && c.out) for (const l of c.out.split("\n").filter((x) => x.trim()).slice(-4)) lines.push(`${C.faint}  ${fit(l.trim(), w - 2)}${R}`);
