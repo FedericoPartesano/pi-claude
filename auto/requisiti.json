@@ -33,7 +33,7 @@
 			"descrizione": "RIVEDI: «passo k di n», esito, durata, token; esc o → oltre l'ultimo torna IN DIRETTA (navigate esportata e usata da chat.mjs)",
 			"check": "node --test --test-name-pattern \"^R5:\" extensions/auto-cockpit-v2.test.ts",
 			"prova": "render con sel=0 e sequenza di tasti su navigate, come la vista",
-			"passes": false
+			"passes": true
 		},
 		{
 			"id": "R6",
