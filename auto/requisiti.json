@@ -12,7 +12,7 @@
 			"descrizione": "Elenco requisiti con n/m, stato per riga (✓ ▸ ✖ ○) e scorrimento che tiene visibile il requisito in corso con 40 requisiti",
 			"check": "node --test --test-name-pattern \"^R2:\" extensions/auto-cockpit-v2.test.ts",
 			"prova": "render con 3 e 40 requisiti a 110 e 60 colonne, H=20",
-			"passes": false
+			"passes": true
 		},
 		{
 			"id": "R3",
