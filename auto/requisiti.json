@@ -47,7 +47,7 @@
 			"descrizione": "Riga dei tasti contestuale (keyHints esportata): solo tasti validi nello stato, «in attesa: …» accanto ai tasti, p riprendi↔pausa",
 			"check": "node --test --test-name-pattern \"^R7:\" extensions/auto-cockpit-v2.test.ts",
 			"prova": "render di corsa attiva, in pausa con note, pausa applicata, finita, RIVEDI; ultime righe",
-			"passes": false
+			"passes": true
 		},
 		{
 			"id": "R8",
