@@ -61,7 +61,7 @@
 			"descrizione": "Prestazioni: misura di base e dopo, 5 giri alternati con mediana, entro +10% o risultato negativo dichiarato in eval/ui/REPORT.md",
 			"check": "node --test --test-name-pattern \"^R9:\" extensions/auto-cockpit-docs.test.ts",
 			"prova": "il report deve contenere la sezione con le due misure da perf.test.mjs e il verdetto; la misura si fa davvero",
-			"passes": false
+			"passes": true
 		},
 		{
 			"id": "R10",
