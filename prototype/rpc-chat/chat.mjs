@@ -7,7 +7,7 @@ import { readFileSync, writeFileSync, readdirSync, statSync, watch as fsWatch } 
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { checkOutcome, failingTests } from "../../pi-ui/src/test-output.ts";
-import { cockpitHead, cockpitRows, createFeed, groupSteps, navigate } from "./cockpit.mjs";
+import { cockpitHead, cockpitRows, createFeed, groupSteps, navigate, TAB_COUNT } from "./cockpit.mjs";
 import { readUsage as readUsageFile, forecastLines, resetLabel } from "../../pi-ui/src/usage.ts";
 
 const FPS = Number(process.env.PROTO_FPS) || 30;
@@ -741,7 +741,7 @@ const cockpitOpen = () => {
 	const feed = createFeed(file);
 	feed.refresh();
 	if (!feed.state) { toast = feed.problem === "illeggibile" ? "stato della corsa illeggibile: riprova tra poco (/auto status)" : "nessuna corsa /auto in questa sessione (avviala con /auto <goal>)"; schedule(); return; }
-	cockpit = { feed, ui: { sel: -1, top: 0, seen: 0, note: null }, chat: { msgs: [], typing: null, busy: false }, tick: undefined, watch: undefined };
+	cockpit = { feed, ui: { sel: -1, top: 0, seen: 0, note: null }, chat: { msgs: [], typing: null, busy: false, open: false }, tick: undefined, watch: undefined };
 	try { cockpit.watch = fsWatch(dirname(file), { persistent: false }, () => { if (cockpit?.feed.refresh()) schedule(); }); cockpit.watch.on("error", () => {}); } catch {}
 	cockpit.tick = setInterval(() => {
 		const changed = cockpit.feed.refresh();
@@ -765,7 +765,7 @@ const cockpitKey = (key, csi) => {
 	const ui = c.ui, chat = c.chat;
 	if (chat.typing !== null) {
 		if (csi) return true;
-		if (key === "\x1b") chat.typing = null;
+		if (key === "\x1b") { if (!chat.typing) chat.open = false; chat.typing = null; }
 		else if (key === "\r" || key === "\n") {
 			const t = chat.typing.trim(); chat.typing = ""; // stays in chat: the conversation goes on
 			if (t) { chat.msgs.push({ role: "user", text: t }); chat.busy = true; send({ type: "prompt", message: t, ...(running ? { streamingBehavior: "followUp" } : {}) }); }
@@ -795,7 +795,8 @@ const cockpitKey = (key, csi) => {
 	else if (key === "p" && !c.feed.state.stop) send({ type: "prompt", message: c.feed.state.paused ? "/auto riprendi" : "/auto pausa" });
 	else if (key === "s" && !c.feed.state.stop) send({ type: "prompt", message: "/auto stop" });
 	else if (key === ":" && !c.feed.state.stop) ui.note = "";
-	else if (key === "c") chat.typing = "";
+	else if (key === "c") { chat.typing = ""; chat.open = true; }
+	else if (key >= "1" && key <= String(TAB_COUNT)) { ui.tab = Number(key) - 1; ui.top = 0; }
 	return true;
 };
 

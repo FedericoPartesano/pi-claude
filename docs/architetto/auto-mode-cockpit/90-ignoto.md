@@ -17,4 +17,4 @@ Aggiornato: 2026-11-11 · fase 1b
 | Due sessioni Pi sulla stessa corsa: la guardia «già in corso» vale solo nel processo | territorio §4 | differita: proposta lock con pid non accettata, da discutere |
 | Segreti negli argomenti e negli output salvati in `eventi.jsonl`; posizione del diario (dentro o fuori da git) | territorio §5 | differita: proposta «fuori da git + maschera» non accettata, da discutere |
 | Posizione della nota nel prompt del figlio (in coda, per non spostare il prefisso) | territorio §3 | aperto (fase 3) |
-| Forma della vista: k9s, lazygit, btop | territorio §7 | differita a fase 3 |
+| Forma della vista: k9s, lazygit, btop | territorio §7 | risolto in bozza: `30-forma-vista.md`, raccomandata B (panoramica + schede 1…5), da confermare |

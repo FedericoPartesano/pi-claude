@@ -166,14 +166,15 @@ test("cockpit 100x30: exact rows, width kept, health, requirements, live step, k
 	assert.match(all, /1\/3 requisiti/);
 	assert.match(all, /✓ R1/);
 	assert.match(all, /▸ R2/);
-	assert.match(all, /passo 2 · build/);
 	assert.match(all, /read src\/b\.ts/);
+	const steps = plain(cockpitRows({ state, events: evs(), now: 14_000, W: 100, H: 30, usage: undefined, ui: { sel: -1, top: 0, note: null, tab: 3 } })).join("\n");
+	assert.match(steps, /passo 2 · build/);
 	assert.match(text[29], /p pausa · c chat · : nota · s stop/);
 });
 
 test("cockpit review: previous step with end text and failing check output; new step flagged", () => {
 	const state = baseState({ requirements: reqs(3, 1), steps: 2 });
-	const rows = plain(cockpitRows({ state, events: evs(), now: 14_000, W: 100, H: 30, usage: undefined, ui: { sel: 0, top: 0, seen: 1, note: null } }));
+	const rows = plain(cockpitRows({ state, events: evs(), now: 14_000, W: 100, H: 30, usage: undefined, ui: { sel: 0, top: 0, seen: 1, note: null, tab: 3 } }));
 	const all = rows.join("\n");
 	assert.match(all, /RIVEDI passo 1 di 2/);
 	assert.match(all, /✖ R2/);
@@ -187,7 +188,7 @@ test("cockpit narrow 50x20 and note input; pending line; stopped run", () => {
 	const rows = plain(cockpitRows({ state, events: evs(), now: 14_000, W: 50, H: 20, usage: 0.3, ui: { sel: -1, top: 0, note: "usa pnpm" } }));
 	assert.equal(rows.length, 20);
 	assert.ok(rows.every((r) => r.length <= 50), "narrow rows fit");
-	assert.match(rows.join("\n"), /in attesa: pausa al prossimo passo/);
+	assert.match(rows.join("\n"), /in attesa: pa/);
 	assert.match(rows[19], /nota › usa pnpm/);
 	const done = cockpitRows({ state: baseState({ requirements: reqs(2, 2), stop: { reason: "completato", detail: "ok", at: 5 } }), events: evs(), now: 14_000, W: 100, H: 24, usage: undefined, ui: { sel: -1, top: 0, note: null } });
 	assert.match(plain(done).join("\n"), /\/land/);
@@ -214,7 +215,7 @@ test("cockpit chat strip: shows the conversation, keeps exactly H rows, absent w
 	const state = baseState({ requirements: reqs(3, 1), steps: 2 });
 	const call = (chat: unknown) => plain(cockpitRows({ state, events: evs(), now: 14_000, W: 100, H: 30, usage: undefined, ui: { sel: -1, top: 0, note: null }, chat }));
 	const none = call({ msgs: [], typing: null, busy: false });
-	const rows = call({ msgs: [{ role: "user", text: "a che punto sei?" }, { role: "tool", text: "auto status" }, { role: "assistant", text: "Fase build, 1/3 requisiti." }], typing: "ok", busy: false });
+	const rows = call({ msgs: [{ role: "user", text: "a che punto sei?" }, { role: "tool", text: "auto status" }, { role: "assistant", text: "Fase build, 1/3 requisiti." }], typing: "ok", busy: false, open: true });
 	assert.equal(none.length, 30);
 	assert.equal(rows.length, 30);
 	assert.ok(rows.some((r: string) => r.includes("tu › a che punto sei?")));
@@ -249,4 +250,15 @@ test("cockpit live thought: FASI, PENSIERO, STUDIO e PRASSI", async () => {
 	assert.match(prac, /studio 1 letture/);
 	assert.match(prac, /prassi tdd/);
 	assert.match(prac, /edit×1/);
+});
+
+test("cockpit tabs: reason on its own row, tab strip, each tab fits the screen", () => {
+	const state = baseState({ requirements: reqs(3, 1), steps: 2 });
+	for (const [W, H] of [[100, 28], [60, 24]] as const) for (let tab = 0; tab < 4; tab++) {
+		const rows = plain(cockpitRows({ state, events: evs(), now: 14_000, W, H, usage: undefined, ui: { sel: -1, top: 0, note: null, tab } }));
+		assert.equal(rows.length, H);
+		assert.ok(rows.every((r) => r.length <= W), `tab ${tab} at ${W} fits`);
+		assert.match(rows[2], /PROCEDE · nessun segnale/);
+		assert.match(rows[3], /1 Panoramica/);
+	}
 });

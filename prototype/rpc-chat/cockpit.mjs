@@ -47,7 +47,7 @@ export function groupSteps(events) {
 			else if (e.t === "end") cur.end = e;
 			else if (e.t === "check") cur.checks.push(e);
 			else if (e.t === "cmd") cur.cmds.push(e);
-			else if (e.t === "say") cur.say = e; // only the latest thought of the step is kept
+			else if (e.t === "say") { cur.say = e; (cur.says ??= []).push(e); }
 		}
 	}
 	return steps;
@@ -194,6 +194,71 @@ export function practiceLines(g, w) {
 	return out;
 }
 
+const TABS = ["Panoramica", "Pensiero", "Studio e prassi", "Passi"];
+export const TAB_COUNT = TABS.length;
+
+/** Tab 1: enough to answer "is it going well, and why" at a glance; wide screens put requirements on the left. */
+function overviewBody(state, groups, g, events, W, room, live, running, done, total) {
+	const wide = W >= 80;
+	const lw = wide ? Math.min(40, Math.floor(W * 0.36)) : W, rw = wide ? W - lw - 3 : W;
+	const phases = phaseLines(state, groups, lw);
+	const reqs = reqLines(state, lw, events);
+	const cap = Math.max(2, (wide ? room : Math.min(5, room - 8)) - (wide ? phases.length : 1) - 2);
+	const at = Math.max(0, reqs.findIndex((r) => r.focus));
+	const from = Math.max(0, Math.min(at - Math.floor(cap / 2), reqs.length - cap));
+	const reqRows = reqs.slice(from, from + cap).map((r) => r.text);
+	const oneLine = PHASES.map((p, i) => { const c = PHASES.indexOf(state.phase); return `${i < c || state.stop?.reason === "completato" ? C.ok : i === c ? C.mag : C.faint}${PHASE_IT[p].slice(0, 4)}`; }).join(`${C.faint} › `);
+	const left = [section("FASI", lw), ...(wide ? phases : [oneLine + R]), section("REQUISITI", lw, `${done}/${total}`), ...reqRows];
+	const tools = (g?.tools ?? []).slice(-3).map((t) => `${C.dim}▸ ${C.text}${t.name}${C.faint} ${fit(t.arg, rw - t.name.length - 3)}${R}`);
+	const rrow = wide ? room : Math.max(6, room - left.length - 1);
+	const think = thoughtLines(g, rw, Math.max(2, Math.min(5, rrow - 6)), running);
+	const right = [section("PENSIERO", rw, live && running ? "in diretta" : ""), ...think, section("ULTIMI TOOL", rw), ...tools];
+	const body = [];
+	if (wide) for (let i = 0; i < room; i++) body.push(`${padTo2(left[i] ?? "", lw)}${C.faint} │ ${R}${right[i] ?? ""}`);
+	else body.push(...left, ...right);
+	return body.slice(0, room);
+}
+
+/** Tab 3: what the whole run read (counted, no repeats), the skills followed, the actions taken; the viewed step is marked. */
+function practiceFull(groups, g, w) {
+	if (!groups.length) return [`${C.faint}nessun passo ancora${R}`];
+	const reads = new Map(), acts = new Map(), skills = new Map();
+	for (const x of groups) for (const t of x.tools) {
+		const sk = t.name === "read" ? skillOf(t.arg) : undefined;
+		const m = sk ? skills : READ_TOOLS.has(t.name) ? reads : acts;
+		const key = sk ?? `${t.name} ${t.arg}`;
+		const cur = m.get(key) ?? { n: 0, here: false };
+		cur.n++; if (x === g) cur.here = true;
+		m.set(key, cur);
+	}
+	const list = (m) => [...m].map(([k, v]) => `${v.here ? `${C.cyan}•` : " "} ${C.text}${fit(k, w - 10)}${v.n > 1 ? `${C.dim} ×${v.n}` : ""}${R}`);
+	return [`${C.cyan}prassi${C.dim} (${skills.size})${R}`, ...(skills.size ? list(skills) : [`${C.faint}  nessuna skill letta${R}`]), "", `${C.cyan}studio${C.dim} (${reads.size})${R}`, ...list(reads), "", `${C.cyan}azioni${C.dim} (${acts.size})${R}`, ...list(acts), `${C.faint}• = nel passo che stai guardando${R}`];
+}
+
+/** Whole thought history of the step, oldest first (the tab shows the newest rows). */
+function thoughtHistory(g, w, running) {
+	const says = g?.says ?? [];
+	if (!says.length) return thoughtLines(g, w, 1, running);
+	const out = [];
+	for (const e of says) {
+		out.push(`${e.kind === "think" ? `${C.mag}◌ ragiona` : `${C.cyan}✎ scrive`}${C.faint} ${clock(e.at)}${R}`);
+		for (const l of wrapPlain(e.text.replace(/\s+/g, " ").trim(), Math.max(10, w - 2))) out.push(`${C.text} ${l}${R}`);
+	}
+	return out;
+}
+
+/** Tab 4: one row per step (outcome, time), then the detail of the viewed one. */
+function stepsBody(groups, g, running, W, room, ui, live) {
+	const idx = groups.indexOf(g);
+	const list = groups.map((x, i) => {
+		const res = !x.end ? (running && i === groups.length - 1 ? `${C.mag}in corso` : `${C.dim}interrotto`) : x.end.ok ? `${C.ok}✓ ${fmtDur(x.end.ms)}` : `${C.err}✖ ${fmtDur(x.end.ms ?? 0)}`;
+		return `${i === idx ? `${C.cyan}▸` : " "} ${C.text}${String(x.n || "·").padStart(2)} ${C.dim}${padTo(x.phase, 9)}${R}${res}${R}`;
+	});
+	const cap = Math.max(3, Math.min(list.length, Math.floor(room / 3)));
+	const from = Math.max(0, Math.min(idx - Math.floor(cap / 2), list.length - cap));
+	return [section("PASSI", W, `${groups.length}`), ...list.slice(from, from + cap), section("DETTAGLIO", W), ...stepLines(g, W, running)];
+}
+
 function stepLines(g, w, running) {
 	if (!g) return [`${C.dim}nessun passo ancora${R}`];
 	const lines = [];
@@ -235,12 +300,9 @@ function headRow(state, events, now, W, usage, ui, groups, h, running, live, g) 
 	const phaseT = W < 50 ? "" : wideH ? `fase ${phase}` : phase;
 	const fixed = [narrowH ? `${state.steps}/${MAX_STEPS}` : `passo ${state.steps}/${MAX_STEPS}`, `● ${h.word}`, stuck, modeT].filter(Boolean);
 	const slugW = Math.min(state.slug.length, W >= 80 ? 16 : W >= 66 ? 8 : 4);
-	const used = 5 + slugW + (phaseT ? 3 + phaseT.length : 0) + fixed.reduce((n, p) => n + 3 + p.length, 0);
-	const whyW = W - used - 1;
-	const whyT = whyW >= 8 ? ` ${fit(h.why, whyW)}` : "";
 	const sep = `${C.dim} · `;
 	// Below 50 columns the phase is dropped first.
-	return cutAnsi(`${C.mag}${C.b}AUTO${R} ${C.text}${fit(state.slug, slugW)}${phaseT ? `${sep}${C.dim}${phaseT}` : ""}${sep}${C.dim}${fixed[0]}${sep}${toneColor(h.tone)}${C.b}${fixed[1]}${R}${C.dim}${whyT}${stuck ? `${sep}${stuck}` : ""}${sep}${R}${live ? C.ok : C.cyan}${modeT}${R}`, W);
+	return cutAnsi(`${C.mag}${C.b}AUTO${R} ${C.text}${fit(state.slug, slugW)}${phaseT ? `${sep}${C.dim}${phaseT}` : ""}${sep}${C.dim}${fixed[0]}${sep}${toneColor(h.tone)}${C.b}${fixed[1]}${R}${C.dim}${stuck ? `${sep}${stuck}` : ""}${sep}${R}${live ? C.ok : C.cyan}${modeT}${R}`, W);
 }
 
 /**
@@ -262,38 +324,20 @@ export function cockpitRows({ state, events, now, W, H, usage, ui, problem, chat
 	const bar = total ? `${"▰".repeat(Math.round((done / total) * 16))}${"▱".repeat(16 - Math.round((done / total) * 16))} ${done}/${total} requisiti` : "piano non ancora scritto";
 	const spent = usage !== undefined && state.fiveHourStart !== undefined ? ` · 5h +${Math.round((usage - state.fiveHourStart) * 100)}%/50%` : "";
 	rows.push(cutAnsi(`${C.ok}${bar}${C.dim}${spent} · fino alle ${clock(state.deadline)} (${fmtDur(state.deadline - now)}) · ${Math.round(state.tokens / 1000)}k token${R}`, W)); // cutAnsi, not fit: the row holds color codes
-	rows.push(pend.list.length ? `${C.warn}in attesa: ${fit(pend.list.join(" · "), W - 12)}${R}` : "");
-	rows.push(`${C.faint}${"─".repeat(W)}${R}`);
+	rows.push(cutAnsi(`${toneColor(h.tone)}${h.word}${C.dim} · ${C.text}${h.why}${pend.list.length ? `${C.dim} · ${C.warn}in attesa: ${pend.list.join(" · ")}` : ""}${R}`, W));
+	const tab = ui.tab ?? 0;
+	rows.push(cutAnsi(TABS.map((t, i) => (i === tab ? `${C.b}${C.cyan}${i + 1} ${t}` : `${C.faint}${i + 1} ${t}`) + R).join("  "), W));
 	const room = Math.max(3, H - rows.length - 2 - chatRows.length);
-	const wide = W >= 80;
-	const lw = wide ? Math.min(40, Math.floor(W * 0.36)) : W, rw = wide ? W - lw - 3 : W;
-	// Left: FASI then REQUISITI (windowed around the first open one).
-	const phases = phaseLines(state, groups, lw);
-	const reqs = reqLines(state, lw, events);
-	const reqCap = Math.max(2, (wide ? room : Math.min(6, room - 3)) - phases.length - 2);
-	let reqRows = reqs.map((r) => r.text);
-	if (reqs.length > reqCap) {
-		const at = Math.max(0, reqs.findIndex((r) => r.focus));
-		const from = Math.max(0, Math.min(at - Math.floor(reqCap / 2), reqs.length - reqCap));
-		reqRows = reqs.slice(from, from + reqCap).map((r) => r.text);
-	}
-	const left = [section("FASI", lw), ...phases, section("REQUISITI", lw, `${done}/${total}`), ...reqRows];
-	// Right: PENSIERO, STUDIO/PRASSI, then the step (tools, checks, outcome) filling what is left.
-	const rroom = wide ? room : Math.max(6, room - left.length - 1);
-	const think = thoughtLines(g, rw, Math.max(2, Math.min(6, Math.floor(rroom / 3))), running);
-	const prac = practiceLines(g, rw);
-	const head = [section("PENSIERO", rw, live && running ? "in diretta" : ""), ...think, section("STUDIO E PRASSI", rw), ...prac, section("PASSO", rw)];
-	let steps = stepLines(g, rw, running);
-	const space = Math.max(2, rroom - head.length);
-	const top = live ? Math.max(0, steps.length - space) : Math.max(0, Math.min(ui.top ?? 0, steps.length - 1));
-	steps = steps.slice(top);
-	const right = [...head, ...steps];
-	const body = [];
-	if (wide) {
-		for (let i = 0; i < room; i++) body.push(`${padTo2(left[i] ?? "", lw)}${C.faint} │ ${R}${right[i] ?? ""}`);
-	} else {
-		body.push(...left, ...right);
-		body.length = Math.min(body.length, room);
+	let body;
+	if (tab === 0) body = overviewBody(state, groups, g, events, W, room, live, running, done, total);
+	else {
+		if (tab === 1) body = [section("PENSIERO", W, live && running ? "in diretta" : ""), ...thoughtHistory(g, W, running)];
+		else if (tab === 2) body = [section("STUDIO E PRASSI", W, "tutta la corsa"), ...practiceFull(groups, g, W)];
+		else body = stepsBody(groups, g, running, W, room, ui, live);
+		// Scroll is clamped to the content; the thought tab follows the bottom (newest) and ↑ goes back in time.
+		const max = Math.max(0, body.length - room);
+		const up = Math.min(ui.top ?? 0, max);
+		body = tab === 1 ? body.slice(max - up, max - up + room) : body.slice(up, up + room);
 	}
 	rows.push(...body.map((l) => cutAnsi(l, W)));
 	while (rows.length < H - 2 - chatRows.length) rows.push("");
@@ -309,7 +353,7 @@ export function cockpitRows({ state, events, now, W, H, usage, ui, problem, chat
  * chat: {msgs: [{role: "user"|"assistant"|"tool", text}], typing: string|null, busy}; empty when there is nothing to show.
  */
 function chatLines(chat, W, max) {
-	if (!chat || max < 3 || (!chat.msgs.length && (chat.typing === null || chat.typing === undefined))) return [];
+	if (!chat || !chat.open || max < 3) return [];
 	const all = [];
 	for (const m of chat.msgs.slice(-6)) {
 		const tag = m.role === "user" ? `${C.cyan}tu › ${C.text}` : m.role === "tool" ? `${C.dim}▸ ` : `${C.mag}pi › ${C.text}`;
@@ -324,10 +368,10 @@ function chatLines(chat, W, max) {
 export function keyHints({ state, events = [], ui, chat, W, live, newSteps }) {
 	if (chat?.typing !== null && chat?.typing !== undefined) return `${C.cyan}chat › ${C.text}${fit(chat.typing, W - 10)}${C.cyan}▌${C.dim}  ⏎ invia · esc esci dalla chat${R}`;
 	if (ui.note !== null && ui.note !== undefined) return `${C.mag}nota › ${C.text}${fit(ui.note, W - 10)}${C.mag}▌${C.dim}  ⏎ invia · esc annulla${R}`;
-	if (!live) return `${C.text}←→${C.dim} passi · ${C.text}↑↓${C.dim} scorri · ${C.text}End${C.dim} in diretta${newSteps ? ` · ${C.warn}● nuovo passo${C.dim}` : ""} · ${C.text}q${C.dim} chiudi${R}`;
-	if (state.stop) return `${C.text}←${C.dim} passi · ${C.text}q${C.dim} chiudi${R}`;
+	if (!live) return `${C.text}1-4${C.dim} schede · ${C.text}←→${C.dim} passi · ${C.text}↑↓${C.dim} scorri · ${C.text}End${C.dim} in diretta${newSteps ? ` · ${C.warn}● nuovo passo${C.dim}` : ""} · ${C.text}q${C.dim} chiudi${R}`;
+	if (state.stop) return `${C.text}1-4${C.dim} schede · ${C.text}←${C.dim} passi · ${C.text}c${C.dim} chat · ${C.text}q${C.dim} chiudi${R}`;
 	const wait = pending(state, events).list.map((l) => l.replace(" per il prossimo passo", ""));
-	return `${C.text}p${C.dim} ${state.paused ? "riprendi" : "pausa"} · ${C.text}c${C.dim} chat · ${C.text}:${C.dim} nota · ${C.text}s${C.dim} stop${W < 56 ? "" : ` · ${C.text}←${C.dim} passi`} · ${C.text}q${C.dim} chiudi${wait.length ? ` · ${C.warn}in attesa: ${wait.join(" · ")}${C.dim}` : ""}${R}`;
+	return `${C.text}p${C.dim} ${state.paused ? "riprendi" : "pausa"} · ${C.text}c${C.dim} chat · ${C.text}:${C.dim} nota · ${C.text}s${C.dim} stop${W < 56 ? "" : ` · ${C.text}1-4${C.dim} schede · ${C.text}←${C.dim} passi`} · ${C.text}q${C.dim} chiudi${wait.length ? ` · ${C.warn}in attesa: ${wait.join(" · ")}${C.dim}` : ""}${R}`;
 }
 
 // Left cells hold ANSI codes: pad by visible width.

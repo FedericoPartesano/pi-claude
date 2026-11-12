@@ -26,16 +26,19 @@ const evs = (): DiaryEvent[] => [
 	{ t: "tool", at: 10100, n: 2, name: "read", arg: "src/b.ts" },
 ];
 const ui0 = () => ({ sel: -1, top: 0, note: null });
+const steps = (ui: any = {}) => ({ ...ui0(), tab: 3, ...ui });
 const render = (over: any = {}) => plain(cockpitRows({ state: baseState({ requirements: reqs(3, 1), steps: 2 }), events: evs(), now: 14_000, W: 110, H: 30, usage: 0.3, ui: ui0(), ...over }));
 
 test("R1: one-line header answers 'is it moving, why'", () => {
 	const r = render();
 	const head = r[0];
-	for (const re of [/AUTO/, /fase build/, /passo 2\/60/, /PROCEDE/, /nessun segnale di rischio/, /fermo da 4s/, /IN DIRETTA/]) assert.match(head, re);
+	for (const re of [/AUTO/, /fase build/, /passo 2\/60/, /PROCEDE/, /fermo da 4s/, /IN DIRETTA/]) assert.match(head, re);
+	assert.match(r[2], /nessun segnale di rischio/, "the reason has its own row");
 	assert.ok(head.length <= 110);
 	assert.doesNotMatch(r.join("\n"), /undefined/);
 	const risky = render({ state: baseState({ requirements: reqs(3, 1), steps: 2, stall: 2 }), usage: undefined });
-	assert.match(risky[0], /A RISCHIO.*stallo 2\/3/);
+	assert.match(risky[0], /A RISCHIO/);
+	assert.match(risky[2], /stallo 2\/3/);
 	const narrow = render({ W: 60 })[0];
 	assert.ok(narrow.length <= 60);
 	assert.match(narrow, /PROCEDE/);
@@ -62,7 +65,7 @@ test("R3: live step shows the last tools and the final text wrapped at word boun
 	assert.deepEqual(wrapPlain("abcdefghij", 4), ["abcd", "efgh", "ij"]);
 	const many: DiaryEvent[] = [{ t: "step", at: 1, n: 1, phase: "build" }, ...Array.from({ length: 12 }, (_, i) => ({ t: "tool", at: 2 + i, n: 1, name: "read", arg: `src/f${i}.ts` }) as DiaryEvent), { t: "end", at: 99, n: 1, ok: true, ms: 5000, tokens: 900, text: TEXT }];
 	for (const W of [60, 80, 110]) {
-		const rows = render({ W, events: many, H: 30 });
+		const rows = render({ W, events: many, H: 40, ui: steps() });
 		assert.ok(rows.every((l) => l.length <= W), `fits ${W}`);
 		const all = rows.join("\n");
 		assert.match(all, /read src\/f11\.ts/, "last tool shown");
@@ -87,7 +90,7 @@ test("R4: adaptive layout, no row wider than the terminal at any width", () => {
 });
 
 test("R5: RIVEDI shows 'k di n', outcome, duration, tokens; esc or → past the last returns live", () => {
-	const all = render({ ui: { sel: 0, top: 0, note: null } }).join("\n");
+	const all = render({ ui: steps({ sel: 0 }) }).join("\n");
 	assert.match(all, /RIVEDI passo 1 di 2/);
 	assert.match(all, /esito: riuscito/);
 	assert.match(all, /8s/);
@@ -126,7 +129,7 @@ test("R6: empty and abnormal states say what happened and which key to press", (
 	assert.equal(corrupt.refresh(), true);
 	assert.equal(corrupt.problem, undefined, "recovers when the file becomes valid");
 	assert.ok(corrupt.state);
-	const noDiary = render({ state: baseState({ requirements: reqs(2, 0), steps: 0 }), events: [], now: 5000, W: 80, H: 14, usage: undefined });
+	const noDiary = render({ state: baseState({ requirements: reqs(2, 0), steps: 0 }), events: [], now: 5000, W: 80, H: 14, usage: undefined, ui: steps() });
 	assert.ok(noDiary.every((l) => l.length <= 80));
 	assert.match(noDiary.join("\n"), /nessun passo|in avvio|diario/i, "no diary yet is explained");
 	const finished = render({ state: baseState({ requirements: reqs(2, 2), stop: { reason: "completato", detail: "ok", at: 5 } }), W: 80, H: 14, usage: undefined }).join("\n");
@@ -134,7 +137,7 @@ test("R6: empty and abnormal states say what happened and which key to press", (
 });
 
 test("R7: contextual key row and 'in attesa' beside the keys", () => {
-	const last = (o: any) => render(o).slice(-2).join("\n");
+	const last = (o: any) => render({ W: 160, ...o }).slice(-2).join("\n");
 	const run = last({});
 	assert.match(run, /p pausa/); assert.match(run, /: nota/); assert.match(run, /s stop/);
 	const pend = last({ state: baseState({ requirements: reqs(3, 1), steps: 2, paused: true, notes: ["a", "b"] }) });
