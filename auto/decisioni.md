@@ -7,3 +7,4 @@
 - Testata in una riga: fase dall'ultimo evento step del diario (stato come ripiego), etichette abbreviate sotto 80 colonne — per stare in 60 colonne senza perdere salute e «fermo»
 - Requisito con ultimo check fallito (e non corrente) in rosso ✖; il corrente resta ▸ — il test vuole ▸ R2 e ✖ R2 in stati diversi
 - Passo in diretta: ultimi 5 tool, i precedenti in un conteggio — la colonna resta leggibile con corse lunghe
+- Sotto 50 colonne la testata perde la fase e la riga tasti perde «← passi»; cutAnsi come rete finale su testata e tasti — salvano salute e «q chiudi» e garantiscono righe ≤ W

@@ -157,13 +157,15 @@ export function cockpitRows({ state, events, now, W, H, usage, ui }) {
 	const stuck = running && !state.paused ? `fermo ${narrowH ? "" : "da "}${fmtDur(idle)}` : "";
 	const modeT = live ? (narrowH ? "DIRETTA" : "IN DIRETTA") : `RIVEDI ${narrowH ? "" : "passo "}${g.n || "0"}/${groups.length}`;
 	const wideH = W >= 100;
-	const fixed = [wideH ? `fase ${phase}` : phase, narrowH ? `${state.steps}/${MAX_STEPS}` : `passo ${state.steps}/${MAX_STEPS}`, `● ${h.word}`, stuck, modeT].filter(Boolean);
+	const phaseT = W < 50 ? "" : wideH ? `fase ${phase}` : phase;
+	const fixed = [narrowH ? `${state.steps}/${MAX_STEPS}` : `passo ${state.steps}/${MAX_STEPS}`, `● ${h.word}`, stuck, modeT].filter(Boolean);
 	const slugW = Math.min(state.slug.length, W >= 80 ? 16 : W >= 66 ? 8 : 4);
-	const used = 5 + slugW + fixed.reduce((n, p) => n + 3 + p.length, 0);
+	const used = 5 + slugW + (phaseT ? 3 + phaseT.length : 0) + fixed.reduce((n, p) => n + 3 + p.length, 0);
 	const whyW = W - used - 1;
 	const whyT = whyW >= 8 ? ` ${fit(h.why, whyW)}` : "";
 	const sep = `${C.dim} · `;
-	rows.push(`${C.mag}${C.b}AUTO${R} ${C.text}${fit(state.slug, slugW)}${sep}${C.dim}${fixed[0]}${sep}${fixed[1]}${sep}${toneColor(h.tone)}${C.b}${fixed[2]}${R}${C.dim}${whyT}${stuck ? `${sep}${stuck}` : ""}${sep}${R}${live ? C.ok : C.cyan}${modeT}${R}`);
+	// Below 50 columns the phase is dropped first.
+	rows.push(cutAnsi(`${C.mag}${C.b}AUTO${R} ${C.text}${fit(state.slug, slugW)}${phaseT ? `${sep}${C.dim}${phaseT}` : ""}${sep}${C.dim}${fixed[0]}${sep}${toneColor(h.tone)}${C.b}${fixed[1]}${R}${C.dim}${whyT}${stuck ? `${sep}${stuck}` : ""}${sep}${R}${live ? C.ok : C.cyan}${modeT}${R}`, W));
 	const bar = total ? `${"▰".repeat(Math.round((done / total) * 16))}${"▱".repeat(16 - Math.round((done / total) * 16))} ${done}/${total} requisiti` : "piano non ancora scritto";
 	const spent = usage !== undefined && state.fiveHourStart !== undefined ? ` · 5h +${Math.round((usage - state.fiveHourStart) * 100)}%/50%` : "";
 	rows.push(`${C.ok}${fit(`${bar}${C.dim}${spent} · fino alle ${clock(state.deadline)} (${fmtDur(state.deadline - now)}) · ${Math.round(state.tokens / 1000)}k token`, W)}${R}`);
@@ -200,8 +202,8 @@ export function cockpitRows({ state, events, now, W, H, usage, ui }) {
 	if (ui.note !== null && ui.note !== undefined) keys = `${C.mag}nota › ${C.text}${fit(ui.note, W - 10)}${C.mag}▌${C.dim}  ⏎ invia · esc annulla${R}`;
 	else if (!live) keys = `${C.text}←→${C.dim} passi · ${C.text}↑↓${C.dim} scorri · ${C.text}End${C.dim} in diretta${groups.length > (ui.seen ?? groups.length) ? ` · ${C.warn}● nuovo passo${C.dim}` : ""} · ${C.text}q${C.dim} chiudi${R}`;
 	else if (state.stop) keys = `${C.text}←${C.dim} passi · ${C.text}q${C.dim} chiudi${R}`;
-	else keys = `${C.text}p${C.dim} ${state.paused ? "riprendi" : "pausa"} · ${C.text}:${C.dim} nota · ${C.text}s${C.dim} stop · ${C.text}←${C.dim} passi · ${C.text}q${C.dim} chiudi${R}`;
-	rows.push(keys);
+	else keys = `${C.text}p${C.dim} ${state.paused ? "riprendi" : "pausa"} · ${C.text}:${C.dim} nota · ${C.text}s${C.dim} stop${W < 56 ? "" : ` · ${C.text}←${C.dim} passi`} · ${C.text}q${C.dim} chiudi${R}`;
+	rows.push(cutAnsi(keys, W));
 	return rows;
 }
 
