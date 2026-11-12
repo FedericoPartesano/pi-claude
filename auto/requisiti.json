@@ -5,7 +5,7 @@
 			"descrizione": "Testata a una riga: fase (dal diario, mai «undefined»), passo, salute con motivo, tempo e «fermo da Ns», anche a 60 colonne",
 			"check": "node --test --test-name-pattern \"^R1:\" extensions/auto-cockpit-v2.test.ts",
 			"prova": "cockpitRows su stato e diario reali, riga 0 a 110 e 60 colonne",
-			"passes": false
+			"passes": true
 		},
 		{
 			"id": "R2",
