@@ -7,7 +7,7 @@ import { readFileSync, writeFileSync, readdirSync, statSync, watch as fsWatch } 
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { checkOutcome, failingTests } from "../../pi-ui/src/test-output.ts";
-import { cockpitRows, createFeed, groupSteps } from "./cockpit.mjs";
+import { cockpitHead, cockpitRows, createFeed, groupSteps, navigate } from "./cockpit.mjs";
 import { readUsage as readUsageFile, forecastLines, resetLabel } from "../../pi-ui/src/usage.ts";
 
 const FPS = Number(process.env.PROTO_FPS) || 30;
@@ -729,18 +729,25 @@ const cockpitFrame = () => {
 	previous = next;
 	if (buf) out.write(`${ESC}?25l${buf}`);
 };
+const cockpitHeadOnly = () => {
+	const c = cockpit, st = c.feed.state;
+	if (!st || !previous.length) return;
+	const [row] = cockpitHead({ state: st, events: c.feed.events, now: Date.now(), W: out.columns || 80, usage: typeof usage.h5 === "number" ? usage.h5 : undefined, ui: c.ui });
+	if (row !== previous[0]) { previous[0] = row; out.write(`${ESC}?25l${ESC}1;1H${row}${ESC}K`); }
+};
 const cockpitOpen = () => {
 	const file = statuses.get("auto-run");
 	if (!file) { toast = "nessuna corsa /auto in questa sessione (avviala con /auto <goal>)"; schedule(); return; }
 	const feed = createFeed(file);
 	feed.refresh();
-	if (!feed.state) { toast = "stato della corsa non leggibile"; schedule(); return; }
+	if (!feed.state) { toast = feed.problem === "illeggibile" ? "stato della corsa illeggibile: riprova tra poco (/auto status)" : "nessuna corsa /auto in questa sessione (avviala con /auto <goal>)"; schedule(); return; }
 	cockpit = { feed, ui: { sel: -1, top: 0, seen: 0, note: null }, chat: { msgs: [], typing: null, busy: false }, tick: undefined, watch: undefined };
 	try { cockpit.watch = fsWatch(dirname(file), { persistent: false }, () => { if (cockpit?.feed.refresh()) schedule(); }); cockpit.watch.on("error", () => {}); } catch {}
 	cockpit.tick = setInterval(() => {
 		const changed = cockpit.feed.refresh();
 		if (cockpit.feed.state.stop) clearInterval(cockpit.tick); // a finished run needs no clock
-		if (changed || !cockpit.feed.state.stop) schedule();
+		if (changed) schedule();
+		else if (!cockpit.feed.state.stop) cockpitHeadOnly(); // nothing else changed: only the "stalled for Ns" header moves
 	}, 1000);
 	cockpit.tick.unref();
 	previous = []; out.write(`${ESC}2J`); drawNow();
@@ -775,15 +782,16 @@ const cockpitKey = (key, csi) => {
 		return true;
 	}
 	const live = ui.sel < 0;
-	if (csi === "D") { if (live ? groups > 1 : true) { ui.sel = live ? groups - 2 : Math.max(0, ui.sel - 1); ui.top = 0; if (live) ui.seen = groups; } }
-	else if (csi === "C") { if (!live) { ui.sel++; ui.top = 0; if (ui.sel >= groups - 1) ui.sel = -1; } }
-	else if (csi === "F" || csi === "4~") { ui.sel = -1; ui.top = 0; }
+	if (csi === "D") navigate(ui, groups, "left");
+	else if (csi === "C") navigate(ui, groups, "right");
+	else if (csi === "F" || csi === "4~") navigate(ui, groups, "end");
 	else if (csi === "A") ui.top = Math.max(0, ui.top - 1);
 	else if (csi === "B") ui.top += 1;
 	else if (csi === "5~") ui.top = Math.max(0, ui.top - 10);
 	else if (csi === "6~") ui.top += 10;
 	else if (csi) return true;
-	else if (key === "q" || key === "\x1b") return cockpitClose(), true;
+	else if (key === "\x1b") { if (navigate(ui, groups, "esc") === "close") cockpitClose(); }
+	else if (key === "q") return cockpitClose(), true;
 	else if (key === "p" && !c.feed.state.stop) send({ type: "prompt", message: c.feed.state.paused ? "/auto riprendi" : "/auto pausa" });
 	else if (key === "s" && !c.feed.state.stop) send({ type: "prompt", message: "/auto stop" });
 	else if (key === ":" && !c.feed.state.stop) ui.note = "";

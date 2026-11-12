@@ -1,5 +1,8 @@
 # Log
 
+## [2026-11-12] update | migliora la schermata di auto
+- Aggiornato [[chat-rpc]]: RIVEDI «passo k di n», esc, tasti contestuali, stati vuoti, ridisegno solo testata; misura in `eval/ui/REPORT.md`.
+
 ## [2026-11-12] update | cockpit di auto mode
 - Aggiornato [[chat-rpc]]: vista a schermo intero di `/auto`, diario, guida, canale dati su file.
 

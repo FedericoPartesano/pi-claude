@@ -52,6 +52,21 @@ export function groupSteps(events) {
 	return steps;
 }
 
+/**
+ * Review navigation shared with the chat. key: left|right|end|esc; mutates ui ({sel, top, seen}).
+ * Returns "review" (reviewing a step), "live" (back to live) or "close" (esc while live).
+ */
+export function navigate(ui, groups, key) {
+	const live = ui.sel < 0;
+	if (key === "left") {
+		if (live ? groups > 1 : true) { ui.sel = live ? groups - 2 : Math.max(0, ui.sel - 1); ui.top = 0; if (live) ui.seen = groups; }
+	} else if (key === "right") {
+		if (!live) { ui.sel++; ui.top = 0; if (ui.sel >= groups - 1) ui.sel = -1; }
+	} else if (key === "end" || (key === "esc" && !live)) { ui.sel = -1; ui.top = 0; }
+	else if (key === "esc") return "close";
+	return ui.sel < 0 ? "live" : "review";
+}
+
 /** Commands asked but not yet applied: pause waits for the step boundary, notes for the next step. */
 export function pending(state, events) {
 	let pauseApplied = false;
@@ -102,24 +117,41 @@ export function nextKey(state, h) {
 	return "Niente da fare: lascia andare. : aggiunge una nota al prossimo passo.";
 }
 
+/** No readable state: say what happened and which key helps (one short block, never wider than W). */
+function emptyRows(problem, W, H) {
+	const bad = problem === "illeggibile";
+	const lines = bad
+		? [`${C.err}Stato della corsa illeggibile.${R}`, `${C.dim}Il file di stato è incompleto o rovinato; riprova tra poco.${R}`, `${C.text}q${C.dim} chiude la vista · ${C.text}/auto status${C.dim} per controllare.${R}`]
+		: [`${C.warn}Nessuna corsa in questa sessione.${R}`, `${C.dim}Avviane una con ${C.text}/auto <obiettivo>${C.dim}; la vista si riempie da sola.${R}`, `${C.text}q${C.dim} chiude la vista.${R}`];
+	const rows = lines.map((l) => cutAnsi(l, W));
+	while (rows.length < H) rows.push("");
+	return rows.slice(0, Math.max(1, H));
+}
+
 const toneColor = (tone) => ({ ok: C.ok, warn: C.warn, err: C.err }[tone] ?? C.dim);
 
-function reqLines(state, w) {
+function reqLines(state, w, events) {
+	// Last check result per requirement: a failed one (not current) is red.
+	const failed = new Set();
+	for (const e of events) if (e.t === "check") e.ok ? failed.delete(e.id) : failed.add(e.id);
 	const next = state.requirements.find((r) => !r.passes);
 	const lines = [];
 	for (const r of state.requirements) {
-		const mark = r.passes ? `${C.ok}✓` : r === next ? `${C.cyan}▸` : `${C.faint}○`;
+		const mark = r.passes ? `${C.ok}✓` : r === next ? `${C.cyan}▸` : failed.has(r.id) ? `${C.err}✖` : `${C.faint}○`;
 		lines.push({ focus: r === next, text: `${mark} ${r.passes ? C.dim : C.text}${fit(`${r.id} ${r.descrizione}`, w - 2)}${R}` });
 	}
 	return lines;
 }
 
+const MAX_TOOLS = 5;
 function stepLines(g, w, running) {
 	if (!g) return [`${C.dim}nessun passo ancora${R}`];
 	const lines = [];
-	const state = !g.end ? (running ? `${C.mag}in corso…` : `${C.dim}interrotto`) : g.end.ok ? `${C.ok}✓ ${fmtDur(g.end.ms)} · ${Math.round(g.end.tokens / 1000)}k token` : `${C.err}✖ ${fit(g.end.error ?? "fallito", w - 24)}`;
+	const state = !g.end ? (running ? `${C.mag}in corso…` : `${C.dim}interrotto`) : g.end.ok ? `${C.ok}✓ esito: riuscito · ${fmtDur(g.end.ms)} · ${Math.round(g.end.tokens / 1000)}k token` : `${C.err}✖ esito: ${fit(g.end.error ?? "fallito", Math.max(8, w - 24))} · ${fmtDur(g.end.ms ?? 0)} · ${Math.round((g.end.tokens ?? 0) / 1000)}k token`;
 	lines.push(`${C.b}${C.text}${g.n ? `passo ${g.n} · ${g.phase}` : "controlli"}${R}  ${state}${R}`);
-	for (const t of g.tools) lines.push(`${C.dim}▸ ${C.text}${t.name}${C.faint} ${fit(t.arg, w - t.name.length - 3)}${R}`);
+	// Only the last MAX_TOOLS tools: older ones collapse into a count.
+	if (g.tools.length > MAX_TOOLS) lines.push(`${C.faint}… ${g.tools.length - MAX_TOOLS} tool prima${R}`);
+	for (const t of g.tools.slice(-MAX_TOOLS)) lines.push(`${C.dim}▸ ${C.text}${t.name}${C.faint} ${fit(t.arg, w - t.name.length - 3)}${R}`);
 	for (const c of g.checks) {
 		lines.push(`${c.ok ? `${C.ok}✓` : `${C.err}✖`} ${C.text}${c.id}${R}`);
 		if (!c.ok && c.out) for (const l of c.out.split("\n").filter((x) => x.trim()).slice(-4)) lines.push(`${C.faint}  ${fit(l.trim(), w - 2)}${R}`);
@@ -129,11 +161,44 @@ function stepLines(g, w, running) {
 	return lines;
 }
 
+/** Header row only (the 1 s tick redraws just this when nothing else changed). */
+export function cockpitHead({ state, events, now, W, usage, ui }) {
+	if (!state) return [emptyRows(undefined, W, 1)[0]];
+	const groups = groupSteps(events);
+	const h = health(state, events, now, usage);
+	const pend = pending(state, events);
+	const running = !state.stop && !(state.paused && pend.pauseApplied);
+	const live = ui.sel < 0 || ui.sel >= groups.length;
+	return [headRow(state, events, now, W, usage, ui, groups, h, running, live, live ? groups[groups.length - 1] : groups[ui.sel])];
+}
+
+function headRow(state, events, now, W, usage, ui, groups, h, running, live, g) {
+	// One header row: phase comes from the diary (last step event), falling back to the state, never "undefined".
+	let phase = state.phase || "";
+	for (let i = events.length - 1; i >= 0; i--) if (events[i].t === "step" && events[i].phase) { phase = events[i].phase; break; }
+	phase = phase || "?";
+	const idle = events.length ? now - events[events.length - 1].at : now - state.started;
+	const narrowH = W < 80;
+	const stuck = running && !state.paused ? `fermo ${narrowH ? "" : "da "}${fmtDur(idle)}` : "";
+	const modeT = live ? (narrowH ? "DIRETTA" : "IN DIRETTA") : (narrowH ? `RIVEDI ${g.n || "0"}/${groups.length}` : `RIVEDI passo ${g.n || "0"} di ${groups.length}`);
+	const wideH = W >= 100;
+	const phaseT = W < 50 ? "" : wideH ? `fase ${phase}` : phase;
+	const fixed = [narrowH ? `${state.steps}/${MAX_STEPS}` : `passo ${state.steps}/${MAX_STEPS}`, `● ${h.word}`, stuck, modeT].filter(Boolean);
+	const slugW = Math.min(state.slug.length, W >= 80 ? 16 : W >= 66 ? 8 : 4);
+	const used = 5 + slugW + (phaseT ? 3 + phaseT.length : 0) + fixed.reduce((n, p) => n + 3 + p.length, 0);
+	const whyW = W - used - 1;
+	const whyT = whyW >= 8 ? ` ${fit(h.why, whyW)}` : "";
+	const sep = `${C.dim} · `;
+	// Below 50 columns the phase is dropped first.
+	return cutAnsi(`${C.mag}${C.b}AUTO${R} ${C.text}${fit(state.slug, slugW)}${phaseT ? `${sep}${C.dim}${phaseT}` : ""}${sep}${C.dim}${fixed[0]}${sep}${toneColor(h.tone)}${C.b}${fixed[1]}${R}${C.dim}${whyT}${stuck ? `${sep}${stuck}` : ""}${sep}${R}${live ? C.ok : C.cyan}${modeT}${R}`, W);
+}
+
 /**
  * Rows of the view (exactly H, each at most W visible columns).
  * ui: {sel: index of the reviewed step or -1 for live, top: scroll in review, seen: steps count when review began, note: text being typed or null}.
  */
-export function cockpitRows({ state, events, now, W, H, usage, ui, chat }) {
+export function cockpitRows({ state, events, now, W, H, usage, ui, problem, chat }) {
+	if (!state) return emptyRows(problem, W, H);
 	const chatRows = chatLines(chat, W, Math.min(7, Math.max(0, H - 16)));
 	const groups = groupSteps(events);
 	const h = health(state, events, now, usage);
@@ -143,19 +208,16 @@ export function cockpitRows({ state, events, now, W, H, usage, ui, chat }) {
 	const g = live ? groups[groups.length - 1] : groups[ui.sel];
 	const done = state.requirements.filter((r) => r.passes).length, total = state.requirements.length;
 	const rows = [];
-	const mode = live ? `${C.ok}IN DIRETTA` : `${C.cyan}RIVEDI passo ${g.n || "0"}/${groups.length}`;
-	rows.push(`${C.mag}${C.b}AUTO${R} ${C.text}${fit(state.slug, Math.max(8, W - 48))}${C.dim} · fase ${state.phase} · passo ${state.steps}/${MAX_STEPS} · ${R}${mode}${R}`);
-	const idle = events.length ? now - events[events.length - 1].at : now - state.started;
-	rows.push(`${toneColor(h.tone)}${C.b}● ${h.word}${R}${C.dim} ${fit(h.why, W - 14)}${running && !state.paused && W >= 60 ? ` · fermo da ${fmtDur(idle)}` : ""}${R}`);
+	rows.push(headRow(state, events, now, W, usage, ui, groups, h, running, live, g));
 	const bar = total ? `${"▰".repeat(Math.round((done / total) * 16))}${"▱".repeat(16 - Math.round((done / total) * 16))} ${done}/${total} requisiti` : "piano non ancora scritto";
 	const spent = usage !== undefined && state.fiveHourStart !== undefined ? ` · 5h +${Math.round((usage - state.fiveHourStart) * 100)}%/50%` : "";
-	rows.push(`${C.ok}${fit(`${bar}${C.dim}${spent} · fino alle ${clock(state.deadline)} (${fmtDur(state.deadline - now)}) · ${Math.round(state.tokens / 1000)}k token`, W)}${R}`);
+	rows.push(cutAnsi(`${C.ok}${bar}${C.dim}${spent} · fino alle ${clock(state.deadline)} (${fmtDur(state.deadline - now)}) · ${Math.round(state.tokens / 1000)}k token${R}`, W)); // cutAnsi, not fit: the row holds color codes
 	rows.push(pend.list.length ? `${C.warn}in attesa: ${fit(pend.list.join(" · "), W - 12)}${R}` : "");
 	rows.push(`${C.faint}${"─".repeat(W)}${R}`);
 	const room = Math.max(3, H - rows.length - 2 - chatRows.length);
 	const wide = W >= 80;
 	const lw = wide ? Math.min(46, Math.floor(W * 0.4)) : W, rw = wide ? W - lw - 3 : W;
-	const reqs = reqLines(state, lw);
+	const reqs = reqLines(state, lw, events);
 	let left;
 	if (reqs.length <= (wide ? room : Math.min(6, room - 3))) left = reqs.map((r) => r.text);
 	else {
@@ -180,13 +242,7 @@ export function cockpitRows({ state, events, now, W, H, usage, ui, chat }) {
 	rows.length = Math.min(rows.length, H - 2 - chatRows.length);
 	rows.push(...chatRows);
 	rows.push(`${C.cyan}${fit(nextKey(state, h), W)}${R}`);
-	let keys;
-	if (chat?.typing !== null && chat?.typing !== undefined) keys = `${C.cyan}chat › ${C.text}${fit(chat.typing, W - 10)}${C.cyan}▌${C.dim}  ⏎ invia · esc annulla${R}`;
-	else if (ui.note !== null && ui.note !== undefined) keys = `${C.mag}nota › ${C.text}${fit(ui.note, W - 10)}${C.mag}▌${C.dim}  ⏎ invia · esc annulla${R}`;
-	else if (!live) keys = `${C.text}←→${C.dim} passi · ${C.text}↑↓${C.dim} scorri · ${C.text}End${C.dim} in diretta${groups.length > (ui.seen ?? groups.length) ? ` · ${C.warn}● nuovo passo${C.dim}` : ""} · ${C.text}q${C.dim} chiudi${R}`;
-	else if (state.stop) keys = `${C.text}←${C.dim} passi · ${C.text}q${C.dim} chiudi${R}`;
-	else keys = `${C.text}p${C.dim} ${state.paused ? "riprendi" : "pausa"} · ${C.text}c${C.dim} chat · ${C.text}:${C.dim} nota · ${C.text}s${C.dim} stop · ${C.text}←${C.dim} passi · ${C.text}q${C.dim} chiudi${R}`;
-	rows.push(keys);
+	rows.push(cutAnsi(keyHints({ state, events, ui, chat, W, live, newSteps: groups.length > (ui.seen ?? groups.length) }), W));
 	return rows;
 }
 
@@ -204,6 +260,16 @@ function chatLines(chat, W, max) {
 	if (chat.busy) all.push(`${C.dim}…${R}`);
 	const rows = [`${C.faint}${"─".repeat(W)}${R}`, ...all.slice(-(max - 1))];
 	return rows;
+}
+
+/** Last row: only the keys valid in the current state; pending commands ("in attesa") sit next to them. Pure. */
+export function keyHints({ state, events = [], ui, chat, W, live, newSteps }) {
+	if (chat?.typing !== null && chat?.typing !== undefined) return `${C.cyan}chat › ${C.text}${fit(chat.typing, W - 10)}${C.cyan}▌${C.dim}  ⏎ invia · esc annulla${R}`;
+	if (ui.note !== null && ui.note !== undefined) return `${C.mag}nota › ${C.text}${fit(ui.note, W - 10)}${C.mag}▌${C.dim}  ⏎ invia · esc annulla${R}`;
+	if (!live) return `${C.text}←→${C.dim} passi · ${C.text}↑↓${C.dim} scorri · ${C.text}End${C.dim} in diretta${newSteps ? ` · ${C.warn}● nuovo passo${C.dim}` : ""} · ${C.text}q${C.dim} chiudi${R}`;
+	if (state.stop) return `${C.text}←${C.dim} passi · ${C.text}q${C.dim} chiudi${R}`;
+	const wait = pending(state, events).list.map((l) => l.replace(" per il prossimo passo", ""));
+	return `${C.text}p${C.dim} ${state.paused ? "riprendi" : "pausa"} · ${C.text}c${C.dim} chat · ${C.text}:${C.dim} nota · ${C.text}s${C.dim} stop${W < 56 ? "" : ` · ${C.text}←${C.dim} passi`} · ${C.text}q${C.dim} chiudi${wait.length ? ` · ${C.warn}in attesa: ${wait.join(" · ")}${C.dim}` : ""}${R}`;
 }
 
 // Left cells hold ANSI codes: pad by visible width.
@@ -227,18 +293,24 @@ function cutAnsi(line, W) {
  */
 export function createFeed(stateFile) {
 	const diaryPath = stateFile.replace(/\.json$/, ".eventi.jsonl");
-	let state, mtime = 0, offset = 0;
+	let state, mtime = 0, offset = 0, problem = "assente";
 	const events = [];
 	return {
 		diaryPath,
 		get state() { return state; },
+		// Why there is no state: "assente" (no file yet) or "illeggibile" (not valid JSON); undefined once a state is loaded.
+		get problem() { return state ? undefined : problem; },
 		events,
 		refresh() {
 			let changed = false;
 			try {
 				const m = statSync(stateFile).mtimeMs;
-				if (m !== mtime) { mtime = m; state = JSON.parse(readFileSync(stateFile, "utf8")); changed = true; }
-			} catch { /* state mid-rename: keep the previous one */ }
+				if (m !== mtime) {
+					mtime = m;
+					try { state = JSON.parse(readFileSync(stateFile, "utf8")); problem = undefined; } catch { problem = "illeggibile"; }
+					changed = true;
+				}
+			} catch { if (!state) problem = "assente"; /* state mid-rename: keep the previous one */ }
 			if (existsSync(diaryPath)) {
 				try {
 					const size = statSync(diaryPath).size;

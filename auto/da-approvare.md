@@ -1,0 +1,7 @@
+- prd: pubblico unico = sviluppatore singolo con abbonamento Claude Code — team o più utenti
+- trd: nessun database, stato su file locali — database embedded (SQLite)
+- trd: nessun hosting o pagamenti, tutto locale — servizio remoto per il cockpit
+- flusso: sotto 70 colonne i blocchi si impilano (soglia dall'intent) — soglia diversa
+- design: tema Neon Night come riferimento, grafica sobria nel cockpit — stile nuovo dedicato
+- schema: nessun controllo di accesso per ruoli, solo utente locale — permessi per ruolo
+- piano: misura di base prima delle modifiche — misurare solo alla fine

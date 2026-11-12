@@ -1,0 +1,16 @@
+- «Schermata di auto» interpretata come il cockpit di /auto (prototype/rpc-chat/cockpit.mjs) — è l'unica vista dedicata; l'intent del cockpit esiste già, questo copre rifinitura e robustezza.
+- Soglia prestazioni «non oltre +10%» invece di 1/4 di Pi — il limite 1/4 resta nell'intent del cockpit, qui serve solo evitare regressioni.
+- Sei documenti scritti in vault/progetto/ come bozza dal repository com'è — la cartella mancava, schema.md del vault lo prevede.
+- Test dei check in due file (auto-cockpit-v2.test.ts, auto-cockpit-docs.test.ts), un test per requisito selezionato con `--test-name-pattern "^Rn:"` — i test esistenti di auto-cockpit.test.ts non cambiano e restano la regressione.
+- API pura fissata dai test: `navigate(ui, n, "left"|"right"|"esc")`, `keyHints`, `cockpitHead`, `cockpitRows` con `state` assente + `problem`, `feed.problem` — permette di provare tasti, stati vuoti e testata senza terminale.
+- «Misura di base» (R9) va presa prima di toccare il codice, nel passo di build di R9/R1, poi rimisurata dopo — il report deve avere entrambe.
+- Testata in una riga: fase dall'ultimo evento step del diario (stato come ripiego), etichette abbreviate sotto 80 colonne — per stare in 60 colonne senza perdere salute e «fermo»
+- Requisito con ultimo check fallito (e non corrente) in rosso ✖; il corrente resta ▸ — il test vuole ▸ R2 e ✖ R2 in stati diversi
+- Passo in diretta: ultimi 5 tool, i precedenti in un conteggio — la colonna resta leggibile con corse lunghe
+- Sotto 50 colonne la testata perde la fase e la riga tasti perde «← passi»; cutAnsi come rete finale su testata e tasti — salvano salute e «q chiudi» e garantiscono righe ≤ W
+- RIVEDI stretto (<80 col) resta «RIVEDI k/n», largo «passo k di n»; navigate prende tasti nominali (left|right|end|esc) — la vista traduce i CSI
+- Stati vuoti: cockpitRows(state undefined) disegna un blocco dedicato; in chat.mjs restano i toast all'apertura (vista non aperta senza stato) — evita di toccare i gestori dei tasti che assumono feed.state
+- keyHints estratta in cockpit.mjs, «in attesa» ricavato da pending() senza il suffisso «per il prossimo passo» — riga corta, una sola fonte
+- cockpitHead condivide headRow con cockpitRows; il tick ridisegna solo la riga 1 se feed.refresh() non cambia nulla — evita il ricalcolo e la scrittura dell'intero schermo ogni secondo
+- R9: verdetto negativo (+21,8%, oltre il 10%) dichiarato com'è, con la dispersione — misura alternata 5 giri via git archive di 446858c, il worktree extra è vietato
+- progresso: cutAnsi al posto di fit — fit contava i codici colore come colonne e poteva spezzare una sequenza ANSI a larghezze strette; test non aggiunto perché i file test sono in sola lettura
