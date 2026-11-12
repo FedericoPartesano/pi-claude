@@ -114,7 +114,7 @@ in lavorazione, ora limite e quota 5h spesa, stallo o errore ripetuto, ultimo ev
 Il cockpit (solo nella chat predefinita) è la vista a schermo intero della corsa: `alt+a` o `/auto` senza argomenti. Mostra
 salute (PROCEDE, A RISCHIO, FERMA, SERVE TE) con il motivo, requisiti, passo in diretta e, con ←/→, i passi passati; legge
 stato e diario (`<repo>-auto/<slug>.eventi.jsonl`) dai file, senza token. Tasti: `p` pausa/riprendi, `:` nota al prossimo
-passo, `s` stop, `q` chiude.
+passo, `s` stop, `q` chiude. In RIVEDI la testata mostra «passo k di n»; Esc torna alla diretta (in diretta chiude).
 
 ```
 /auto aggiungi l'export CSV alla pagina ordini
