@@ -15,7 +15,7 @@ import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { appendEvent, diaryFile, type DiaryEvent } from "./auto/diary.ts";
+import { appendEvent, diaryFile, readDiary, type DiaryEvent } from "./auto/diary.ts";
 import { killAllChildren, runChild } from "./auto/child.ts";
 import { docsDir, docsStatus } from "./auto/docs.ts";
 import { panelLines, runAuto, type LoopDeps } from "./auto/loop.ts";
@@ -88,6 +88,34 @@ export default function (pi: ExtensionAPI) {
 	const bwrap = process.platform === "linux" && has("bwrap", ["--ro-bind", "/", "/", "true"]);
 	const unshare = process.platform === "linux" && has("unshare", ["-rn", "true"]);
 
+	// The `auto` tool is a name in the tool list only while a run exists: no fixed prompt cost otherwise.
+	const setTool = (on: boolean) => {
+		try {
+			const others = pi.getActiveTools().filter((name) => name !== "auto");
+			pi.setActiveTools(on ? [...others, "auto"] : others);
+		} catch (error) {
+			if (!/stale/i.test(String((error as Error)?.message))) throw error;
+		}
+	};
+	pi.registerTool({
+		name: "auto",
+		label: "Auto",
+		description:
+			"Read and steer the running /auto run (the user's autonomous goal). action: status (phase, requirements, last tools) · nota {text: reaches the next step's prompt} · pausa · riprendi · stop. " +
+			"Use only when the user asks about or wants to steer the run; never start or stop it on your own.",
+		parameters: {
+			type: "object",
+			properties: { action: { type: "string", enum: ["status", "nota", "pausa", "riprendi", "stop"] }, text: { type: "string" } },
+			required: ["action"],
+		} as never,
+		async execute(_id, params, _signal, _onUpdate, ctx) {
+			const { action, text = "" } = params as { action: string; text?: string };
+			const reply = act(action, text, ctx as unknown as ExtensionCommandContext);
+			return { content: [{ type: "text" as const, text: reply.text }], details: undefined };
+		},
+	});
+	pi.on("session_start", () => setTool(!!current));
+
 	pi.on("session_shutdown", () => {
 		current?.controller.abort();
 		killAllChildren();
@@ -134,10 +162,54 @@ export default function (pi: ExtensionAPI) {
 		} catch {}
 	}
 
+	const GUIDE_WORDS = new Set(["stop", "pausa", "riprendi", "nota"]);
+	/** One entry point for the command and the tool: status, stop, pausa, riprendi, nota. Returns the reply text. */
+	function act(word: string, arg: string, ctx: ExtensionCommandContext): { text: string; warn?: boolean } {
+		const run = current;
+		if (!run) return { text: "auto: nessun lavoro in corso. Uso: /auto <goal> · /auto resume [slug]" };
+		const s = run.state;
+		if (word === "stop") {
+			guide(run, { t: "cmd", at: Date.now(), cmd: "stop", applied: true });
+			run.controller.abort();
+			run.wake?.();
+			return { text: `auto ${s.slug}: fermo il passo in corso…` };
+		}
+		if (word === "pausa" || word === "riprendi") {
+			const pause = word === "pausa";
+			s.paused = pause;
+			saveState(run.file, s);
+			guide(run, { t: "cmd", at: Date.now(), cmd: word, applied: !pause });
+			panel(ctx, s);
+			if (!pause) run.wake?.();
+			return { text: pause ? `auto ${s.slug}: in pausa al prossimo confine di passo (riprendi con riprendi).` : `auto ${s.slug}: riprendo.` };
+		}
+		if (word === "nota") {
+			const text = arg.trim().slice(0, 500);
+			if (!text) return { text: "auto: uso /auto nota <testo>", warn: true };
+			(s.notes ??= []).push(text);
+			saveState(run.file, s);
+			guide(run, { t: "cmd", at: Date.now(), cmd: "nota", text, applied: false });
+			return { text: `auto ${s.slug}: nota in coda, entra nel prossimo passo.` };
+		}
+		const done = s.requirements.filter((item) => item.passes).length;
+		const open = s.requirements.filter((item) => !item.passes).slice(0, 5).map((item) => `  ○ ${item.id} ${item.descrizione}`.slice(0, 120));
+		const tools = readDiary(diaryFile(run.file)).filter((e) => e.t === "tool").slice(-5).map((e) => `  ▸ ${e.name} ${e.arg}`.slice(0, 120));
+		return {
+			text: [
+				`auto ${s.slug} · fase ${s.phase}${s.paused ? " · IN PAUSA" : ""} · ${done}/${s.requirements.length} requisiti · passo ${s.steps} · ${s.tokens} token`,
+				...(open.length ? ["Requisiti aperti:", ...open] : []),
+				...(tools.length ? ["Ultimi tool del figlio:", ...tools] : []),
+				...(s.notes?.length ? [`Note in coda: ${s.notes.length}`] : []),
+				...s.log.slice(-8),
+			].join("\n"),
+		};
+	}
+
 	function launch(ctx: ExtensionCommandContext, state: AutoState, file: string, gitDir: string): void {
 		const controller = new AbortController();
 		const run: Run = { state, controller, file };
 		current = run;
+		setTool(true);
 		const diary = diaryFile(file);
 		const deps: LoopDeps = {
 			step: (s, request) => runChild(s, request, { gitDir, skillsDir: SKILLS_DIR, onTool: (name, arg) => appendEvent(diary, { t: "tool", at: Date.now(), n: s.steps, name, arg }) }, controller.signal),
@@ -186,7 +258,7 @@ export default function (pi: ExtensionAPI) {
 			})
 			.catch((error) => tell(ctx, `auto: errore del supervisore: ${(error as Error).message}`, "error"))
 			.finally(() => {
-				if (current === run) current = undefined;
+				if (current === run) { current = undefined; setTool(false); }
 				status(ctx, undefined);
 			});
 	}
@@ -248,37 +320,9 @@ export default function (pi: ExtensionAPI) {
 		handler: async (args, ctx) => {
 			const text = args.trim();
 			const [word, ...rest] = text.split(/\s+/);
-			if (word === "stop") {
-				if (!current) return tell(ctx, "auto: nessun lavoro in corso.");
-				guide(current, { t: "cmd", at: Date.now(), cmd: "stop", applied: true });
-				current.controller.abort();
-				current.wake?.();
-				return tell(ctx, `auto ${current.state.slug}: fermo il passo in corso…`);
-			}
-			if (word === "pausa" || word === "riprendi") {
-				if (!current) return tell(ctx, "auto: nessun lavoro in corso.");
-				const pause = word === "pausa";
-				current.state.paused = pause;
-				saveState(current.file, current.state);
-				guide(current, { t: "cmd", at: Date.now(), cmd: word, applied: !pause });
-				panel(ctx, current.state);
-				if (!pause) current.wake?.();
-				return tell(ctx, pause ? `auto ${current.state.slug}: in pausa al prossimo confine di passo (/auto riprendi).` : `auto ${current.state.slug}: riprendo.`);
-			}
-			if (word === "nota") {
-				if (!current) return tell(ctx, "auto: nessun lavoro in corso.");
-				const text = rest.join(" ").trim().slice(0, 500);
-				if (!text) return tell(ctx, "auto: uso /auto nota <testo>", "warning");
-				(current.state.notes ??= []).push(text);
-				saveState(current.file, current.state);
-				guide(current, { t: "cmd", at: Date.now(), cmd: "nota", text, applied: false });
-				return tell(ctx, `auto ${current.state.slug}: nota in coda, entra nel prossimo passo.`);
-			}
-			if (word === "status" || !text) {
-				if (!current) return tell(ctx, "auto: nessun lavoro in corso. Uso: /auto <goal> · /auto resume [slug]");
-				const s = current.state;
-				const done = s.requirements.filter((item) => item.passes).length;
-				return tell(ctx, [`auto ${s.slug} · fase ${s.phase} · ${done}/${s.requirements.length} requisiti · passo ${s.steps} · ${s.tokens} token`, ...s.log.slice(-8)].join("\n"));
+			if (GUIDE_WORDS.has(word) || word === "status" || !text) {
+				const reply = act(word || "status", rest.join(" "), ctx);
+				return tell(ctx, reply.text, reply.warn ? "warning" : "info");
 			}
 			if (current) return tell(ctx, `auto: è già in corso ${current.state.slug} (/auto stop per fermarlo).`, "warning");
 			if (word === "resume") return resume(rest.join(" "), ctx);

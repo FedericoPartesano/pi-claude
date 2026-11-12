@@ -168,7 +168,7 @@ test("cockpit 100x30: exact rows, width kept, health, requirements, live step, k
 	assert.match(all, /▸ R2/);
 	assert.match(all, /passo 2 · build/);
 	assert.match(all, /read src\/b\.ts/);
-	assert.match(text[29], /p pausa · : nota · s stop/);
+	assert.match(text[29], /p pausa · c chat · : nota · s stop/);
 });
 
 test("cockpit review: previous step with end text and failing check output; new step flagged", () => {
@@ -208,4 +208,19 @@ test("feed: reads state and diary incrementally, ignores a half-written line unt
 	assert.equal(feed.refresh(), true);
 	assert.equal(feed.events.length, 2);
 	assert.equal(feed.refresh(), false, "nothing new: no change");
+});
+
+test("cockpit chat strip: shows the conversation, keeps exactly H rows, absent when empty", () => {
+	const state = baseState({ requirements: reqs(3, 1), steps: 2 });
+	const call = (chat: unknown) => plain(cockpitRows({ state, events: evs(), now: 14_000, W: 100, H: 30, usage: undefined, ui: { sel: -1, top: 0, note: null }, chat }));
+	const none = call({ msgs: [], typing: null, busy: false });
+	const rows = call({ msgs: [{ role: "user", text: "a che punto sei?" }, { role: "tool", text: "auto status" }, { role: "assistant", text: "Fase build, 1/3 requisiti." }], typing: "ok", busy: false });
+	assert.equal(none.length, 30);
+	assert.equal(rows.length, 30);
+	assert.ok(rows.some((r: string) => r.includes("tu › a che punto sei?")));
+	assert.ok(rows.some((r: string) => r.includes("▸ auto status")));
+	assert.ok(rows.some((r: string) => r.includes("pi › Fase build")));
+	assert.ok(rows.at(-1)!.startsWith("chat › ok"));
+	assert.ok(!none.some((r: string) => r.includes("tu ›")));
+	for (const r of rows) assert.ok([...r].length <= 100);
 });

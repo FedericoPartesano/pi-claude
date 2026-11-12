@@ -18,6 +18,7 @@ Primo lotto (vista + diario + guida minima). Il resto del brief è nella sezione
 - [x] Canale dati: il client legge stato JSON e diario dai file, risvegliato da `fs.watch`; il percorso arriva con `setStatus`. Nessun traffico RPC per i dati. — prova: `setStatus auto-run` visto in RPC reale; vista aperta via fs.watch+feed (test `feed`)
 - [x] Test automatici: diario, salute, vista (righe a 100×30 e a larghezze strette), pausa/nota nel loop; tsc pulito; suite estensioni verde. — prova: tsc pulito (pi-claude-code e pi-ui), `node --test extensions/*.test.ts` 366 pass, 0 fail
 - [x] 0 token per la vista; la nota dell'utente è l'unico testo aggiunto a un prompt, solo se esiste. — prova: vista e feed senza chiamate al modello; `withNotes` aggiunge testo solo se ci sono note (test)
+- [x] Il modello della chat legge e guida la corsa: tool `auto` (status, nota, pausa, riprendi, stop) attivo solo a corsa in atto; chat nel cockpit (`c`) — prova: test della striscia, pty con Pi finto, tsc pulito, suite verde; risposta reale del modello da provare nel TUI
 - [ ] Prestazioni: sul Proxmox, CPU del prototipo ≤ 1/4 di Pi con `pi-ui`, anche con vista aperta e corsa attiva (carico replay), 5 giri alternati, mediana, in `eval/ui/REPORT.md` anche se negativo.
 - [ ] Prova d'uso dell'utente nel TUI reale con una corsa vera: «sta procedendo? perché?» in ≤5 s.
 - [x] README (`prototype/rpc-chat/README.md`, sezione `/auto` del README) e wiki aggiornati. — prova: README.md, prototype/rpc-chat/README.md, vault/wiki/entities/chat-rpc.md e log aggiornati

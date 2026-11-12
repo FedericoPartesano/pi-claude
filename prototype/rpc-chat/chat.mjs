@@ -717,12 +717,12 @@ const quizLines = (z, bar, iw, leftW, H) => {
 let previous = [], toastText = "", toastSeen = "", toastT0 = 0, toastOut = 0;
 // --- Cockpit of /auto (alt+a, or /auto alone): full-screen view of the run, read from the state file and the diary on disk.
 // Closed: no cost. Open: one 1 s tick only while the run is active (the "stalled for Ns" counter), plus fs.watch on the run directory.
-let cockpit; // {feed, ui: {sel, top, seen, note}, tick, watch}
+let cockpit; // {feed, ui: {sel, top, seen, note}, chat: {msgs, typing, busy}, tick, watch}
 const cockpitFrame = () => {
 	const W = out.columns || 80, H = out.rows || 24;
 	const c = cockpit, st = c.feed.state;
 	if (!st) return;
-	const next = cockpitRows({ state: st, events: c.feed.events, now: Date.now(), W, H, usage: typeof usage.h5 === "number" ? usage.h5 : undefined, ui: c.ui });
+	const next = cockpitRows({ state: st, events: c.feed.events, now: Date.now(), W, H, usage: typeof usage.h5 === "number" ? usage.h5 : undefined, ui: c.ui, chat: c.chat });
 	let buf = "";
 	for (let i = 0; i < next.length; i++) if (previous[i] !== next[i]) buf += `${ESC}${i + 1};1H${next[i]}${ESC}K`;
 	for (let i = next.length; i < previous.length; i++) buf += `${ESC}${i + 1};1H${ESC}K`;
@@ -735,7 +735,7 @@ const cockpitOpen = () => {
 	const feed = createFeed(file);
 	feed.refresh();
 	if (!feed.state) { toast = "stato della corsa non leggibile"; schedule(); return; }
-	cockpit = { feed, ui: { sel: -1, top: 0, seen: 0, note: null }, tick: undefined, watch: undefined };
+	cockpit = { feed, ui: { sel: -1, top: 0, seen: 0, note: null }, chat: { msgs: [], typing: null, busy: false }, tick: undefined, watch: undefined };
 	try { cockpit.watch = fsWatch(dirname(file), { persistent: false }, () => { if (cockpit?.feed.refresh()) schedule(); }); cockpit.watch.on("error", () => {}); } catch {}
 	cockpit.tick = setInterval(() => {
 		const changed = cockpit.feed.refresh();
@@ -755,7 +755,17 @@ const cockpitKey = (key, csi) => {
 	const c = cockpit;
 	if (!c) return false;
 	const groups = groupSteps(c.feed.events).length;
-	const ui = c.ui;
+	const ui = c.ui, chat = c.chat;
+	if (chat.typing !== null) {
+		if (csi) return true;
+		if (key === "\x1b") chat.typing = null;
+		else if (key === "\r" || key === "\n") {
+			const t = chat.typing.trim(); chat.typing = null;
+			if (t) { chat.msgs.push({ role: "user", text: t }); chat.busy = true; send({ type: "prompt", message: t, ...(running ? { streamingBehavior: "followUp" } : {}) }); }
+		} else if (key === "\x7f") chat.typing = chat.typing.slice(0, -1);
+		else if (key >= " ") chat.typing += key;
+		return true;
+	}
 	if (ui.note !== null) {
 		if (csi) return true;
 		if (key === "\x1b") ui.note = null;
@@ -777,6 +787,7 @@ const cockpitKey = (key, csi) => {
 	else if (key === "p" && !c.feed.state.stop) send({ type: "prompt", message: c.feed.state.paused ? "/auto riprendi" : "/auto pausa" });
 	else if (key === "s" && !c.feed.state.stop) send({ type: "prompt", message: "/auto stop" });
 	else if (key === ":" && !c.feed.state.stop) ui.note = "";
+	else if (key === "c") chat.typing = "";
 	return true;
 };
 
@@ -1046,12 +1057,13 @@ const onRecord = (r) => {
 			break;
 		case "message_update": {
 			const e = r.assistantMessageEvent;
-			if (e?.type === "text_delta") append("assistant", e.delta);
+			if (e?.type === "text_delta") { append("assistant", e.delta); if (cockpit?.chat.busy) { const m = cockpit.chat.msgs; if (m.at(-1)?.role === "assistant") m.at(-1).text += e.delta; else m.push({ role: "assistant", text: e.delta }); schedule(); } }
 			else if (e?.type === "thinking_delta") append("thinking", e.delta);
 			if (e?.type === "text_delta" || e?.type === "thinking_delta") tokens.out += 1;
 			break;
 		}
 		case "tool_execution_start":
+			if (cockpit?.chat.busy) { cockpit.chat.msgs.push({ role: "tool", text: `${r.toolName} ${typeof r.args?.action === "string" ? r.args.action : ""}`.trim() }); schedule(); }
 			open = undefined;
 			blocks.push({ kind: "tool", id: r.toolCallId, name: r.toolName, args: r.args, text: "" });
 			if (r.toolName === "ask_user_question" && Array.isArray(r.args?.questions) && r.args.questions.length && !dialog) { qz = qzMk(r.args.questions); dialog = { method: "quiz", z: qz }; }
@@ -1101,6 +1113,7 @@ const onRecord = (r) => {
 			break;
 		}
 		case "agent_settled": {
+			if (cockpit) { cockpit.chat.busy = false; schedule(); }
 			running = false; open = undefined; queued = 0;
 			for (const p of queuedMsgs.splice(0)) blocks.push({ kind: "user", text: p.text });
 			const last = blocks.findLast((b) => b.kind === "assistant");
@@ -1382,7 +1395,7 @@ process.stdin.on("data", (data) => {
 		}
 		if (m[3] !== undefined) { // bracketed paste: literal text, newlines kept
 			const t = m[3].replace(/\r\n?/g, "\n");
-			if (cockpit) { if (cockpit.ui.note !== null) { cockpit.ui.note += t.replace(/\n/g, " "); drawNow(); } }
+			if (cockpit) { const c = cockpit; if (c.chat.typing !== null) c.chat.typing += t.replace(/\n/g, " "); else if (c.ui.note !== null) c.ui.note += t.replace(/\n/g, " "); drawNow(); }
 			else if (dialog?.text !== undefined) dialog.text += t.replace(/\n/g, " ");
 			else if (!dialog && !t.trim()) pasteClipboardImage(); // image-only clipboard: terminals paste nothing, read the image
 			else if (!dialog && !attachFile(t)) insert(t);

@@ -133,7 +133,8 @@ function stepLines(g, w, running) {
  * Rows of the view (exactly H, each at most W visible columns).
  * ui: {sel: index of the reviewed step or -1 for live, top: scroll in review, seen: steps count when review began, note: text being typed or null}.
  */
-export function cockpitRows({ state, events, now, W, H, usage, ui }) {
+export function cockpitRows({ state, events, now, W, H, usage, ui, chat }) {
+	const chatRows = chatLines(chat, W, Math.min(7, Math.max(0, H - 16)));
 	const groups = groupSteps(events);
 	const h = health(state, events, now, usage);
 	const pend = pending(state, events);
@@ -151,7 +152,7 @@ export function cockpitRows({ state, events, now, W, H, usage, ui }) {
 	rows.push(`${C.ok}${fit(`${bar}${C.dim}${spent} · fino alle ${clock(state.deadline)} (${fmtDur(state.deadline - now)}) · ${Math.round(state.tokens / 1000)}k token`, W)}${R}`);
 	rows.push(pend.list.length ? `${C.warn}in attesa: ${fit(pend.list.join(" · "), W - 12)}${R}` : "");
 	rows.push(`${C.faint}${"─".repeat(W)}${R}`);
-	const room = Math.max(3, H - rows.length - 2);
+	const room = Math.max(3, H - rows.length - 2 - chatRows.length);
 	const wide = W >= 80;
 	const lw = wide ? Math.min(46, Math.floor(W * 0.4)) : W, rw = wide ? W - lw - 3 : W;
 	const reqs = reqLines(state, lw);
@@ -175,15 +176,33 @@ export function cockpitRows({ state, events, now, W, H, usage, ui }) {
 		body.length = Math.min(body.length, room);
 	}
 	rows.push(...body.map((l) => cutAnsi(l, W)));
-	while (rows.length < H - 2) rows.push("");
-	rows.length = Math.min(rows.length, H - 2);
+	while (rows.length < H - 2 - chatRows.length) rows.push("");
+	rows.length = Math.min(rows.length, H - 2 - chatRows.length);
+	rows.push(...chatRows);
 	rows.push(`${C.cyan}${fit(nextKey(state, h), W)}${R}`);
 	let keys;
-	if (ui.note !== null && ui.note !== undefined) keys = `${C.mag}nota › ${C.text}${fit(ui.note, W - 10)}${C.mag}▌${C.dim}  ⏎ invia · esc annulla${R}`;
+	if (chat?.typing !== null && chat?.typing !== undefined) keys = `${C.cyan}chat › ${C.text}${fit(chat.typing, W - 10)}${C.cyan}▌${C.dim}  ⏎ invia · esc annulla${R}`;
+	else if (ui.note !== null && ui.note !== undefined) keys = `${C.mag}nota › ${C.text}${fit(ui.note, W - 10)}${C.mag}▌${C.dim}  ⏎ invia · esc annulla${R}`;
 	else if (!live) keys = `${C.text}←→${C.dim} passi · ${C.text}↑↓${C.dim} scorri · ${C.text}End${C.dim} in diretta${groups.length > (ui.seen ?? groups.length) ? ` · ${C.warn}● nuovo passo${C.dim}` : ""} · ${C.text}q${C.dim} chiudi${R}`;
 	else if (state.stop) keys = `${C.text}←${C.dim} passi · ${C.text}q${C.dim} chiudi${R}`;
-	else keys = `${C.text}p${C.dim} ${state.paused ? "riprendi" : "pausa"} · ${C.text}:${C.dim} nota · ${C.text}s${C.dim} stop · ${C.text}←${C.dim} passi · ${C.text}q${C.dim} chiudi${R}`;
+	else keys = `${C.text}p${C.dim} ${state.paused ? "riprendi" : "pausa"} · ${C.text}c${C.dim} chat · ${C.text}:${C.dim} nota · ${C.text}s${C.dim} stop · ${C.text}←${C.dim} passi · ${C.text}q${C.dim} chiudi${R}`;
 	rows.push(keys);
+	return rows;
+}
+
+/**
+ * Chat strip: the last messages of the conversation with the model (which can read and steer the run through its `auto` tool).
+ * chat: {msgs: [{role: "user"|"assistant"|"tool", text}], typing: string|null, busy}; empty when there is nothing to show.
+ */
+function chatLines(chat, W, max) {
+	if (!chat || max < 3 || (!chat.msgs.length && (chat.typing === null || chat.typing === undefined))) return [];
+	const all = [];
+	for (const m of chat.msgs.slice(-6)) {
+		const tag = m.role === "user" ? `${C.cyan}tu › ${C.text}` : m.role === "tool" ? `${C.dim}▸ ` : `${C.mag}pi › ${C.text}`;
+		wrapPlain(m.text.replace(/\s+/g, " ").trim() || "…", Math.max(10, W - 7)).forEach((l, i) => all.push(`${i ? "      " : tag}${l}${R}`));
+	}
+	if (chat.busy) all.push(`${C.dim}…${R}`);
+	const rows = [`${C.faint}${"─".repeat(W)}${R}`, ...all.slice(-(max - 1))];
 	return rows;
 }
 

@@ -114,7 +114,7 @@ in lavorazione, ora limite e quota 5h spesa, stallo o errore ripetuto, ultimo ev
 Il cockpit (solo nella chat predefinita) è la vista a schermo intero della corsa: `alt+a` o `/auto` senza argomenti. Mostra
 salute (PROCEDE, A RISCHIO, FERMA, SERVE TE) con il motivo, requisiti, passo in diretta e, con ←/→, i passi passati; legge
 stato e diario (`<repo>-auto/<slug>.eventi.jsonl`) dai file, senza token. Tasti: `p` pausa/riprendi, `:` nota al prossimo
-passo, `s` stop, `q` chiude.
+passo, `s` stop, `c` chat, `q` chiude. La chat nel cockpit parla con il modello della sessione, che mentre c'è una corsa ha il tool `auto` (status, nota, pausa, riprendi, stop): chiedi «a che punto è?» o «fermala» e lo fa. Il tool è nell'elenco solo a corsa attiva (0 token altrimenti); le stesse richieste funzionano anche dalla chat normale.
 
 ```
 /auto aggiungi l'export CSV alla pagina ordini
