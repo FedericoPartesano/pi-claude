@@ -326,13 +326,15 @@ function startSessionFromTranscript(
 	while (liveSessions.length > MAX_LIVE_SESSIONS) liveSessions.pop()?.dispose();
 	startReaper();
 
+	// Tool results the history ended with go first in the same user turn (see WrittenSession.trailingUser).
+	const held = resumeSession?.trailingUser ?? [];
 	const pending = oneUserTurn(pendingUserMessages, toContentBlocks);
 	if (pending) {
-		session.sendUserMessage(pending);
+		session.sendUserMessage([...held, ...pending]);
 	} else {
 		// The transcript ends with tool results or an assistant message (retry after an error or
 		// abort): ask the model to carry on from the resumed history.
-		session.sendUserMessage([{ type: "text", text: "Continue." }]);
+		session.sendUserMessage([...held, { type: "text", text: "Continue." }]);
 	}
 	return session;
 }

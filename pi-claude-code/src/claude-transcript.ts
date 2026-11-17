@@ -23,8 +23,15 @@ interface SessionEntry {
 }
 
 export interface WrittenSession {
-	sessionId: string;
+	/** Undefined when nothing was written (no history left once the trailing user turn was held back). */
+	sessionId: string | undefined;
 	dispose: () => void;
+	/**
+	 * Blocks of a user turn the history ended with (tool results of an interrupted run). They are not written: next to the
+	 * message sent after `--resume` they would be two user turns in a row, and Claude Code puts a synthetic assistant
+	 * "No response requested." between them, which the model then reads as its own last answer. Send them with that message.
+	 */
+	trailingUser: AnthropicBlock[];
 }
 
 /** Claude Code stores sessions under `<config>/projects/<cwd with non-alphanumerics as '-'>`. */
@@ -36,11 +43,13 @@ export function claudeProjectDirectory(cwd: string): string {
 export function writeClaudeSession(history: ConversationMessage[], cwd: string, model: string): WrittenSession {
 	const sessionId = randomUUID();
 	const directory = claudeProjectDirectory(cwd);
-	mkdirSync(directory, { recursive: true });
 	const file = join(directory, `${sessionId}.jsonl`);
 
 	const toolIds = new ToolIdMap();
 	const entries = mergeConsecutiveRoles(history.map((message) => toSessionEntry(message, toolIds, model)).filter(isNonEmpty));
+	const trailingUser = entries.at(-1)?.role === "user" ? entries.pop()!.content : [];
+	if (entries.length === 0) return { sessionId: undefined, dispose: () => {}, trailingUser };
+	mkdirSync(directory, { recursive: true });
 
 	let parentUuid: string | null = null;
 	const lines = entries.map((entry, index) => {
@@ -73,7 +82,7 @@ export function writeClaudeSession(history: ConversationMessage[], cwd: string, 
 		return JSON.stringify(line);
 	});
 	writeFileSync(file, `${lines.join("\n")}\n`);
-	return { sessionId, dispose: () => rmSync(file, { force: true }) };
+	return { sessionId, dispose: () => rmSync(file, { force: true }), trailingUser };
 }
 
 function toSessionEntry(message: ConversationMessage, toolIds: ToolIdMap, model: string): SessionEntry {
