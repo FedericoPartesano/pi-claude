@@ -26,6 +26,7 @@ const session = () =>
 		["intent", "INTENT", C.ok],
 		["loop", "LOOP", C.cyan],
 		["team", "TEAM", C.yel],
+		["skill", "SKILL", C.cyan],
 	] as const;
 
 /** Model family from its id ("opus", "claude-sonnet-4-5" → OPUS, SONNET), with its own color: always a colored block. */

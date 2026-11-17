@@ -1,0 +1,216 @@
+{
+  "_doc": "Chat skill router contract (extensions/skills-router.ts). Each rule scores signals: `text` regexes on the user message, `command` slash commands, `files` regexes on files changed in the repo, `state` flags (testsFailing, diffLarge). A skill activates when its summed weight reaches `threshold`; at most `maxPerTurn` per turn, none already active in the session. Paths are relative to the skills dir, like phases.json. An explicit /skill:name always wins and disables the router for that message.",
+  "threshold": 2,
+  "maxPerTurn": 2,
+  "rules": [
+    {
+      "skill": "agent-skills/skills/debugging-and-error-recovery",
+      "text": [
+        {
+          "match": "\\b(bug|crash\\w*|rott[oaie]|regression\\w*|errore|errori|exception|stack ?trace|throwing|failing|fallisc\\w*|lent[oa]|slow)\\b",
+          "w": 1
+        },
+        {
+          "match": "\\b(non (va|funziona|parte|carica|si vede|trova|compila|si apre)|doesn'?t work|is broken|diagnose|debug (this|it|questo)|root cause|(risolvi|sistema|correggi|fix) (il |questo |l')?(bug|problema|errore|crash)|(crash\\w*|errore|exception) (ogni volta|all'avvio|on startup|quando))\\b",
+          "w": 2
+        }
+      ],
+      "state": {
+        "testsFailing": 2
+      }
+    },
+    {
+      "skill": "agent-skills/skills/test-driven-development",
+      "text": [
+        {
+          "match": "\\b(test|tdd)\\b",
+          "w": 1
+        },
+        {
+          "match": "\\b(tdd|test[- ]first|red[- ]green|scrivi (i )?test|aggiungi (un )?test|add tests?|write tests?)\\b",
+          "w": 2
+        }
+      ]
+    },
+    {
+      "skill": "agent-skills/skills/code-review-and-quality",
+      "text": [
+        {
+          "match": "\\b(review|revisiona|rivedi|pull request|pr)\\b",
+          "w": 1
+        },
+        {
+          "match": "\\b(fai (una |la )?review|code review|rivedi (il )?(codice|diff|pr)|controlla (il )?(codice|diff|pr))\\b",
+          "w": 2
+        }
+      ],
+      "command": {
+        "/review": 2
+      }
+    },
+    {
+      "skill": "agent-skills/skills/spec-driven-development",
+      "text": [
+        {
+          "match": "\\b(spec|specifica|prd|requisiti|nuova funzione\\w*|new feature|nuovo progetto)\\b",
+          "w": 1
+        },
+        {
+          "match": "\\b(scrivi (la |una )?(spec|specifica|prd)|write (a )?(spec|prd)|spec[- ]driven)\\b",
+          "w": 2
+        }
+      ]
+    },
+    {
+      "skill": "agent-skills/skills/planning-and-task-breakdown",
+      "text": [
+        {
+          "match": "\\b(piano|pianifica|plan|task|spezza|suddividi|breakdown|roadmap)\\b",
+          "w": 1
+        },
+        {
+          "match": "\\b(pianifica|spezza in task|break (it )?down|suddividi in (task|passi)|crea (un )?piano)\\b",
+          "w": 2
+        }
+      ]
+    },
+    {
+      "skill": "agent-skills/skills/idea-refine",
+      "text": [
+        {
+          "match": "\\b(idea|brainstorm\\w*|stress-test|ideate|affina|affin\\w+)\\b",
+          "w": 1
+        },
+        {
+          "match": "\\b(brainstorm\\w*|affina (l')?idea|refine (this )?idea|stress-test)\\b",
+          "w": 2
+        }
+      ]
+    },
+    {
+      "skill": "agent-skills/skills/security-and-hardening",
+      "text": [
+        {
+          "match": "\\b(sicurezza|security|vulnerabilit\\w*|owasp|xss|csrf|injection|cifr\\w*|segret\\w*|secret\\w*)\\b",
+          "w": 1
+        },
+        {
+          "match": "\\b(owasp|audit (di )?sicurezza|security audit|vulnerabilit\\w*|xss|csrf|sql injection)\\b",
+          "w": 2
+        }
+      ]
+    },
+    {
+      "skill": "agent-skills/skills/performance-optimization",
+      "text": [
+        {
+          "match": "\\b(performance|prestazioni|ottimizza\\w*|optimi[sz]e|profil\\w*|latenza|memory leak|n\\+1)\\b",
+          "w": 1
+        },
+        {
+          "match": "\\b(memory leak|n\\+1|profila|profiling|ottimizza (le )?(prestazioni|performance|query)|optimi[sz]e (performance|the query))\\b",
+          "w": 2
+        }
+      ]
+    },
+    {
+      "skill": "agent-skills/skills/code-simplification",
+      "text": [
+        {
+          "match": "\\b(semplifica\\w*|simplify|refactor\\w*|riordina|clean ?up)\\b",
+          "w": 1
+        },
+        {
+          "match": "\\b(semplifica (il )?codice|refactor\\w*|pulisci il codice|simplify (the )?code)\\b",
+          "w": 2
+        }
+      ]
+    },
+    {
+      "skill": "agent-skills/skills/git-workflow-and-versioning",
+      "text": [
+        {
+          "match": "\\b(commit\\w*|branch|rebase|changelog|tag|release)\\b",
+          "w": 1
+        },
+        {
+          "match": "\\b(messaggio di commit|commit atomici|dividi in commit|crea (un )?tag|scrivi (il )?changelog|rebase)\\b",
+          "w": 2
+        },
+        {
+          "match": "^\\W*(committa|fai (un )?commit|pusha|fai (un )?push|push e|merge)\\b",
+          "w": 2
+        }
+      ]
+    },
+    {
+      "skill": "agent-skills/skills/documentation-and-adrs",
+      "text": [
+        {
+          "match": "\\b(adr|documenta\\w*|document\\w*|readme)\\b",
+          "w": 1
+        },
+        {
+          "match": "\\b(scrivi (un )?adr|aggiorna (il )?readme|documenta (la|il|le|i)\\b)",
+          "w": 2
+        }
+      ]
+    },
+    {
+      "skill": "agent-skills/skills/frontend-ui-engineering",
+      "text": [
+        {
+          "match": "\\b(ui|interfaccia|frontend|componente|layout|css|react|accessibilit\\w*|pagina|modale?|tab|bottone|toast|tabella|grid|footer|schermata|pannello)\\b",
+          "w": 1
+        },
+        {
+          "match": "\\b(accessibilit\\w*|responsive|componente react|layout css)\\b",
+          "w": 2
+        }
+      ],
+      "files": [
+        {
+          "match": "\\.(tsx|jsx|css|scss|vue|svelte|html)$",
+          "w": 1
+        }
+      ]
+    },
+    {
+      "skill": "agent-skills/skills/api-and-interface-design",
+      "text": [
+        {
+          "match": "\\b(api|endpoint\\w*|rest|graphql|contratt\\w*)\\b",
+          "w": 1
+        },
+        {
+          "match": "\\b(progetta (l')?api|design (an |the )?api|disegna (l')?api|nuovo endpoint|contratto (dell')?api)\\b",
+          "w": 2
+        }
+      ]
+    },
+    {
+      "skill": "agent-skills/skills/shipping-and-launch",
+      "text": [
+        {
+          "match": "\\b(deploy\\w*|rilascia\\w*|lancio|go[- ]live|rollback|in produzione)\\b",
+          "w": 1
+        },
+        {
+          "match": "\\b(prepara (il )?(deploy|rilascio|lancio)|piano di rollback|checklist (di )?(rilascio|lancio)|go[- ]live)\\b",
+          "w": 2
+        },
+        {
+          "match": "\\b(rilascia|rilascio|deployare|fai (il )?deploy|rifai (il )?deploy|nuova versione)\\b",
+          "w": 2
+        }
+      ]
+    }
+  ],
+  "frame": {
+    "match": "^\\W*(fai|fammi|crea|scrivi|aggiungi|controlla|analizza|rivedi|revisiona|risolvi|correggi|sistema|ottimizza|migliora|semplifica|implementa|prepara|documenta|pianifica|pensa|valuta|vai|procedi|metti|rendi|indaga|trova|studia|cerca|aiutami|aggiusta|committa|pusha|rilascia|rifai|mergia|mettigli|dimmi|fix|check|review|write|create|add|implement|please|diagnose|debug)\\b|\\b(voglio|vorrei|devo|dobbiamo|puoi|potresti|riesci a|serve|servono|bisogna|occorre|need to|can you|could you|let's|facciamo|va (aggiustat|fatt|sistemat|corrett)\\w+)\\b",
+    "w": 1
+  },
+  "veto": "^\\W*(stop hook feedback|warning:|\\[|\"|controllo di vitalit|se l'agente)|\\b(ho|hai|abbiamo|ha) (fatto|messo|avuto|scritto|testato)\\b|\\bfatto!?\\s*$|\\bpiano \\d|\\b(task|t) ?\\d\\b",
+  "maxLen": 600,
+  "autoThreshold": 3
+}

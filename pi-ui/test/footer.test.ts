@@ -54,3 +54,8 @@ test("renderFooter: badge ADVISOR dopo il modello quando lo stato advisor è pre
 	assert.match(strip(renderFooter(info, 120)), /^ MODELLO HAIKU {3}ADVISOR {2}/);
 	assert.doesNotMatch(strip(renderFooter({ ...info, statuses: new Map() }, 120)), /ADVISOR/);
 });
+
+test("the footer shows the active skill as a SKILL chip", () => {
+	const text = renderFooter({ statuses: new Map([["skill", "git-workflow-and-versioning"]]), project: "p", model: "sonnet", thinking: "medium" } as never, 120).replace(/\x1b\[[0-9;]*m/g, "");
+	assert.match(text, /SKILL git-workflow-and-versioning/);
+});

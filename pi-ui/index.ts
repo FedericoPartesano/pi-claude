@@ -185,6 +185,12 @@ export default function (pi: ExtensionAPI) {
 		panelDirty = true;
 		tui?.requestRender();
 	});
+	let skillsState: PanelInfo["skills"];
+	pi.events.on("skills:state", (data) => {
+		skillsState = (data as PanelInfo["skills"]) ?? undefined;
+		panelDirty = true;
+		tui?.requestRender();
+	});
 	// lean-tools reports the tokens its compactions saved.
 	pi.events.on("lean:saved", (data) => {
 		saved += Number((data as { tokens?: number })?.tokens) || 0;
@@ -737,6 +743,7 @@ export default function (pi: ExtensionAPI) {
 			activity,
 			git,
 			memory: statuses.get("memory"),
+			skills: skillsState,
 			suggestions,
 			agents: agentRows(),
 			now: Date.now(),

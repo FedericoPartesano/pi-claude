@@ -39,6 +39,8 @@ export interface PanelInfo {
 	plan?: { subject: string; status: string }[];
 	/** The in-progress intent of the project. */
 	intent?: { file: string; title: string; outcomes: string[] };
+	/** Skill router state (extensions/skills.ts, pi.events "skills:state"). */
+	skills?: { history: { at: number; skill: string; reason: string; tokens: number }[]; off: string[]; current: { skill: string; tier: "auto" | "suggest" }[] };
 	/** Tokens saved by lean-tools in this session (estimated). */
 	saved?: number;
 	/** The vault index (extensions/vault.ts, pi.events "vault:state"). */
@@ -135,7 +137,7 @@ export function renderPanel(info: PanelInfo, width: number, key = PANEL_KEY, max
 	const inner = width - 2;
 	// Sections with their icon; the HUD style numbers them: `// 01 SESSIONE`.
 	let sections = 0;
-	const ICONS: Record<string, IconName> = { SESSIONE: "session", TURNO: "turn", "SUB-AGENTI": "agent", "ATTIVITÀ": "activity", FILE: "files", TEST: "test", MEMORIA: "memory", SUGGERIMENTI: "suggest", GIT: "branch", IMMAGINI: "image", USO: "usage", PIANO: "todo", INTENT: "session", RISPARMIO: "usage", GOAL: "session", GRAFO: "files" };
+	const ICONS: Record<string, IconName> = { SESSIONE: "session", TURNO: "turn", "SUB-AGENTI": "agent", "ATTIVITÀ": "activity", FILE: "files", TEST: "test", MEMORIA: "memory", SUGGERIMENTI: "suggest", GIT: "branch", IMMAGINI: "image", USO: "usage", PIANO: "todo", INTENT: "session", RISPARMIO: "usage", GOAL: "session", GRAFO: "files", SKILL: "tool" };
 	const section = (title: string, right = "") => {
 		sections++;
 		const icon = I[ICONS[title] ?? "tool"];
@@ -178,6 +180,15 @@ export function renderPanel(info: PanelInfo, width: number, key = PANEL_KEY, max
 		});
 		return [section("SESSIONE"), ...(rows.length ? rows : [fg(C.dim, "nessun goal, loop o team")])];
 	});
+	const sk = info.skills;
+	if (sk && (sk.history.length || sk.off.length || sk.current.length)) {
+		add(1, () => {
+			const now = sk.current.map((c) => (c.tier === "auto" ? fg(C.ok, `▶ ${c.skill}`) : fg(C.yel, `? ${c.skill} (suggerita)`)));
+			// Two lines per activation: name + time + tokens, then the reason (why it fired).
+			const rows = sk.history.slice(-3).reverse().flatMap((h) => [fit(`${fg(C.faint, new Date(h.at).toTimeString().slice(0, 5))} ${fg(C.text, h.skill)}`, fg(C.dim, h.tokens ? `~${formatTokens(h.tokens)}` : "0"), inner), fg(C.dim, `  ${truncateToWidth(h.reason, Math.max(8, inner - 2))}`)]);
+			return ["", section("SKILL", sk.off.length ? fg(C.warn, `${sk.off.length} spente`) : ""), ...now, ...rows, ...(sk.off.length ? [fg(C.dim, truncateToWidth(`spente: ${sk.off.join(", ")}`, inner))] : []), fit("", `${fg(C.mag, "/skills")} ${fg(C.dim, "off|on nome")}`, inner)];
+		});
+	}
 	const turn = info.turn;
 	const mode = turn?.mode;
 	if (turn && mode && mode !== "ready") {

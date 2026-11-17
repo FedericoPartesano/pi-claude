@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: ready
 created: 2026-11-12
 source: user
 ---

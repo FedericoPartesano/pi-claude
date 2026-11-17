@@ -196,3 +196,18 @@ test("la sezione VAULT durante l'indicizzazione mostra barra, conteggio e nota c
 	assert.match(text, /50\/100 sezioni/);
 	assert.match(text, /adr\/007\.md/);
 });
+
+test("the panel shows active and suggested skills, history and the off list within width", () => {
+	const skills = { history: [{ at: Date.UTC(2026, 10, 13, 10, 5), skill: "git-workflow-and-versioning", reason: "frase di commit", tokens: 3300 }], off: ["shipping-and-launch"], current: [{ skill: "git-workflow-and-versioning", tier: "auto" as const }, { skill: "debugging-and-error-recovery", tier: "suggest" as const }] };
+	for (const width of [30, 40, 60]) {
+		const lines = renderPanel({ ...info, skills }, width, "alt+s");
+		for (const line of lines) assert.equal(visibleWidth(line), width);
+	}
+	const text = renderPanel({ ...info, skills }, 50, "alt+s").map(strip).join("\n");
+	assert.match(text, /SKILL ─+ 1 spente/);
+	assert.match(text, /▶ git-workflow-and-versioning/);
+	assert.match(text, /\? debugging-and-error-recovery \(suggerita\)/);
+	assert.match(text, /spente: shipping-and-launch/);
+	assert.match(text, /frase di commit/);
+	assert.doesNotMatch(renderPanel(info, 50, "alt+s").map(strip).join("\n"), /SKILL/);
+});

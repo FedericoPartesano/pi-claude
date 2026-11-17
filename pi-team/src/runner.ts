@@ -24,6 +24,9 @@ export interface AgentRequest {
 	timeoutMs?: number;
 	/** Every JSON event of the child, as it arrives (live view of the agents). */
 	onEvent?: (event: any) => void;
+	/** Extra CLI args placed first (auto mode: `--no-extensions -e provider -e worker`) and extra env of the child. */
+	extraArgs?: string[];
+	env?: NodeJS.ProcessEnv;
 }
 
 export type RunAgent = (request: AgentRequest) => Promise<AgentRun>;
@@ -34,11 +37,12 @@ export const CHILD_ENVIRONMENT_FLAG = "PI_TEAM_CHILD";
 /** How long one team agent may run before it is stopped. */
 export const AGENT_TIMEOUT_MS = 20 * 60_000;
 
-export const runAgent: RunAgent = ({ role, prompt, cwd, signal, timeoutMs = AGENT_TIMEOUT_MS, onEvent }) => {
+export const runAgent: RunAgent = ({ role, prompt, cwd, signal, timeoutMs = AGENT_TIMEOUT_MS, onEvent, extraArgs = [], env }) => {
 	const started = Date.now();
 	const run: AgentRun = { ok: false, text: "", inputTokens: 0, outputTokens: 0, requests: 0, seconds: 0 };
 	const args = [
 		"--mode", "json", "-p", "--no-session",
+		...extraArgs,
 		// Skills only add prompt tokens to every request: roles carry their own instructions.
 		"--no-skills",
 		"--provider", "claude-code", "--model", role.model,
@@ -50,7 +54,7 @@ export const runAgent: RunAgent = ({ role, prompt, cwd, signal, timeoutMs = AGEN
 	return new Promise((resolve) => {
 		const child = spawn(process.env.PI_TEAM_PI_BINARY ?? "pi", args, {
 			cwd,
-			env: { ...process.env, [CHILD_ENVIRONMENT_FLAG]: "1" },
+			env: { ...process.env, ...env, [CHILD_ENVIRONMENT_FLAG]: "1" },
 			stdio: ["ignore", "pipe", "pipe"],
 		});
 		let stderrTail = "";

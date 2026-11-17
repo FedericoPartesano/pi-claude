@@ -22,6 +22,7 @@
       "./extensions/lean-tools.ts",
       "./extensions/rpc-suggest.ts",
       "./extensions/caveman.ts",
+      "./extensions/skills.ts",
       "./extensions/ste.ts",
       "./extensions/loop.ts",
       "./extensions/goal.ts",

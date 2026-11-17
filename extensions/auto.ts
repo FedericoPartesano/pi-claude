@@ -16,7 +16,8 @@ import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { appendEvent, diaryFile, readDiary, type DiaryEvent } from "./auto/diary.ts";
-import { killAllChildren, runChild } from "./auto/child.ts";
+import { killAllChildren } from "./auto/child.ts";
+import { stepWithTeam } from "./auto/team.ts";
 import { docsDir, docsStatus } from "./auto/docs.ts";
 import { panelLines, runAuto, type LoopDeps } from "./auto/loop.ts";
 import { sandboxCommand } from "./auto/policy.ts";
@@ -28,11 +29,11 @@ const USAGE_FILE = join(homedir(), ".pi/agent/claude-code-usage.json");
 const SKILLS_DIR = fileURLToPath(new URL("../skills", import.meta.url));
 const HOURS = Number(process.env.PI_AUTO_HOURS ?? 3);
 
-function git(cwd: string, args: string[]): Promise<{ ok: boolean; out: string }> {
+export function git(cwd: string, args: string[]): Promise<{ ok: boolean; out: string }> {
 	return new Promise((resolve) => execFile("git", args, { cwd, maxBuffer: 8 << 20 }, (error, stdout, stderr) => resolve({ ok: !error, out: error ? `${stdout}${stderr}` : stdout })));
 }
 
-function readUsage(): number | undefined {
+export function readUsage(): number | undefined {
 	try {
 		const value = JSON.parse(readFileSync(USAGE_FILE, "utf8")).fiveHourUtilization;
 		return typeof value === "number" ? value : undefined;
@@ -41,7 +42,7 @@ function readUsage(): number | undefined {
 	}
 }
 
-const has = (binary: string, args: string[]) => {
+export const has = (binary: string, args: string[]) => {
 	try {
 		execFileSync(binary, args, { stdio: "ignore", timeout: 5000 });
 		return true;
@@ -66,7 +67,7 @@ export function linkNodeModules(repo: string, worktree: string): number {
 }
 
 /** A symlinked node_modules is a file to git: `node_modules/` in .gitignore does not hide it. */
-function ignoreLinks(gitDir: string): void {
+export function ignoreLinks(gitDir: string): void {
 	const file = join(gitDir, "info", "exclude");
 	const text = existsSync(file) ? readFileSync(file, "utf8") : "";
 	if (/^node_modules$/m.test(text)) return;
@@ -211,16 +212,21 @@ export default function (pi: ExtensionAPI) {
 		current = run;
 		setTool(true);
 		const diary = diaryFile(file);
+		const check: LoopDeps["check"] = (command, cwd) => runCheck(sandboxCommand(command, { worktree: cwd, gitDir, network: false, readOnly: [], bwrap, unshare }), cwd, controller.signal);
+		const stepFn = stepWithTeam(
+			{ gitDir, skillsDir: SKILLS_DIR, onTool: (name, arg) => appendEvent(diary, { t: "tool", at: Date.now(), n: run.state.steps, name, arg }), onSay: (kind, text) => appendEvent(diary, { t: "say", at: Date.now(), n: run.state.steps, kind, text }) },
+			check,
+			controller.signal,
+		);
 		const deps: LoopDeps = {
-			step: (s, request) => runChild(s, request, { gitDir, skillsDir: SKILLS_DIR, onTool: (name, arg) => appendEvent(diary, { t: "tool", at: Date.now(), n: s.steps, name, arg }), onSay: (kind, text) => appendEvent(diary, { t: "say", at: Date.now(), n: s.steps, kind, text }) }, controller.signal),
+			step: (s, request) => stepFn(s, request),
 			event: (event) => appendEvent(diary, event),
 			gate: async (s) => {
 				if (s.paused && !controller.signal.aborted) appendEvent(diary, { t: "cmd", at: Date.now(), cmd: "pausa", applied: true });
 				while (s.paused && !controller.signal.aborted) await new Promise<void>((resolve) => (run.wake = resolve));
 				run.wake = undefined;
 			},
-			check: (command, cwd) =>
-				runCheck(sandboxCommand(command, { worktree: cwd, gitDir, network: false, readOnly: [], bwrap, unshare }), cwd, controller.signal),
+			check,
 			git,
 			usage: readUsage,
 			now: Date.now,

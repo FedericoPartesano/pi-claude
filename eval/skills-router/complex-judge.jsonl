@@ -1,0 +1,20 @@
+{"id":"cx01","rep":"1","reasoning":"skill","verification":"skill","cleanliness":"tie","professionalism":"base","overall":"base"}
+{"id":"cx02","rep":"1","reasoning":"skill","verification":"skill","cleanliness":"tie","professionalism":"skill","overall":"skill"}
+{"id":"cx03","rep":"1","reasoning":"skill","verification":"skill","cleanliness":"base","professionalism":"skill","overall":"skill"}
+{"id":"cx04","rep":"1","reasoning":"skill","verification":"skill","cleanliness":"skill","professionalism":"skill","overall":"skill"}
+{"id":"cx01","rep":"2","reasoning":"base","verification":"base","cleanliness":"tie","professionalism":"tie","overall":"base"}
+{"id":"cx05","rep":"1","error":"You've hit your 5-hour limit · resets 2:10pm (Europe/Rome)\n"}
+{"id":"cx03","rep":"2","error":"You've hit your 5-hour limit · resets 2:10pm (Europe/Rome)\n"}
+{"id":"cx04","rep":"2","error":"You've hit your 5-hour limit · resets 2:10pm (Europe/Rome)\n"}
+{"id":"cx02","rep":"2","error":"You've hit your 5-hour limit · resets 2:10pm (Europe/Rome)\n"}
+{"id":"cx01","rep":"3","error":"You've hit your 5-hour limit · resets 2:10pm (Europe/Rome)\n"}
+{"id":"cx05","rep":"2","error":"You've hit your 5-hour limit · resets 2:10pm (Europe/Rome)\n"}
+{"id":"cx02","rep":"3","error":"You've hit your 5-hour limit · resets 2:10pm (Europe/Rome)\n"}
+{"id":"cx03","rep":"3","error":"You've hit your 5-hour limit · resets 2:10pm (Europe/Rome)\n"}
+{"id":"cx04","rep":"3","error":"You've hit your 5-hour limit · resets 2:10pm (Europe/Rome)\n"}
+{"id":"cx05","rep":"3","error":"You've hit your 5-hour limit · resets 2:10pm (Europe/Rome)\n"}
+{"id":"cx01","rep":"4","error":"You've hit your 5-hour limit · resets 2:10pm (Europe/Rome)\n"}
+{"id":"cx02","rep":"4","error":"You've hit your 5-hour limit · resets 2:10pm (Europe/Rome)\n"}
+{"id":"cx03","rep":"4","error":"You've hit your 5-hour limit · resets 2:10pm (Europe/Rome)\n"}
+{"id":"cx04","rep":"4","error":"You've hit your 5-hour limit · resets 2:10pm (Europe/Rome)\n"}
+{"id":"cx05","rep":"4","error":"You've hit your 5-hour limit · resets 2:10pm (Europe/Rome)\n"}

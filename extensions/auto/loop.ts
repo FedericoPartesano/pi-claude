@@ -33,6 +33,8 @@ export interface StepRequest {
 	readOnly: string[];
 	/** Skill selection input (auto/skills.ts): step kinds in priority order and the text triggers match on. */
 	skills?: { kinds: StepKind[]; context: string };
+	/** Build steps only: the requirement being worked on and how many times in a row its check failed (team escalation). */
+	requirement?: { id: string; check: string; failures: number };
 }
 
 export interface StepResult {
@@ -141,7 +143,7 @@ export function withNotes(state: AutoState, deps: LoopDeps, prompt: string): str
 	return `${prompt}\n\nNota dell'utente per questo passo (rispettala, non cambia i check congelati):\n${notes.map((n) => `- ${n}`).join("\n")}`;
 }
 
-async function runStep(state: AutoState, deps: LoopDeps, phase: Phase, prompt: string, kinds: StepKind[] = [phase as StepKind], context = state.goal): Promise<StepResult> {
+async function runStep(state: AutoState, deps: LoopDeps, phase: Phase, prompt: string, kinds: StepKind[] = [phase as StepKind], context = state.goal, requirement?: StepRequest["requirement"]): Promise<StepResult> {
 	state.steps++;
 	note(state, deps, `passo ${state.steps}: ${phase}`);
 	prompt = withNotes(state, deps, prompt);
@@ -149,7 +151,7 @@ async function runStep(state: AutoState, deps: LoopDeps, phase: Phase, prompt: s
 	const started = deps.now();
 	deps.event?.({ t: "step", at: started, n: state.steps, phase });
 	const readOnly = phase === "define" || phase === "plan" ? [] : state.frozen.map((path) => join(state.worktree, path)).filter((path) => existsSync(path));
-	const result = await deps.step(state, { phase, prompt, readOnly, skills: { kinds, context } });
+	const result = await deps.step(state, { phase, prompt, readOnly, skills: { kinds, context }, ...(requirement ? { requirement } : {}) });
 	state.tokens += result.tokens;
 	deps.event?.({ t: "end", at: deps.now(), n: state.steps, ok: result.ok, ms: deps.now() - started, tokens: result.tokens, text: result.text, error: result.error });
 	const skills = (state.skills ??= { given: {}, read: {} });
@@ -260,7 +262,7 @@ async function build(state: AutoState, deps: LoopDeps): Promise<void> {
 	const retry = state.errorFor === pending.id && state.lastError !== undefined;
 	const failure = retry ? state.lastError || "(il check è fallito senza output)" : undefined;
 	const context = [state.goal, pending.descrizione, pending.prova, pending.check, designContext(state)].join("\n");
-	await runStep(state, deps, "build", buildPrompt(state, pending, failure, docsDir(state.worktree)), retry ? ["retry", "build"] : ["build"], context);
+	await runStep(state, deps, "build", buildPrompt(state, pending, failure, docsDir(state.worktree)), retry ? ["retry", "build"] : ["build"], context, { id: pending.id, check: pending.check, failures: retry ? state.sameError : 0 });
 	await commitAll(state, deps, `feat(auto): ${pending.id}`);
 	if (tampered(state)) return stop(state, deps, "check-manomessi", `il passo su ${pending.id} ha cambiato check o file congelati`);
 	const result = await deps.check(pending.check, state.worktree);

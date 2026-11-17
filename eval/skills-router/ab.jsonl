@@ -1,0 +1,32 @@
+{"id":"bf01","arm":"base","rep":1,"skills":[],"pass":true,"detail":"test pass=6 fail=0","turns":8,"cost":0.1778182,"outTokens":929,"inTokens":193497,"sec":23.5,"answerChars":366}
+{"id":"bf01","arm":"skill","rep":1,"skills":["debugging-and-error-recovery"],"pass":true,"detail":"test pass=6 fail=0","turns":8,"cost":0.18144400000000002,"outTokens":1024,"inTokens":198454,"sec":25.7,"answerChars":471}
+{"id":"bf02","arm":"base","rep":1,"skills":[],"pass":true,"detail":"valori [\"€ -1,50\",\"€ 12,34\",\"€ 0,05\"]","turns":10,"cost":0.18769320000000003,"outTokens":1882,"inTokens":325962,"sec":32.5,"answerChars":819}
+{"id":"bf02","arm":"skill","rep":1,"skills":["test-driven-development"],"pass":true,"detail":"valori [\"€ -1,50\",\"€ 12,34\",\"€ 0,05\"]","turns":11,"cost":0.2171693,"outTokens":1921,"inTokens":366872,"sec":35.6,"answerChars":929}
+{"id":"bf05","arm":"base","rep":1,"skills":[],"pass":true,"detail":"[800,\"err\",\"err\",0]","turns":5,"cost":0.161171,"outTokens":850,"inTokens":179888,"sec":16.6,"answerChars":385}
+{"id":"bf05","arm":"skill","rep":1,"skills":[],"pass":true,"detail":"[800,\"err\",\"err\",0]","turns":5,"cost":0.16091360000000002,"outTokens":850,"inTokens":179732,"sec":18.9,"answerChars":546}
+{"id":"bf06","arm":"base","rep":1,"skills":[],"pass":true,"detail":"[[1,2,3],[7]]","turns":3,"cost":0.1445593,"outTokens":367,"inTokens":133206,"sec":16.2,"answerChars":226}
+{"id":"bf06","arm":"skill","rep":1,"skills":[],"pass":true,"detail":"[[1,2,3],[7]]","turns":3,"cost":0.1443552,"outTokens":353,"inTokens":133150,"sec":15,"answerChars":217}
+{"id":"ft06","arm":"base","rep":1,"skills":[],"pass":true,"detail":"test totali=7 (erano 6)","turns":6,"cost":0.1625679,"outTokens":878,"inTokens":182516,"sec":22.6,"answerChars":455}
+{"id":"ft06","arm":"skill","rep":1,"skills":["test-driven-development"],"pass":true,"detail":"test totali=7 (erano 6)","turns":7,"cost":0.1969107,"outTokens":1103,"inTokens":260943,"sec":22.9,"answerChars":709}
+{"id":"ft08","arm":"base","rep":1,"skills":[],"pass":true,"detail":"sezione con le chiavi","turns":5,"cost":0.1667781,"outTokens":1279,"inTokens":226990,"sec":19.8,"answerChars":646}
+{"id":"ft08","arm":"skill","rep":1,"skills":[],"pass":true,"detail":"sezione con le chiavi","turns":7,"cost":0.16926619999999998,"outTokens":1402,"inTokens":227676,"sec":20.9,"answerChars":622}
+{"id":"qa03","arm":"base","rep":1,"skills":[],"pass":true,"detail":"atteso E303 × 58","turns":4,"cost":0.1530155,"outTokens":659,"inTokens":179677,"sec":14.7,"answerChars":308}
+{"id":"qa03","arm":"skill","rep":1,"skills":[],"pass":true,"detail":"atteso E303 × 58","turns":3,"cost":0.1491328,"outTokens":351,"inTokens":132220,"sec":12.7,"answerChars":180}
+{"id":"qa08","arm":"skill","rep":1,"skills":[],"pass":true,"detail":"4 marker in inventory/csv/pagination","turns":2,"cost":0.1385989,"outTokens":316,"inTokens":87047,"sec":13.1,"answerChars":373}
+{"id":"qa08","arm":"base","rep":1,"skills":[],"pass":true,"detail":"4 marker in inventory/csv/pagination","turns":3,"cost":0.2456111,"outTokens":459,"inTokens":128207,"sec":18.5,"answerChars":374}
+{"id":"bf01","arm":"base","rep":2,"skills":[],"pass":true,"detail":"test pass=6 fail=0","turns":9,"cost":0.1848333,"outTokens":1050,"inTokens":197299,"sec":19,"answerChars":451}
+{"id":"bf01","arm":"skill","rep":2,"skills":["debugging-and-error-recovery"],"pass":true,"detail":"test pass=6 fail=0","turns":8,"cost":0.1900569,"outTokens":1240,"inTokens":252142,"sec":23.4,"answerChars":640}
+{"id":"bf02","arm":"skill","rep":2,"skills":["test-driven-development"],"pass":true,"detail":"valori [\"€ -1,50\",\"€ 12,34\",\"€ 0,05\"]","turns":9,"cost":0.2011723,"outTokens":1518,"inTokens":259914,"sec":24.2,"answerChars":684}
+{"id":"bf05","arm":"base","rep":2,"skills":[],"pass":true,"detail":"[800,\"err\",\"err\",0]","turns":5,"cost":0.15671639999999998,"outTokens":785,"inTokens":181583,"sec":16.3,"answerChars":576}
+{"id":"bf02","arm":"base","rep":2,"skills":[],"pass":true,"detail":"valori [\"€ -1,50\",\"€ 12,34\",\"€ 0,05\"]","turns":11,"cost":0.19372940000000005,"outTokens":1941,"inTokens":373132,"sec":31.2,"answerChars":845}
+{"id":"bf06","arm":"base","rep":2,"skills":[],"pass":true,"detail":"[[1,2,3],[7]]","turns":3,"cost":0.1438825,"outTokens":319,"inTokens":133110,"sec":13.7,"answerChars":210}
+{"id":"bf05","arm":"skill","rep":2,"skills":[],"pass":true,"detail":"[800,\"err\",\"err\",0]","turns":10,"cost":0.1879968,"outTokens":1609,"inTokens":325995,"sec":21.5,"answerChars":661}
+{"id":"bf06","arm":"skill","rep":2,"skills":[],"pass":true,"detail":"[[1,2,3],[7]]","turns":4,"cost":0.1463467,"outTokens":482,"inTokens":133379,"sec":13.6,"answerChars":292}
+{"id":"ft06","arm":"base","rep":2,"skills":[],"pass":true,"detail":"test totali=7 (erano 6)","turns":7,"cost":0.1705249,"outTokens":971,"inTokens":231181,"sec":20.5,"answerChars":442}
+{"id":"ft06","arm":"skill","rep":2,"skills":["test-driven-development"],"pass":true,"detail":"test totali=7 (erano 6)","turns":9,"cost":0.20313270000000003,"outTokens":1165,"inTokens":314780,"sec":20.2,"answerChars":577}
+{"id":"ft08","arm":"base","rep":2,"skills":[],"pass":true,"detail":"sezione con le chiavi","turns":6,"cost":0.1680775,"outTokens":1363,"inTokens":227606,"sec":21.5,"answerChars":614}
+{"id":"ft08","arm":"skill","rep":2,"skills":[],"pass":true,"detail":"sezione con le chiavi","turns":7,"cost":0.16906049999999997,"outTokens":1396,"inTokens":227662,"sec":21.9,"answerChars":635}
+{"id":"qa03","arm":"base","rep":2,"skills":[],"pass":true,"detail":"atteso E303 × 58","turns":3,"cost":0.1460245,"outTokens":410,"inTokens":134471,"sec":12.5,"answerChars":241}
+{"id":"qa08","arm":"base","rep":2,"skills":[],"pass":true,"detail":"4 marker in inventory/csv/pagination","turns":2,"cost":0.1388126,"outTokens":339,"inTokens":87040,"sec":11.9,"answerChars":407}
+{"id":"qa03","arm":"skill","rep":2,"skills":[],"pass":true,"detail":"atteso E303 × 58","turns":3,"cost":0.14938010000000002,"outTokens":583,"inTokens":134464,"sec":15.4,"answerChars":266}
+{"id":"qa08","arm":"skill","rep":2,"skills":[],"pass":true,"detail":"4 marker in inventory/csv/pagination","turns":2,"cost":0.1385987,"outTokens":315,"inTokens":88081,"sec":15.2,"answerChars":349}
