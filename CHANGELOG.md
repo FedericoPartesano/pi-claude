@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.36.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.35.0...pi-claude-v0.36.0) (2026-11-17)
+
+
+### Features
+
+* **chat:** fasi del turno nella barra di stato e note del bridge su api_retry e limite d'uso ([7dea8dd](https://github.com/FedericoPartesano/pi-claude/commit/7dea8ddae951f956f5b31f8457d3ad0e9338205f))
+
 ## [0.35.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.34.0...pi-claude-v0.35.0) (2026-11-17)
 
 
