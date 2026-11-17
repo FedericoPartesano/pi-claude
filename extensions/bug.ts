@@ -60,14 +60,18 @@ export default function (pi: ExtensionAPI) {
 	const openForm = async (ctx: ExtensionContext, start: Partial<BugForm> = {}) => {
 		if (ctx.mode === "rpc") {
 			// No custom modal over RPC: the same form as a sequence of dialogs.
-			const title = await ctx.ui.input("Bug: titolo", start.title ?? "");
+			// Step counter in every title, so each dialog says where the user is.
+			const step = (n: number, label: string) => `Segnalazione ${n}/6 · ${label}`;
+			const title = await ctx.ui.input(step(1, "titolo breve"), start.title ?? "");
 			if (!title) return;
-			const happened = (await ctx.ui.input("Cosa è successo", start.happened ?? "")) ?? "";
-			const expected = (await ctx.ui.input("Cosa ti aspettavi", start.expected ?? "")) ?? "";
-			const severity = (await ctx.ui.select("Gravità", ["fastidio", "blocca", "piccolo"])) as BugForm["severity"] | undefined;
+			const happened = (await ctx.ui.input(step(2, "cosa è successo"), start.happened ?? "")) ?? "";
+			const expected = (await ctx.ui.input(step(3, "cosa ti aspettavi"), start.expected ?? "")) ?? "";
+			const levels: [BugForm["severity"], string][] = [["fastidio", "fastidio — dà noia ma si lavora"], ["blocca", "blocca — non riesco a proseguire"], ["piccolo", "piccolo — difetto marginale"]];
+			const picked = await ctx.ui.select(step(4, "gravità"), levels.map(([, label]) => label));
+			const severity = levels.find(([, label]) => label === picked)?.[0];
 			if (!severity) return;
-			const redact = await ctx.ui.confirm("Oscurare segreti e percorsi?", "Consigliato prima dell'invio");
-			const send = await ctx.ui.confirm("Inviare al server dei bug?", "No = solo salvataggio in ~/.pi/bugs/");
+			const redact = await ctx.ui.confirm(step(5, "oscurare segreti e percorsi?"), "Consigliato prima dell'invio");
+			const send = await ctx.ui.confirm(step(6, "inviare al server dei bug?"), "No = solo salvataggio in ~/.pi/bugs/");
 			try {
 				await report(ctx, { title, happened, expected, severity, redact, send });
 			} catch (error) {
