@@ -27,6 +27,6 @@ test("R10: documentation updated in the four places", () => {
 		assert.match(t, /esc/, `${p} describes esc`);
 	}
 	const log = read("vault/wiki/log.md");
-	assert.match(log.split("\n## ").slice(0, 3).join("\n"), /schermata di auto|cockpit/i, "recent log entry");
+	assert.match(log.split("\n## ").slice(0, 8).join("\n"), /schermata di auto|cockpit/i, "recent log entry");
 	assert.match(read("vault/wiki/log.md").slice(0, 2500), /\[2026-11-12\]/);
 });

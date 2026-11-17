@@ -212,3 +212,8 @@ Misura con `prototype/rpc-chat/perf.test.mjs` (micro-benchmark per componente, `
 Variazione della mediana: **+21,8%** → **oltre il 10%**: risultato negativo dichiarato sulla somma.
 
 Lettura: la dispersione tra giri è alta (prima 1041–1554, dopo 1104–1782: ±30–40%), quindi +22% sta nel rumore della macchina e non è attribuibile con certezza al lotto. Il lotto non tocca i percorsi misurati da `perf.test.mjs` (markdown, wrap, fuzzy, frame) se non per `chat.mjs` che ospita il cockpit; il costo del cockpit è a parte: 0,049 ms per frame (sezione precedente), timer solo a vista aperta. Limiti: locale e non Proxmox; metrica aggregata; 5 giri; da rimisurare sul banco isolato per chiudere la questione.
+
+## Chip e pannello SKILL (2026-11-13, `eval/skills-router/ui.mjs`)
+Prova unica senza chiamate al modello: l'estensione `skills.ts` reale → status ed evento `skills:state` → footer e pannello reali. 7 controlli verdi: iniezione + chip «SKILL nome» su «committa e pusha», chip sparisce a fine turno e lo storico resta, domanda generica senza iniezione, `/skills off` mostra «1 spente» e blocca l'attivazione, `/skills on` la riaccende, footer entro la larghezza a 40–140 colonne. Pannello testato a 30/40/60 colonne (`pi-ui/test/panel.test.ts`).
+Costo: render pannello+footer 0,43 ms/frame senza skill, 0,68 ms con skill (+0,25 ms, solo con il pannello aperto; il pannello è in cache e si ridisegna solo su `skills:state`). Nessun timer, nessun lavoro per frame. `before_agent_start` 17,6 ms/messaggio, quasi tutto `git status` (tetto 400 ms). Token: nessun testo nel prompt fisso; chip e pannello sono solo UI.
+Non misurato: CPU sul Proxmox, uso nel TUI reale.

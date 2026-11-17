@@ -1,5 +1,14 @@
 # Log
 
+## [2026-11-16] update | Panoramica del cockpit e sub-agenti in pi
+- Aggiornato [[chat-rpc]]: Panoramica di `/auto` con ADESSO e STORIA DEL PASSO; sub-agenti in `pi` con tool spenti.
+
+## [2026-11-13] update | auto con Paperclip e pi-team
+- `/auto` come agente Paperclip (`bin/pi-auto-paperclip.mjs`, `extensions/auto/{paperclip,headless,team}.ts`); i passi build che falliscono due volte vanno al team.
+
+## [2026-11-13] ingest | router delle skill
+- Creato [[skill-router]]: fasce auto/suggerimento, misure su messaggi reali.
+
 ## [2026-11-12] update | migliora la schermata di auto
 - Aggiornato [[chat-rpc]]: RIVEDI «passo k di n», esc, tasti contestuali, stati vuoti, ridisegno solo testata; misura in `eval/ui/REPORT.md`.
 

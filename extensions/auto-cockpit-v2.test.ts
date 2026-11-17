@@ -84,7 +84,6 @@ test("R4: adaptive layout, no row wider than the terminal at any width", () => {
 		assert.match(rows[0], /AUTO/);
 		assert.match(rows[0], /PROCEDE|A RISCHIO|FERMA/, `health kept at ${W}`);
 		if (W < 70) assert.ok(!rows.some((l) => l.includes("│")), `stacked at ${W}`);
-		if (W >= 80) assert.ok(rows.some((l) => l.includes("│")), `columns at ${W}`);
 	}
 	assert.deepEqual(render({ W: 50 }), render({ W: 50 }));
 });
@@ -165,4 +164,17 @@ test("R8: cost: header-only redraw on the tick, one 1 s timer, no model call", (
 	assert.match(open, /\},\s*1000\)/, "1 s period");
 	assert.match(open, /cockpitHead|headOnly/, "the tick redraws only the header when nothing else changed");
 	assert.doesNotMatch(readFileSync(new URL("../prototype/rpc-chat/cockpit.mjs", import.meta.url), "utf8"), /setInterval|setTimeout|send\(/);
+});
+
+test("activity: streamed thought snapshots collapse to the newest, tools stay in order", async () => {
+	const { activity, groupSteps } = await import("../prototype/rpc-chat/cockpit.mjs");
+	const ev = [
+		{ t: "step", at: 1, n: 1, phase: "build" },
+		{ t: "say", at: 2, n: 1, kind: "think", text: "I" },
+		{ t: "say", at: 3, n: 1, kind: "think", text: "I read" },
+		{ t: "tool", at: 4, n: 1, name: "read", arg: "a.ts" },
+		{ t: "say", at: 5, n: 1, kind: "think", text: "Now" },
+	] as DiaryEvent[];
+	const a = activity(groupSteps(ev)[0]);
+	assert.deepEqual(a.map((e: any) => e.text ?? e.name), ["I read", "read", "Now"]);
 });

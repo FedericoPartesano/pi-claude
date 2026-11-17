@@ -45,7 +45,14 @@ export function parseGroups(text: string | undefined): { groups: GroupName[]; un
 	return { groups: words.filter(isGroup), unknown: words.filter((word) => !isGroup(word)) };
 }
 
+/** Groups offered to the model: PI_TOOL_GROUPS=subagent,team narrows the list (plain `pi` has no web/todo tools to offer). */
+export function offeredGroups(env: string | undefined): GroupName[] {
+	const wanted = parseGroups(env).groups;
+	return wanted.length > 0 ? wanted : GROUP_NAMES;
+}
+
 export default function (pi: ExtensionAPI) {
+	const offered = offeredGroups(process.env.PI_TOOL_GROUPS);
 	const loaded = new Set<GroupName>(parseGroups(process.env.PI_FULL_TOOLS).groups);
 	if (loaded.size === GROUP_NAMES.length) return; // everything preloaded: nothing to manage
 	// Managed tools active before the first apply (respects --tools / --exclude-tools); groups filter this set.
@@ -78,11 +85,11 @@ export default function (pi: ExtensionAPI) {
 		description: [
 			"Enable optional tool groups. They are off to keep requests small; load one only when the task needs it,",
 			"then call its tools. Groups:",
-			...GROUP_NAMES.map((group) => `- ${group}: ${GROUPS[group].summary}`),
+			...offered.map((group) => `- ${group}: ${GROUPS[group].summary}`),
 		].join("\n"),
 		parameters: {
 			type: "object",
-			properties: { groups: { type: "array", items: { type: "string", enum: GROUP_NAMES } } },
+			properties: { groups: { type: "array", items: { type: "string", enum: offered } } },
 			required: ["groups"],
 		} as never,
 
@@ -98,12 +105,12 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("tools", {
-		description: `Attiva gruppi di tool di pi-full: /tools web team · /tools all · /tools (stato). Gruppi: ${GROUP_NAMES.join(", ")}`,
+		description: `Attiva gruppi di tool di pi-full: /tools web team · /tools all · /tools (stato). Gruppi: ${offered.join(", ")}`,
 		handler: async (args, ctx) => {
 			const { groups, unknown } = parseGroups(args);
 			if (unknown.length > 0) return ctx.ui.notify(`Gruppi sconosciuti: ${unknown.join(", ")}. Disponibili: ${GROUP_NAMES.join(", ")}`, "warning");
 			load(groups);
-			const status = GROUP_NAMES.map((group) => `${group} ${loaded.has(group) ? "✓" : "·"}`).join("  ");
+			const status = offered.map((group) => `${group} ${loaded.has(group) ? "✓" : "·"}`).join("  ");
 			ctx.ui.notify(`Gruppi di tool: ${status}`, "info");
 		},
 	});

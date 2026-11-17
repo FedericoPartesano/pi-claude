@@ -197,26 +197,59 @@ export function practiceLines(g, w) {
 const TABS = ["Panoramica", "Pensiero", "Studio e prassi", "Passi"];
 export const TAB_COUNT = TABS.length;
 
-/** Tab 1: enough to answer "is it going well, and why" at a glance; wide screens put requirements on the left. */
-function overviewBody(state, groups, g, events, W, room, live, running, done, total) {
-	const wide = W >= 80;
-	const lw = wide ? Math.min(40, Math.floor(W * 0.36)) : W, rw = wide ? W - lw - 3 : W;
-	const phases = phaseLines(state, groups, lw);
-	const reqs = reqLines(state, lw, events);
-	const cap = Math.max(2, (wide ? room : Math.min(5, room - 8)) - (wide ? phases.length : 1) - 2);
-	const at = Math.max(0, reqs.findIndex((r) => r.focus));
-	const from = Math.max(0, Math.min(at - Math.floor(cap / 2), reqs.length - cap));
-	const reqRows = reqs.slice(from, from + cap).map((r) => r.text);
-	const oneLine = PHASES.map((p, i) => { const c = PHASES.indexOf(state.phase); return `${i < c || state.stop?.reason === "completato" ? C.ok : i === c ? C.mag : C.faint}${PHASE_IT[p].slice(0, 4)}`; }).join(`${C.faint} › `);
-	const left = [section("FASI", lw), ...(wide ? phases : [oneLine + R]), section("REQUISITI", lw, `${done}/${total}`), ...reqRows];
-	const tools = (g?.tools ?? []).slice(-3).map((t) => `${C.dim}▸ ${C.text}${t.name}${C.faint} ${fit(t.arg, rw - t.name.length - 3)}${R}`);
-	const rrow = wide ? room : Math.max(6, room - left.length - 1);
-	const think = thoughtLines(g, rw, Math.max(2, Math.min(5, rrow - 6)), running);
-	const right = [section("PENSIERO", rw, live && running ? "in diretta" : ""), ...think, section("ULTIMI TOOL", rw), ...tools];
-	const body = [];
-	if (wide) for (let i = 0; i < room; i++) body.push(`${padTo2(left[i] ?? "", lw)}${C.faint} │ ${R}${right[i] ?? ""}`);
-	else body.push(...left, ...right);
-	return body.slice(0, room);
+const VERB = { read: "legge", grep: "cerca", glob: "cerca", find: "cerca", ls: "elenca", edit: "modifica", write: "scrive file", bash: "esegue", web_search: "cerca sul web", web_fetch: "apre pagina", fetch: "apre pagina" };
+const verb = (name) => VERB[name] ?? name;
+
+/** Step activity as one chronological list: thoughts (cumulative stream snapshots collapsed to the last one) and tools. */
+export function activity(g) {
+	const out = [];
+	if (!g) return out;
+	const all = [...(g.says ?? []), ...g.tools].sort((a, b) => a.at - b.at);
+	for (const e of all) {
+		const prev = out[out.length - 1];
+		if (e.t === "say" && prev?.t === "say" && prev.kind === e.kind) out[out.length - 1] = e; // snapshot grows: keep the newest
+		else out.push(e);
+	}
+	return out;
+}
+
+/** Tab 1: answers "what is it doing now, what did it just do, how far along" without scrolling. */
+function overviewBody(state, groups, g, events, W, room, live, running, done, total, now) {
+	const rows = [];
+	const cur = PHASES.indexOf(state.phase), fin = state.stop?.reason === "completato";
+	rows.push(PHASES.map((p, i) => `${i < cur || fin ? `${C.ok}✓` : i === cur ? `${C.mag}▸` : `${C.faint}○`}${R}${i === cur && !fin ? `${C.b}${C.text}` : i < cur || fin ? C.dim : C.faint}${PHASE_IT[p]}`).join(`${C.faint}  `) + R);
+	// REQUISITI: a window of at most 4 rows around the current one (the list scrolls here, it never pushes the thought away).
+	const reqs = reqLines(state, W, events);
+	const cap = Math.min(reqs.length, W < 70 ? 3 : 4);
+	if (reqs.length) {
+		const at = Math.max(0, reqs.findIndex((r) => r.focus));
+		const from = Math.max(0, Math.min(at - Math.floor(cap / 2), reqs.length - cap));
+		rows.push(section("REQUISITI", W, `${done}/${total}`), ...reqs.slice(from, from + cap).map((r) => r.text));
+	}
+	const acts = activity(g);
+	const last = acts[acts.length - 1];
+	const age = last ? fmtDur(now - last.at) : "";
+	// ADESSO: the one thing happening now, in words; the thought below it gets the room it needs.
+	const doing = !last ? (running ? `${C.dim}parte…` : `${C.dim}fermo`)
+		: !running ? `${C.dim}fermo · ultimo segnale ${age} fa`
+		: last.t === "tool" ? `${C.cyan}▸ ${verb(last.name)}${C.text} ${fit(last.arg, W - 24)}${C.dim} · da ${age}`
+		: last.kind === "think" ? `${C.mag}◌ sta ragionando${C.dim} · da ${age}` : `${C.cyan}✎ sta scrivendo${C.dim} · da ${age}`;
+	rows.push(section("ADESSO", W, live ? "in diretta" : "passo riletto"), `${doing}${R}`);
+	const say = [...acts].reverse().find((e) => e.t === "say");
+	const tRoom = Math.max(3, Math.min(Math.floor(room * 0.45), room - rows.length - 5));
+	if (say) {
+		const lines = wrapPlain(say.text.replace(/\s+/g, " ").trim(), W - 2);
+		rows.push(...lines.slice(-tRoom).map((l, i) => `${C.text}${i === 0 && lines.length > tRoom ? "…" : " "}${l}${R}`));
+	} else rows.push(`${C.faint}${running ? "ancora nessun pensiero in questo passo" : "nessun pensiero registrato"}${R}`);
+	// STORIA: what happened before, oldest to newest, one row each, newest at the bottom.
+	const hist = acts.slice(0, -1);
+	rows.push(section("STORIA DEL PASSO", W, acts.length ? `${acts.length} azioni` : ""));
+	for (const e of hist.slice(-Math.max(1, room - rows.length))) {
+		const t = `${C.faint}${clock(e.at)} `;
+		rows.push(e.t === "tool" ? `${t}${C.cyan}▸ ${verb(e.name)}${C.dim} ${fit(e.arg, W - 8 - verb(e.name).length)}${R}` : `${t}${e.kind === "think" ? `${C.mag}◌` : `${C.cyan}✎`} ${C.dim}${fit(e.text.replace(/\s+/g, " ").trim(), W - 10)}${R}`);
+	}
+	if (!hist.length) rows.push(`${C.faint}niente prima di questo${R}`);
+	return rows.slice(0, room);
 }
 
 /** Tab 3: what the whole run read (counted, no repeats), the skills followed, the actions taken; the viewed step is marked. */
@@ -237,7 +270,7 @@ function practiceFull(groups, g, w) {
 
 /** Whole thought history of the step, oldest first (the tab shows the newest rows). */
 function thoughtHistory(g, w, running) {
-	const says = g?.says ?? [];
+	const says = activity(g).filter((e) => e.t === "say");
 	if (!says.length) return thoughtLines(g, w, 1, running);
 	const out = [];
 	for (const e of says) {
@@ -329,7 +362,7 @@ export function cockpitRows({ state, events, now, W, H, usage, ui, problem, chat
 	rows.push(cutAnsi(TABS.map((t, i) => (i === tab ? `${C.b}${C.cyan}${i + 1} ${t}` : `${C.faint}${i + 1} ${t}`) + R).join("  "), W));
 	const room = Math.max(3, H - rows.length - 2 - chatRows.length);
 	let body;
-	if (tab === 0) body = overviewBody(state, groups, g, events, W, room, live, running, done, total);
+	if (tab === 0) body = overviewBody(state, groups, g, events, W, room, live, running, done, total, now);
 	else {
 		if (tab === 1) body = [section("PENSIERO", W, live && running ? "in diretta" : ""), ...thoughtHistory(g, W, running)];
 		else if (tab === 2) body = [section("STUDIO E PRASSI", W, "tutta la corsa"), ...practiceFull(groups, g, W)];

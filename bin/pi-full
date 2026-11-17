@@ -11,7 +11,7 @@ EXTENSIONS=(
   "$A/npm/node_modules/pi-web-access"
   "$A/npm/node_modules/@juicesharp/rpiv-todo"
   "$A/npm/node_modules/@juicesharp/rpiv-ask-user-question"
-  "$A/optional-extensions/subagent"
+  "$A/optional-extensions/subagent/index.ts"
   "$REPO/pi-team"
   "$REPO/extensions/tool-groups.ts" # per ultima: gestisce i tool delle estensioni precedenti
 )

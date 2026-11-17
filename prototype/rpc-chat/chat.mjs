@@ -8,6 +8,8 @@ import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { checkOutcome, failingTests } from "../../pi-ui/src/test-output.ts";
 import { codeBlocks, osc52, clipCommands, rowText, rowsText } from "./copy.mjs";
+import { activeRows, agentLines } from "./agents.mjs";
+import { isLaunch, newRow, refresh as refreshProcs, visible as visibleProcs, processLines } from "./processes.mjs";
 import { cockpitHead, cockpitRows, createFeed, groupSteps, navigate, TAB_COUNT, createStats } from "./cockpit.mjs";
 import { readUsage as readUsageFile, forecastLines, resetLabel } from "../../pi-ui/src/usage.ts";
 
@@ -584,6 +586,19 @@ const testResult = (cmd, text, isError) => {
 	tests = { pass: o.pass, fail: o.fail, failed: o.failed, failing: o.failed ? failingTests(text).slice(0, 5) : [] };
 	sideVer++;
 };
+const procs = []; // background processes left by bash calls (servers…), polled every 2 s only while some are up
+let procTimer;
+const procTick = async () => {
+	if (await refreshProcs(procs, Date.now())) { sideVer++; schedule(); }
+	if (!procs.some((p) => p.state === "up")) { clearInterval(procTimer); procTimer = undefined; }
+};
+const trackProc = (command, output) => {
+	procs.push(newRow(procs.length + 1, command, output, Date.now(), [process.pid, process.ppid]));
+	sideVer++; schedule();
+	if (procs.at(-1).state === "up") { procTimer ??= setInterval(procTick, 2000); procTimer.unref?.(); }
+};
+let agentSec = 0;
+const agentCalls = new Map(); // running/just finished subagent and team calls, for the panel
 let plan = []; // todo tasks {subject, status}
 let intentInfo; // active intent {title, done, total}
 let sideVer = 0, sideSeen = -1, sideW = 0, sideCache = [];
@@ -607,6 +622,18 @@ const sideLines = (w) => {
 		head(`PIANO ${plan.filter((t) => t.status === "completed").length}/${plan.length}`);
 		for (const t of plan.slice(0, 10)) L.push(cut(`${t.status === "completed" ? `${S.ok}✔` : t.status === "in_progress" ? `${S.mag}◐` : `${S.faint}○`}${R} ${t.status === "completed" ? S.dim : S.text}${t.subject}${R}`, w));
 		if (plan.length > 10) L.push(`${S.dim}+${plan.length - 10} altri${R}`);
+		L.push("");
+	}
+	const agRows = activeRows(agentCalls, Date.now());
+	if (agRows.length) {
+		head(`SUB-AGENTI ${agRows.filter((x) => x.state === "running").length}/${agRows.length}`);
+		L.push(...agentLines(agRows, w, Date.now(), S, cut));
+		L.push("");
+	}
+	const pRows = visibleProcs(procs, Date.now());
+	if (pRows.length) {
+		head(`PROCESSI ${pRows.filter((x) => x.state === "up").length}/${pRows.length}`);
+		L.push(...processLines(pRows, w, Date.now(), S, cut));
 		L.push("");
 	}
 	if (tests) {
@@ -1025,6 +1052,7 @@ const frame = () => {
 	const left = [...view.map((l) => cut(l, leftW)), ...extra, status, sepLine, ...promptLines, endLine];
 	let next;
 	if (side) {
+		if ((agentCalls.size || procs.some((p) => p.state === "up")) && Math.floor(Date.now() / 1000) !== agentSec) { agentSec = Math.floor(Date.now() / 1000); sideVer++; } // elapsed times tick only while agents are shown
 		if (sideVer !== sideSeen || sideW !== side) { sideCache = sideLines(side - 1).map((l) => cut(l, side - 1)); sideSeen = sideVer; sideW = side; }
 		// Only the chat rows get the panel; the status, separator and prompt rows keep the full width.
 		next = left.map((l, i) => (i < view.length + extra.length ? `${pad(l, leftW)}${S.faint} │ ${R}${sideCache[i] ?? ""}` : l));
@@ -1123,14 +1151,23 @@ const onRecord = (r) => {
 			if (cockpit?.chat.busy) { cockpit.chat.msgs.push({ role: "tool", text: `${r.toolName} ${typeof r.args?.action === "string" ? r.args.action : ""}`.trim() }); schedule(); }
 			open = undefined;
 			blocks.push({ kind: "tool", id: r.toolCallId, name: r.toolName, args: r.args, text: "" });
+			if ((r.toolName === "subagent" || r.toolName === "team") && !r.parentToolCallId) { agentCalls.set(r.toolCallId, { tool: r.toolName, args: r.args ?? {}, text: "", startedAt: Date.now() }); sideVer++; schedule(); }
 			if (r.toolName === "ask_user_question" && Array.isArray(r.args?.questions) && r.args.questions.length && !dialog) { qz = qzMk(r.args.questions); dialog = { method: "quiz", z: qz }; }
 			break;
+		case "tool_execution_update": {
+			const c = agentCalls.get(r.toolCallId);
+			if (c) { c.partial = r.partialResult; c.text = (r.partialResult?.content ?? []).map((x) => x.text ?? "").join("\n"); sideVer++; schedule(); }
+			break;
+		}
 		case "tool_execution_end": {
 			open = undefined;
+			const ac = agentCalls.get(r.toolCallId);
+			if (ac) { ac.finished = { isError: !!r.isError, at: Date.now() }; sideVer++; schedule(); setTimeout(() => { sideVer++; schedule(); agentCalls.delete(r.toolCallId); }, 20500).unref?.(); }
 			if (r.toolName === "ask_user_question") { qz = undefined; if (dialog?.method === "quiz") dialog = undefined; }
 			const t = blocks.findLast((b) => b.id === r.toolCallId);
 			if (t) { t.failed = !!r.isError; t.done = true; t.ms = r.durationMs; if (r.result?.details?.patch) t.patch = r.result.details.patch; }
 			if (r.toolName === "todo") planFrom(r.result?.details);
+			if (r.toolName === "bash" && !r.isError && isLaunch(t?.args?.command)) trackProc(t.args.command, (r.result?.content ?? []).map((c) => c.text ?? "").join("\n"));
 			if (r.toolName === "bash") testResult(t?.args?.command, (r.result?.content ?? []).map((c) => c.text ?? "").join("\n"), !!r.isError);
 			for (const c of r.result?.content ?? []) if (c.type === "image" && c.data) addImage(c.data, c.mimeType ?? "image/png");
 			break;

@@ -33,3 +33,9 @@ test("only touches managed tools: tools other extensions turned on later stay on
 test("respects managed tools excluded at startup (--exclude-tools)", () => {
 	assert.deepEqual(mergeActiveTools(["read"], ["fetch_content"], new Set(["web"])), ["read", "fetch_content"]);
 });
+
+test("offeredGroups narrows the list by PI_TOOL_GROUPS and defaults to all", async () => {
+	const { offeredGroups, GROUPS } = await import("./tool-groups.ts");
+	assert.deepEqual(offeredGroups("subagent,team,x"), ["subagent", "team"]);
+	assert.deepEqual(offeredGroups(undefined), Object.keys(GROUPS));
+});

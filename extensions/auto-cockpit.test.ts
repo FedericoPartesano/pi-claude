@@ -166,7 +166,7 @@ test("cockpit 100x30: exact rows, width kept, health, requirements, live step, k
 	assert.match(all, /1\/3 requisiti/);
 	assert.match(all, /✓ R1/);
 	assert.match(all, /▸ R2/);
-	assert.match(all, /read src\/b\.ts/);
+	assert.match(all, /legge src\/b\.ts/);
 	const steps = plain(cockpitRows({ state, events: evs(), now: 14_000, W: 100, H: 30, usage: undefined, ui: { sel: -1, top: 0, note: null, tab: 3 } })).join("\n");
 	assert.match(steps, /passo 2 · build/);
 	assert.match(text[29], /p pausa · c chat · : nota · s stop/);

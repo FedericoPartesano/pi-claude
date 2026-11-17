@@ -19,3 +19,23 @@ test("non-interactive uses and pipes stay classic", () => {
 	assert.equal(isClassic(["install", "npm:x"], {}, true), true);
 	assert.equal(isClassic([], {}, false), true);
 });
+
+test("sub-agents: extensions added to plain pi, off by option or when pieces are missing", async () => {
+	const { subagentArgs } = await import("./pi.mjs");
+	const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
+	const { tmpdir } = await import("node:os");
+	const { join } = await import("node:path");
+	const root = mkdtempSync(join(tmpdir(), "pi-sa-")), agent = mkdtempSync(join(tmpdir(), "pi-ag-"));
+	assert.deepEqual(subagentArgs([], { PI_CODING_AGENT_DIR: agent }, root), [], "missing pieces: nothing");
+	mkdirSync(join(agent, "optional-extensions", "subagent"), { recursive: true });
+	writeFileSync(join(agent, "optional-extensions", "subagent", "index.ts"), "");
+	mkdirSync(join(root, "pi-team"));
+	mkdirSync(join(root, "extensions"));
+	writeFileSync(join(root, "extensions", "tool-groups.ts"), "");
+	const a = subagentArgs(["--model", "haiku"], { PI_CODING_AGENT_DIR: agent }, root);
+	assert.equal(a.length, 6);
+	assert.ok(a[5].endsWith("tool-groups.ts"), "tool-groups last");
+	assert.deepEqual(subagentArgs([], { PI_CODING_AGENT_DIR: agent, PI_SUBAGENTS: "off" }, root), []);
+	assert.deepEqual(subagentArgs(["install", "npm:x"], { PI_CODING_AGENT_DIR: agent }, root), []);
+	assert.deepEqual(subagentArgs(["-e", "x"], { PI_CODING_AGENT_DIR: agent }, root), []);
+});

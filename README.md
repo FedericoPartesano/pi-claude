@@ -23,7 +23,7 @@ Lo script installa Pi 1.0.4 se manca, il bridge `pi-claude-code`, gli hook `perm
 `claude-code/sonnet` come default solo se non hai già scelto un altro modello. Si può rilanciare:
 dopo `git pull` o `git checkout <tag>` basta `./install.sh` di nuovo.
 
-- `pi` — Pi minimale (4 tool base + hook di sicurezza)
+- `pi` — Pi minimale (4 tool base + hook di sicurezza); in più `subagent`, `team` e `parallel`, spenti: il modello li accende con `load_tools` (costo fisso: la sola voce `load_tools`). `PI_SUBAGENTS=off pi` li toglie
 - `pi-full` — in più web, todo, domande, subagent e `pi-team` (`team` e `parallel` spenti finché non servono: si caricano con `load_tools` o `/tools`)
 
 In `pi-full` i tool extra partono spenti: il modello li accende da solo con `load_tools` quando un compito li richiede
@@ -98,7 +98,7 @@ scrive (`stato: bozza`, scelte da confermare in `auto/da-approvare.md`) e proseg
 rivedi e togli `stato: bozza`. Durante build i documenti sono di sola lettura. Ogni passo è un processo `pi` figlio leggero
 (`--no-extensions`). Le skill di agent-skills le sceglie il codice per ogni passo (`skills/phases.json`): al massimo due
 intere nel prompt, per esempio debugging quando un check è rosso e sicurezza se il requisito parla di login o password;
-le altre come percorso con il «quando usarla». Allo stesso modo il codice accende gli strumenti
+le altre come percorso con il «quando usarla». In chat le skill le attiva `extensions/skills.ts` (acceso di default, `PI_SKILLS=0` lo spegne): inietta solo con confidenza alta, la fascia media è un chip «suggerita» a costo zero (`/skills` mostra storico e on/off). Allo stesso modo il codice accende gli strumenti
 di Pi solo nei passi che li usano: `browser` (Chrome visibile; su WSL2 l'Electron di terminal-browser senza finestra,
 perché lì Chrome non completa le navigazioni) e `lancia` quando il requisito tocca UI o pagine web, con solo `localhost`
 apribile e la rete locale lasciata aperta a bash in quel passo; `lancia` da solo per server e job lunghi; `search`,
@@ -121,6 +121,18 @@ passo, `s` stop, `c` chat, `q` chiude. La chat nel cockpit parla con il modello 
 /auto status · /auto stop · /auto resume [slug]
 /auto pausa · /auto riprendi · /auto nota <testo>
 ```
+
+### Auto con pi-team e con Paperclip
+
+**pi-team.** Un passo build che fallisce due volte di fila sullo stesso requisito passa al team invece del solo figlio: un implementatore più il revisore, con il check congelato del requisito come verifica (eseguito dal supervisore, nella sandbox). Decide il codice, senza prompt. Gli agenti del team partono con le stesse protezioni di un figlio di auto (lista nera, sandbox, file congelati). `PI_AUTO_TEAM=off` lo spegne, `PI_AUTO_TEAM=always` lo usa a ogni passo build.
+
+**Paperclip.** `bin/pi-auto-paperclip.mjs` è il comando di un agente Paperclip con adattatore `process`: a ogni heartbeat legge l'inbox, prende il task con il checkout atomico (409 = si ferma, mai un secondo tentativo), lavora con lo stesso ciclo di `/auto` su `auto/pc-<task>`, e aggiorna il task con un commento. Check verdi → `in_review` (il merge resta tuo); fermo per tempo, budget o passi → resta `in_progress` e alla heartbeat dopo riprende; stallo o errore → `blocked` con il motivo. Mai `done`.
+
+```json
+{ "adapterType": "process", "adapterConfig": { "command": "node", "args": ["/percorso/pi-claude/bin/pi-auto-paperclip.mjs"], "cwd": "/percorso/repo", "timeoutSec": 0 } }
+```
+
+Variabili lette: `PAPERCLIP_API_URL`, `PAPERCLIP_API_KEY`, `PAPERCLIP_AGENT_ID` (obbligatorie), `PAPERCLIP_COMPANY_ID`, `PAPERCLIP_RUN_ID`, `PAPERCLIP_TASK_ID`. Provato con un Paperclip finto, non con quello vero.
 
 Scelta e limiti: [ADR 0001](docs/adr/0001-auto-mode-processo-figlio-per-passo.md).
 
