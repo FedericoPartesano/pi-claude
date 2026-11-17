@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.35.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.34.0...pi-claude-v0.35.0) (2026-11-17)
+
+
+### Features
+
+* **chat:** cornice sottile per questionari e dialog ([102013b](https://github.com/FedericoPartesano/pi-claude/commit/102013b1b1e9bdb611f6d4617b8d10ecb91f852f))
+
 ## [0.34.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.33.0...pi-claude-v0.34.0) (2026-11-17)
 
 
