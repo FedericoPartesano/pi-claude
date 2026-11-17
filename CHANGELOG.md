@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.33.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.32.1...pi-claude-v0.33.0) (2026-11-17)
+
+
+### Features
+
+* **chat:** grafica rifatta per domande e wizard ([7017456](https://github.com/FedericoPartesano/pi-claude/commit/7017456d63254b46b11879d2a528feaa3041fadb))
+
 ## [0.32.1](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.32.0...pi-claude-v0.32.1) (2026-11-17)
 
 
