@@ -751,7 +751,7 @@ const qzKey = (z, key, csi) => {
 };
 const toggle = (a, i) => { if (a.on.has(i)) a.on.delete(i); else a.on.add(i); };
 const quizLines = (z, bar, iw, leftW, H) => {
-	const L = [], n = z.qs.length, rule = `${bar}${S.faint}${"─".repeat(Math.max(0, iw))}${R}`;
+	const L = [], n = z.qs.length, rule = `${bar}${S.faint}${"─".repeat(Math.max(0, iw - 1))}${R}`;
 	const hint = (...kv) => `${bar}${kv.map(([k, v]) => `${S.text}${k}${S.dim} ${v}${R}`).join(`${S.faint}  ·  `)}`;
 	const review = n > 1 && z.tab === n;
 	// Header: title with the step counter, then one tab per question (done = green dot, current = cyan bold).
@@ -891,9 +891,13 @@ const frame = () => {
 
 	// Bottom pieces first: their height decides the chat height.
 	const extra = [];
+	let dlgStart = 0, dlgBar = "";
 	if (dialog) {
 		// Card: accent bar on the left, title, dimmed message, options with the selected row highlighted, key hints.
-		const bar = `${S.mag}▍${R} `, iw = leftW - 2;
+		// Everything but the pager gets a thin frame: the title sits in the top border, the left bar becomes the side.
+		const framed = dialog.method !== "pager";
+		const bar = framed ? `${S.faint}│${R} ` : `${S.mag}▍${R} `, iw = framed ? leftW - 3 : leftW - 2;
+		dlgStart = extra.length; dlgBar = bar;
 		const hint = (...kv) => `${bar}${kv.map(([k, v]) => `${S.text}${k}${S.dim} ${v}${R}`).join(`${S.faint}  ·  `)}`;
 		const head = `${dialog.title ?? ""}${dialog.message ? `\n${dialog.message}` : ""}`.split("\n");
 		if (dialog.method === "pager") {
@@ -906,7 +910,7 @@ const frame = () => {
 		} else {
 			extra.push(`${bar}${S.mag}${S.b}${cut(head[0], iw)}${R}`);
 			for (const l of head.slice(1)) for (const w of wrap(l, iw)) extra.push(`${bar}${S.text}${w}${R}`);
-			extra.push(`${bar}${S.faint}${"─".repeat(Math.max(0, iw))}${R}`);
+			extra.push(`${bar}${S.faint}${"─".repeat(Math.max(0, iw - 1))}${R}`);
 			if (dialog.method === "sessions") {
 				const hits = sessionHits(dialog);
 				dialog.sel = Math.max(0, Math.min(dialog.sel, hits.length - 1));
@@ -951,6 +955,15 @@ const frame = () => {
 				extra.push(hint(["⏎", "conferma"], ["esc", "annulla"]));
 			}
 		}
+	}
+	if (dialog && dialog.method !== "pager" && extra.length > dlgStart) {
+		const rule = `${S.faint}│${R} ${S.faint}${"─".repeat(Math.max(0, leftW - 4))}${R}`;
+		const title = (extra[dlgStart].startsWith(dlgBar) ? extra[dlgStart].slice(dlgBar.length) : extra[dlgStart]), t = cut(title, leftW - 6);
+		const top = `${S.faint}╭─ ${R}${t}${R} ${S.faint}${"─".repeat(Math.max(0, leftW - 5 - width_(t)))}╮${R}`;
+		const body = extra.splice(dlgStart);
+		body.shift();
+		if (body[0] === rule) body.shift();
+		extra.push(top, ...body.map((l) => `${pad(cut(l, leftW - 1), leftW - 1)}${S.faint}│${R}`), `${S.faint}╰${"─".repeat(Math.max(0, leftW - 2))}╯${R}`);
 	}
 	const items = popup();
 	if (items) {
