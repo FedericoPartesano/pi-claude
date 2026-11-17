@@ -11,7 +11,7 @@
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { renderSubscriptionStatus } from "./src/footer.ts";
-import { disposeAllSessions, onSubscriptionStatus, prewarmSession, streamClaudeCode } from "./src/provider.ts";
+import { disposeAllSessions, onClaudeWait, onSubscriptionStatus, prewarmSession, streamClaudeCode } from "./src/provider.ts";
 
 const zeroCost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
@@ -110,6 +110,14 @@ export default function (pi: ExtensionAPI) {
 			latestContext.ui.setStatus("claude-code", renderSubscriptionStatus(info, Date.now(), (role, text) => theme.fg(role, text)));
 		} catch {
 			// The context went stale (session replaced or shut down before the usage record arrived).
+			latestContext = undefined;
+		}
+	});
+	// What Claude Code waits on besides the model (API retry, usage limit): a status the UIs show as the turn phase.
+	onClaudeWait((text) => {
+		try {
+			if (latestContext?.model?.provider === "claude-code") latestContext.ui.setStatus("claude-wait", text);
+		} catch {
 			latestContext = undefined;
 		}
 	});

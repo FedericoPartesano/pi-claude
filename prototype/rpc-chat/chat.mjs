@@ -1007,7 +1007,7 @@ const frame = () => {
 	if (running && !side) {
 		// Never leave the user blind: say what Pi did last and how long ago.
 		const quiet = Math.floor((Date.now() - (sigAt || startedAt)) / 1000);
-		extra.push(`${S.mag}◇ ${S.dim}${quiet >= 3 ? `no output for ${quiet}s` : "receiving"} · last: ${sigWhat || "waiting for model"}${R}`);
+		extra.push(`${S.mag}◇ ${S.dim}${sigWhat || "waiting for model"}${quiet >= 3 ? ` · no output for ${quiet}s` : ""}${R}`);
 	}
 	// Notices (startup warnings, errors) get their own row above the prompt, never inside the status bar.
 	// Toast slide: enters/leaves in ~180 ms by revealing the card row by row from the bottom; frames are scheduled only while it moves.
@@ -1027,7 +1027,8 @@ const frame = () => {
 	const bitem = [
 		[5, `${bg(P.codeBg)}${S.mag}\x1b[1m ${bootVersion ? `v${bootVersion} · ` : ""}${cut(process.cwd().split(/[\\/]/).filter(Boolean).pop() || "/", 24)}${git.branch && !side ? ` ⎇ ${cut(git.branch, 20)}` : ""} ${R}`],
 		[0, yolo ? `${S.err}\x1b[1mSENZA PERMESSI${R}${S.dim}` : ""],
-		[0, running ? `${S.mag}${ANIM ? SPIN[tickNow() % SPIN.length] : "●"} working ${elapsed}s${S.dim}${sigAt ? ` · ${Math.max(0, Math.floor((Date.now() - sigAt) / 1000))}s since ${sigWhat}` : ""}${queued ? ` · ${S.warn}${queued} in coda (alt+${NOW_ALT} now)${S.dim}` : ""}${S.mag}` : `${S.ok}●${S.dim} idle`],
+		[0, !running && sentAt && Date.now() - sentAt < 15000 ? `${S.mag}${ANIM ? SPIN[tickNow() % SPIN.length] : "●"} sending to Pi ${Math.floor((Date.now() - sentAt) / 1000)}s${S.dim}` : ""],
+		[0, running ? `${S.mag}${ANIM ? SPIN[tickNow() % SPIN.length] : "●"} ${S.b}${sigWhat || "working"}${R}${S.dim} · ${elapsed}s${sigAt && Date.now() - sigAt >= 2000 ? ` · quiet ${Math.floor((Date.now() - sigAt) / 1000)}s` : ""}${queued ? ` · ${S.warn}${queued} in coda (alt+${NOW_ALT} now)${S.dim}` : ""}${S.mag}` : `${S.ok}●${S.dim} idle`],
 		[1, model],
 		[6, sessionName ? sessionName.slice(0, 30) : ""],
 		[2, !side && ctxPct != null ? `${heat(ctxPct)}ctx ${Math.round(ctxPct)}%${S.dim}` : ""],
@@ -1153,11 +1154,34 @@ child.stdout.on("data", (chunk) => {
 		if (line) onRecord(JSON.parse(line));
 	}
 });
+// Turn phase shown in the status bar: a short label per Pi event, so the wait never looks like a hang.
+// Only a string assignment per event (no timers, no extra frames).
+let sentAt = 0; // set when a prompt leaves the client, cleared by the first Pi event (shows "sending")
+const PHASE_UPDATE = { start: "model started", thinking_start: "thinking", thinking: "thinking", thinking_end: "thought done", text_start: "writing answer", text: "writing answer", text_end: "answer written", toolcall_start: "preparing tool call", toolcall: "preparing tool call", toolcall_end: "tool call ready", done: "answer complete", error: "model error" };
+const phaseOf = (r) => {
+	switch (r.type) {
+		case "agent_start": return "request accepted";
+		case "turn_start": return "sending to Claude";
+		case "message_start": return r.message?.role === "assistant" ? "waiting for first token" : "message in";
+		case "message_update": { const t = (r.assistantMessageEvent?.type ?? "").replace(/_delta$/, ""); return PHASE_UPDATE[t] ?? "receiving"; }
+		case "message_end": return r.message?.role === "assistant" ? "answer received" : undefined;
+		case "tool_execution_start": case "tool_execution_update": return `running ${r.toolName ?? "tool"}`;
+		case "tool_execution_end": return r.isError ? `${r.toolName ?? "tool"} failed · returning error` : "returning result to Claude";
+		case "turn_end": return "turn done";
+		case "compaction_start": return "compacting context";
+		case "compaction_end": return "context compacted";
+		case "auto_retry_start": return `retry ${r.attempt ?? "?"}/${r.maxAttempts ?? "?"} in ${Math.round((r.delayMs ?? 0) / 1000)}s`;
+		case "auto_retry_end": return r.success ? "retry ok" : "retry failed";
+		case "agent_end": return "finishing";
+		case "extension_ui_request": return ["select", "confirm", "input", "editor"].includes(r.method) ? "waiting for you" : undefined;
+		default: return undefined; // queue_update and the like keep the last phase
+	}
+};
 const onRecord = (r) => {
-	if (r.type !== "response") { sigAt = Date.now(); sigWhat = r.type === "message_update" ? (r.assistantMessageEvent?.type ?? "update").replace(/_delta$/, "") : r.type === "tool_execution_start" ? `tool ${r.toolName}` : r.type.replace(/^(agent|tool_execution)_/, ""); }
+	if (r.type !== "response") { sentAt = 0; const ph = phaseOf(r); if (ph || !sigWhat) sigWhat = ph ?? r.type; sigAt = Date.now(); }
 	switch (r.type) {
 		case "agent_start":
-			running = true; startedAt = Date.now(); sigAt = Date.now(); sigWhat = "start"; open = undefined;
+			running = true; startedAt = Date.now(); sigAt = Date.now(); sigWhat = "request accepted"; open = undefined;
 			break;
 		case "message_start":
 			if (queuedMsgs.length && r.message?.role === "user") deliver(textOf(r.message.content));
@@ -1195,7 +1219,7 @@ const onRecord = (r) => {
 			break;
 		}
 		case "response":
-			sideVer++;
+			sideVer++; if (r.command === "prompt") sentAt = 0;
 			if (r.id === "flushq" || r.id === "flusha") flushReply(r);
 			else if (r.id === "stats" && r.success) { ctxPct = r.data?.contextUsage?.percent ?? ctxPct; cost = r.data?.cost ?? cost; }
 			else if (r.id === "state" && r.success) { if (booting) { booting = false; try { writeFileSync(bootFile, JSON.stringify({ ms: Date.now() - bootAt })); } catch {} previous = []; out.write(`${ESC}2J${ESC}?25h`); } if (running && r.data && r.data.isStreaming === false && !r.data.isCompacting && !r.data.pendingMessageCount && Date.now() - Math.max(startedAt, pollFrom) > 2500) { running = false; queued = 0; open = undefined; } // Pi is idle but we never saw agent_settled: unstick
@@ -1221,6 +1245,7 @@ const onRecord = (r) => {
 			else if (m === "input" || m === "editor") dialog = { id: r.id, method: m, title: r.title, text: r.prefill ?? r.text ?? "" };
 			else if (m === "notify" && String(r.message ?? "").split("\n").length >= 4) dialog = { id: r.id, method: "pager", title: "", lines: String(r.message).split("\n"), top: 0 };
 			else if (m === "notify") { toast = String(r.message ?? "").replace(/\s*\n\s*/g, " ").replace(/[\x00-\x1f]/g, ""); setTimeout(() => { toast = ""; schedule(); }, 8000).unref(); }
+			else if (m === "setStatus" && r.statusKey === "claude-wait") { if (r.statusText && running) { sigWhat = r.statusText.replace(/\x1b\[[0-9;]*m/g, ""); sigAt = Date.now(); } } // phase from the bridge (API retry, usage limit)
 			else if (m === "setStatus") r.statusText ? statuses.set(r.statusKey, r.statusText) : statuses.delete(r.statusKey);
 			else if (m === "setWidget") r.widgetLines?.length ? widgets.set(r.widgetKey, r.widgetLines) : widgets.delete(r.widgetKey);
 			else if (m === "setTitle") { title = r.title ?? title; out.write(`\x1b]0;${r.title}\x07`); }
@@ -1389,6 +1414,7 @@ const sendPrompt = (cmd) => {
 	if (running) { queued++; sideVer++; }
 	// While Pi works, a message is a steer (like Claude Code): the model reads it after the current tool calls, without
 	// stopping the run. A follow-up would wait for the whole run to end.
+	if (!running) { sentAt = Date.now(); sigWhat = ""; }
 	send({ ...cmd, id, ...(running ? { streamingBehavior: "steer" } : {}) });
 };
 // Steers wait for the running tool to end (a bash can last minutes). alt+n or /now (without pi-ui) takes Pi's queue back
@@ -1590,7 +1616,7 @@ drawNow();
 // Ask the terminal: kitty graphics query (1x1 pixel) then device attributes; the replies set imageProto.
 out.write("\x1b[16t\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c");
 // 1 s heartbeat only while a turn runs: keeps the working timer and the "no output for Ns" line alive when Pi is silent.
-setInterval(() => { if (running && Date.now() - lastPoll > 3000) { lastPoll = Date.now(); send({ id: "state", type: "get_state" }); } if (running || booting) schedule(); }, ANIM ? 125 : 1000).unref();
+setInterval(() => { if (running && Date.now() - lastPoll > 3000) { lastPoll = Date.now(); send({ id: "state", type: "get_state" }); } if (running || booting || (sentAt && Date.now() - sentAt < 15000)) schedule(); }, ANIM ? 125 : 1000).unref();
 setTimeout(() => { if (imageProto === "?") { imageProto = "none"; sideVer++; schedule(); } }, 1500).unref();
 
 send({ id: "state", type: "get_state" });

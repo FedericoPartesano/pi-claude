@@ -97,6 +97,7 @@ export async function prewarmSession(modelId: string, thinkingLevel: string | un
 		effort,
 		debugLog,
 		onRateLimit: recordRateLimit,
+		onWait: (text) => waitListener?.(text),
 	});
 	liveSessions.unshift(session);
 	while (liveSessions.length > MAX_LIVE_SESSIONS) liveSessions.pop()?.dispose();
@@ -107,6 +108,13 @@ export async function prewarmSession(modelId: string, thinkingLevel: string | un
 function sessionSignature(modelId: string, effort: string | undefined, systemPrompt: string, tools: Tool[]): string {
 	const sortedTools = tools.map(toMcpTool).sort((left, right) => left.name.localeCompare(right.name));
 	return hash(JSON.stringify([modelId, effort, systemPrompt, sortedTools, advisorFor(modelId)]));
+}
+
+let waitListener: ((text: string | undefined) => void) | undefined;
+
+/** Called when Claude Code retries an API call or hits the usage limit (`undefined` = over). */
+export function onClaudeWait(listener: (text: string | undefined) => void): void {
+	waitListener = listener;
 }
 
 let latestRateLimit: RateLimitInfo | undefined;
@@ -321,6 +329,7 @@ function startSessionFromTranscript(
 		onDispose: resumeSession?.dispose,
 		debugLog,
 		onRateLimit: recordRateLimit,
+		onWait: (text) => waitListener?.(text),
 	});
 	liveSessions.unshift(session);
 	while (liveSessions.length > MAX_LIVE_SESSIONS) liveSessions.pop()?.dispose();

@@ -48,6 +48,23 @@ export function claudeToolName(piToolName: string): string {
 }
 
 /** One JSON record printed by `claude --output-format stream-json`. */
+/** "api retry 2/10 in 1s": the CLI is retrying a failed API call. */
+export function retryNote(record: ClaudeRecord): string {
+	const attempt = Number(record.attempt), max = Number(record.max_retries), delay = Math.round(Number(record.retry_delay_ms ?? 0) / 1000);
+	const status = record.error_status ? ` (HTTP ${record.error_status})` : "";
+	return `api retry ${Number.isFinite(attempt) ? attempt : "?"}/${Number.isFinite(max) ? max : "?"} in ${delay}s${status}`;
+}
+
+/** "usage limit reached · resets in 2h10m" when Claude Code says the subscription is exhausted. */
+export function limitNote(info: unknown, nowMs: number = Date.now()): string | undefined {
+	const { status, unifiedWindows } = (info ?? {}) as { status?: string; unifiedWindows?: Record<string, { resetsAt?: number }> };
+	if (status !== "rejected") return undefined;
+	const resets = Object.values(unifiedWindows ?? {}).map((w) => w.resetsAt).filter((t): t is number => typeof t === "number").sort((a, b) => a - b)[0];
+	if (!resets) return "usage limit reached";
+	const minutes = Math.max(0, Math.round((resets * 1000 - nowMs) / 60000));
+	return `usage limit reached · resets in ${minutes >= 60 ? `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, "0")}m` : `${minutes}m`}`;
+}
+
 export type ClaudeRecord = { type: string; subtype?: string; [key: string]: unknown };
 
 export interface ClaudeSessionOptions {
@@ -63,6 +80,8 @@ export interface ClaudeSessionOptions {
 	resumeSessionId?: string;
 	/** Called with every `rate_limit_event` record (subscription usage), whenever it arrives. */
 	onRateLimit?: (info: unknown) => void;
+	/** Called with a short English note while the CLI waits on something other than the model (API retry, usage limit); `undefined` clears it. */
+	onWait?: (text: string | undefined) => void;
 	/** Called once the process no longer needs its resume file. */
 	onDispose?: () => void;
 	debugLog?: (line: string) => void;
@@ -166,6 +185,7 @@ export class ClaudeSession {
 		options.debugLog?.(`spawn ${options.claudeBinary} ${args.map((arg) => JSON.stringify(arg)).join(" ")}`);
 		this.process = spawn(options.claudeBinary, args, { cwd: options.cwd, env: environment, stdio: "pipe" });
 
+		let waiting = false;
 		createInterface({ input: this.process.stdout }).on("line", (line) => {
 			if (!line.trim()) return;
 			options.debugLog?.(`<- ${line.slice(0, 500)}`);
@@ -186,7 +206,23 @@ export class ClaudeSession {
 			if (record.type === "control_response") return;
 			if (record.type === "rate_limit_event") {
 				options.onRateLimit?.(record.rate_limit_info);
+				const note = limitNote(record.rate_limit_info);
+				if (note) {
+					waiting = true;
+					options.onWait?.(note);
+				}
 				return;
+			}
+			if (options.onWait) {
+				const note = record.type === "system" && record.subtype === "api_retry" ? retryNote(record) : undefined;
+				if (note) {
+					waiting = true;
+					options.onWait(note);
+				} else if (waiting && (record.type === "stream_event" || record.type === "assistant" || (record.type === "system" && record.subtype !== "api_retry"))) {
+					// The model is talking again: the wait is over. (A `result` keeps a limit note until the next turn.)
+					waiting = false;
+					options.onWait(undefined);
+				}
 			}
 			if (record.type === "result" && process.env.PI_ADVISOR_LOG) {
 				// Evals: real per-model usage and cost of the run, including the native advisor (Opus).
