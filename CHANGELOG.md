@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.32.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.31.0...pi-claude-v0.32.0) (2026-11-17)
+
+
+### Features
+
+* **chat:** sezioni sub-agenti e processi nel pannello, cockpit di /auto rifatto, sub-agenti nel pi predefinito ([b22b352](https://github.com/FedericoPartesano/pi-claude/commit/b22b35202c05d47b2605a1712215056570fca798))
+* skill integrate in pi con router, auto con paperclip e pi-team, pannello e footer ([6c6afbb](https://github.com/FedericoPartesano/pi-claude/commit/6c6afbbf9cf519fa50c571a3afdbb7e28bdb380b))
+
+
+### Bug Fixes
+
+* test di pi-full col percorso corretto di subagent/index.ts ([f65de11](https://github.com/FedericoPartesano/pi-claude/commit/f65de115cb097c4969e774ba9ed4cd909cd2fd47))
+
 ## [0.31.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.30.0...pi-claude-v0.31.0) (2026-11-12)
 
 
