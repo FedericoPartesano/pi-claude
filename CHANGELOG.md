@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.34.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.33.0...pi-claude-v0.34.0) (2026-11-17)
+
+
+### Features
+
+* **bug:** passo n/6 nei dialog di /bugreport e gravità con descrizione ([32c24d6](https://github.com/FedericoPartesano/pi-claude/commit/32c24d62a782ba2a8a134c9c711962926446103e))
+
 ## [0.33.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.32.1...pi-claude-v0.33.0) (2026-11-17)
 
 
