@@ -751,36 +751,45 @@ const qzKey = (z, key, csi) => {
 };
 const toggle = (a, i) => { if (a.on.has(i)) a.on.delete(i); else a.on.add(i); };
 const quizLines = (z, bar, iw, leftW, H) => {
-	const L = [], n = z.qs.length;
+	const L = [], n = z.qs.length, rule = `${bar}${S.faint}${"─".repeat(Math.max(0, iw))}${R}`;
 	const hint = (...kv) => `${bar}${kv.map(([k, v]) => `${S.text}${k}${S.dim} ${v}${R}`).join(`${S.faint}  ·  `)}`;
+	const review = n > 1 && z.tab === n;
+	// Header: title with the step counter, then one tab per question (done = green dot, current = cyan bold).
 	const tabs = z.qs.map((q, i) => { const on = i === z.tab, mark = z.a[i].done ? "●" : "○", lab = cut(qzName(q, i), 14); return on ? `${S.cyan}${S.b}${mark} ${lab}${R}` : `${z.a[i].done ? S.ok : S.dim}${mark} ${lab}${R}`; });
-	if (n > 1) tabs.push(z.tab === n ? `${S.cyan}${S.b}✓ Rivedi${R}` : `${S.dim}✓ Rivedi${R}`);
-	L.push(cut(`${bar}${S.mag}${S.b}DOMANDE${R}  ${tabs.join("  ")}`, leftW));
-	L.push(bar.trimEnd());
-	if (n > 1 && z.tab === n) {
-		z.qs.forEach((q, i) => { const a = z.a[i]; L.push(cut(`${bar}${a.done ? `${S.ok}✓` : `${S.err}✖`} ${S.dim}${qzName(q, i)}${R}  ${S.text}${qzSummary(q, a)}${R}`, leftW)); });
-		L.push(bar.trimEnd());
-		L.push(hint(["⏎", "invia"], ["←", "correggi"], ["esc", "annulla"]));
+	if (n > 1) tabs.push(review ? `${S.cyan}${S.b}✓ Rivedi${R}` : `${S.dim}✓ Rivedi${R}`);
+	const step = n > 1 ? `${S.dim}${review ? "rivedi" : `${z.tab + 1} di ${n}`}${R}  ` : "";
+	L.push(cut(`${bar}${S.mag}${S.b}DOMANDE${R}  ${step}${tabs.join("  ")}`, leftW));
+	L.push(rule);
+	if (review) {
+		const names = z.qs.map((q, i) => cut(qzName(q, i), 16)), nw = Math.max(...names.map(width_));
+		z.qs.forEach((q, i) => { const a = z.a[i]; L.push(cut(`${bar}${a.done ? `${S.ok}✓` : `${S.err}✖`} ${S.dim}${pad(names[i], nw)}${R}  ${a.done ? `${S.b}${S.text}${qzSummary(q, a)}` : `${S.warn}da rispondere`}${R}`, leftW)); });
+		L.push(rule);
+		const miss = z.a.filter((a) => !a.done).length;
+		L.push(hint(["⏎", miss ? "vai alla prima mancante" : "invia"], ["←", "correggi"], ["esc", "annulla"]));
 		return L;
 	}
 	const q = z.qs[z.tab], a = z.a[z.tab], no = q.options.length;
-	for (const w of wrap(q.question, iw)) L.push(`${bar}${S.b}${S.text}${w}${R}`);
+	// Question: accent bar plus bold text, so it reads apart from the options.
+	wrap(q.question, iw - 2).forEach((w, k) => L.push(`${bar}${k ? "  " : `${S.cyan}? `}${S.b}${S.text}${w}${R}`));
+	if (q.multiSelect) L.push(`${bar}  ${S.dim}scelta multipla${a.on.size ? ` · ${a.on.size} selezionat${a.on.size === 1 ? "a" : "e"}` : ""}${R}`);
 	L.push(bar.trimEnd());
 	q.options.forEach((o, i) => {
-		const cur = a.sel === i, box = q.multiSelect ? (a.on.has(i) ? "☑" : "☐") : (a.done && a.sel === i ? "◉" : "○");
-		L.push(cur ? `${bar}${bg(P.userBg)}${S.cyan}▸ ${S.dim}${i < 9 ? i + 1 : " "} ${S.cyan}${box} ${S.b}${S.text}${pad(cut(o.label, iw - 8), iw - 7)}${R}` : `${bar}${S.faint}  ${i < 9 ? i + 1 : " "} ${S.dim}${box} ${S.text}${cut(o.label, iw - 8)}${R}`);
-		if (cur && o.description) for (const w of wrap(o.description, iw - 8).slice(0, 2)) L.push(`${bar}${S.dim}        ${w}${R}`);
+		const cur = a.sel === i, picked = q.multiSelect ? a.on.has(i) : a.done && a.sel === i;
+		const box = q.multiSelect ? (picked ? "☑" : "☐") : (picked ? "◉" : "○"), num = i < 9 ? i + 1 : " ";
+		const boxC = picked ? S.ok : cur ? S.cyan : S.dim;
+		L.push(cur ? `${bar}${bg(P.userBg)}${S.cyan}▌${S.dim}${num} ${boxC}${box} ${S.b}${S.text}${pad(cut(o.label, iw - 6), iw - 5)}${R}` : `${bar} ${S.faint}${num} ${boxC}${box} ${picked ? S.b : ""}${S.text}${cut(o.label, iw - 6)}${R}`);
+		if (cur && o.description) for (const w of wrap(o.description, iw - 7).slice(0, 3)) L.push(`${bar}${bg(P.userBg)}${S.dim}      ${pad(w, iw - 6)}${R}`);
 	});
 	const cur = a.sel === no;
-	L.push(`${bar}${cur ? `${bg(P.userBg)}${S.cyan}▸ ${S.mag}✎ ${S.text}${pad(a.text ? `${cut(a.text, iw - 8)}${S.mag}▌` : `${S.mag}▌${S.faint}scrivi la tua risposta`, iw - 4)}` : `${S.faint}    ${S.dim}✎ ${a.text ? S.text : S.faint}${cut(a.text || "scrivi la tua risposta…", iw - 8)}`}${R}`);
+	L.push(`${bar}${cur ? `${bg(P.userBg)}${S.cyan}▌${S.mag}  ✎ ${S.text}${pad(a.text ? `${cut(a.text, iw - 6)}${S.mag}▌` : `${S.mag}▌${S.faint}scrivi la tua risposta`, iw - 5)}` : ` ${S.dim}   ✎ ${a.text ? S.text : S.faint}${cut(a.text || "scrivi la tua risposta…", iw - 6)}`}${R}`);
 	const pv = !cur && q.options[a.sel]?.preview;
 	if (pv) {
 		L.push(bar.trimEnd());
-		const rows = pv.split("\n").flatMap((l) => wrap(l, iw - 4));
-		for (const l of rows.slice(0, Math.max(3, Math.min(8, H - 24)))) L.push(`${bar}${S.faint}┆ ${S.dim}${l}${R}`);
-		if (rows.length > Math.max(3, Math.min(8, H - 24))) L.push(`${bar}${S.faint}┆ …${R}`);
+		const max = Math.max(3, Math.min(8, H - 24)), rows = pv.split("\n").flatMap((l) => wrap(l, iw - 4));
+		for (const l of rows.slice(0, max)) L.push(`${bar}${S.faint}┆ ${S.dim}${l}${R}`);
+		if (rows.length > max) L.push(`${bar}${S.faint}┆ …${R}`);
 	}
-	L.push(bar.trimEnd());
+	L.push(rule);
 	L.push(q.multiSelect ? hint(["↑↓", "muovi"], ["spazio", "spunta"], ["⏎", "avanti"], ["←→", "domanda"], ["esc", "annulla"]) : hint(["↑↓", "scegli"], ["1-9", "diretto"], ["⏎", "conferma"], ["←→", "domanda"], ["esc", "annulla"]));
 	return L;
 };
@@ -895,9 +904,9 @@ const frame = () => {
 		} else if (dialog.method === "quiz") {
 			extra.push(...quizLines(dialog.z, bar, iw, leftW, H));
 		} else {
-			extra.push(`${bar}${S.b}${S.text}${cut(head[0], iw)}${R}`);
-			for (const l of head.slice(1)) for (const w of wrap(l, iw)) extra.push(`${bar}${S.dim}${w}${R}`);
-			extra.push(bar.trimEnd());
+			extra.push(`${bar}${S.mag}${S.b}${cut(head[0], iw)}${R}`);
+			for (const l of head.slice(1)) for (const w of wrap(l, iw)) extra.push(`${bar}${S.text}${w}${R}`);
+			extra.push(`${bar}${S.faint}${"─".repeat(Math.max(0, iw))}${R}`);
 			if (dialog.method === "sessions") {
 				const hits = sessionHits(dialog);
 				dialog.sel = Math.max(0, Math.min(dialog.sel, hits.length - 1));
@@ -933,7 +942,7 @@ const frame = () => {
 				extra.push(bar.trimEnd());
 				extra.push(hint(["↑↓", "scegli"], ["1-9", "diretto"], ["⏎", "conferma"], ["esc", "annulla"]));
 			} else if (dialog.method === "confirm") {
-				extra.push(`${bar}${S.ok}y${S.text} Sì${R}   ${S.err}n${S.text} No${R}`);
+				extra.push(`${bar}${S.ok}${S.b}[y] Sì${R}    ${S.err}${S.b}[n] No${R}`);
 				extra.push(bar.trimEnd());
 				extra.push(hint(["⏎", "sì"], ["esc", "annulla"]));
 			} else {

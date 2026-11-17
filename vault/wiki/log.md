@@ -1,5 +1,8 @@
 # Log
 
+## [2026-11-17] update | Grafica di domande e wizard
+- Aggiornato [[chat-rpc]]: card dei questionari con passo «n di m», gerarchia e «Rivedi» in colonne; dialog con titolo e linea sottile.
+
 ## [2026-11-16] update | Panoramica del cockpit e sub-agenti in pi
 - Aggiornato [[chat-rpc]]: Panoramica di `/auto` con ADESSO e STORIA DEL PASSO; sub-agenti in `pi` con tool spenti.
 
