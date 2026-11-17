@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.32.1](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.32.0...pi-claude-v0.32.1) (2026-11-17)
+
+
+### Bug Fixes
+
+* **bridge:** niente «No response requested» dopo la ripresa di una sessione ([dd3bab0](https://github.com/FedericoPartesano/pi-claude/commit/dd3bab06a7088669de2e817489ead2ddd099ceb7))
+
 ## [0.32.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.31.0...pi-claude-v0.32.0) (2026-11-17)
 
 
