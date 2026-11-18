@@ -5,23 +5,33 @@ import { execFile } from "node:child_process";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { checkOutcome, failingTests } from "../../pi-ui/src/test-output.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(join(here, "chat.mjs"), "utf8");
 const from = source.indexOf("let yolo");
 const to = source.indexOf("let timer, lastDraw");
 if (from < 0 || to < 0) throw new Error("perf-harness: markers 'let yolo' / 'let timer' not found in chat.mjs");
+// Every relative import of chat.mjs (copy, agents, processes, cockpit, usage, test-output…) is loaded here and handed to the slice
+// by name, so a new import in chat.mjs cannot break the harness again (it used to list them by hand: codeBlocks, activeRows…).
+const imported = {};
+for (const m of source.matchAll(/^import\s*\{([^}]*)\}\s*from\s*"(\.[^"]+)"/gm)) {
+	const mod = await import(new URL(m[2], import.meta.url).href);
+	for (const part of m[1].split(",")) {
+		const [name, alias = name] = part.trim().split(/\s+as\s+/);
+		if (name) imported[alias] = mod[name];
+	}
+}
+const importedNames = Object.keys(imported);
 const body = source.slice(from, to).replace(/const out = process\.stdout;/, "");
 
 export const load = ({ columns = 120, rows = 40 } = {}) => {
 	const written = [];
 	const out = { columns, rows, write: (s) => { written.push(s); return true; }, on() {} };
 	const names = ["frame", "bodyLines", "blockLines", "markdown", "streamMarkdown", "toolLine", "diffRows", "sideLines", "wrap", "wrapAnsi", "hardWrap", "cut", "pad", "width_", "chart", "popup", "fuzzy", "blocks", "append", "statuses", "widgets", "git", "cache", "S", "P", "R"];
-	const fn = new Function("out", "env", "execFile", "homedir", "readFileSync", "writeFileSync", "readdirSync", "statSync", "dirname", "join", "checkOutcome", "failingTests", "process",
+	const fn = new Function("out", "env", "execFile", "homedir", "readFileSync", "writeFileSync", "readdirSync", "statSync", "dirname", "join", "process", ...importedNames,
 		`${body}\nlet __v; return { ${names.join(", ")}, state: new Proxy({}, { get: (_, k) => eval(k), set: (_, k, v) => { __v = v; eval(k + "=__v"); return true; } }) };`);
 	const noop = () => undefined;
-	const api = fn(out, { ...process.env }, execFile, homedir, noop, noop, noop, noop, dirname, join, checkOutcome, failingTests, process);
+	const api = fn(out, { ...process.env }, execFile, homedir, noop, noop, noop, noop, dirname, join, process, ...importedNames.map((n) => imported[n]));
 	return { ...api, out, written };
 };
 
