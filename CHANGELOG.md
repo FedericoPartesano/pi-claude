@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.37.2](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.37.1...pi-claude-v0.37.2) (2026-11-18)
+
+
+### Bug Fixes
+
+* il segnaposto .url dei segreti passa il controllo dell'host ([467f8cf](https://github.com/FedericoPartesano/pi-claude/commit/467f8cf2b6e5cd454786cc7f1fe5c89884dde449))
+
 ## [0.37.1](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.37.0...pi-claude-v0.37.1) (2026-11-18)
 
 
