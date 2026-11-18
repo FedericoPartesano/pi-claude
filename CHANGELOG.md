@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.37.1](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.37.0...pi-claude-v0.37.1) (2026-11-18)
+
+
+### Bug Fixes
+
+* i dialog del prototipo non vengono più sostituiti dagli avvisi e ctrl+c li annulla ([094d878](https://github.com/FedericoPartesano/pi-claude/commit/094d8789b7e51b7749868decd2c0b34299e30b18))
+
 ## [0.37.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.36.0...pi-claude-v0.37.0) (2026-11-18)
 
 
