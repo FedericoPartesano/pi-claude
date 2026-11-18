@@ -106,7 +106,11 @@ export function plan(command: string, vault: Lookup, askpass?: string): Plan {
 	if (/<<-?\s*['"]?\w/.test(command) || /<<</.test(command)) return { ok: false, reason: "heredoc o here-string con un segreto: stamperebbe il valore" };
 	if (/\/proc\/|\/dev\/(tcp|udp)\/|\$\{!|\$ENV\b|\bjq\b[^|;&]*\benv\b|\bexport\s+-p\b|\bexport\s*(;|&|\||$)|\benv\s*(;|&|\||$)|__PI_S/.test(command)) return { ok: false, reason: "il comando può elencare o spedire l'ambiente: non consentito con un segreto" };
 
-	const tokenized = command.replace(PLACEHOLDER, (_m, _n, _f) => `${MARK}0${MARK}`);
+	// A .url placeholder is the bound address itself (not a secret): show its real host to the check instead of an opaque mark.
+	const tokenized = command.replace(PLACEHOLDER, (_m, n: string, f?: string) => {
+		const u = f === "url" ? values.find((v) => v.name === n && v.field === "url")?.value : undefined;
+		return u && !/[\s$`(){}'"\\;&|<>]/.test(u) ? u : `${MARK}0${MARK}`;
+	});
 	const segments = tokenized.split(/[;&|\n()`{}]+/);
 	const confirm = new Set<string>();
 	for (const segment of segments) {
