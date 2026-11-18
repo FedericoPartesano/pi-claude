@@ -38,6 +38,11 @@ export const chatPath = () => join(resolve(dirname(fileURLToPath(import.meta.url
 
 function main(argv) {
 	if (argv[0] === "--is-classic") process.exit(isClassic(argv.slice(1)) ? 0 : 1);
+	if (argv[0] === "secret") {
+		// `pi secret add|list|rm`: store management from a shell, typed secrets never echoed.
+		import("../extensions/secrets/cli.ts").then(async (m) => { try { process.exit(await m.runCli(argv.slice(1), m.terminalIO())); } catch (e) { console.error(String(e?.message ?? e)); process.exit(1); } });
+		return;
+	}
 	const env = { ...process.env };
 	// -d: no permission prompts (PI_YOLO=1); no startup update checks unless PI_OFFLINE=0.
 	const args = argv.filter((arg) => arg !== "-d" && arg !== "--classic");

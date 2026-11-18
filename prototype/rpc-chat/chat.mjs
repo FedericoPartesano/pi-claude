@@ -389,10 +389,30 @@ const diffRows = (patch, width) => {
 };
 // One tool step as a slim card in the toast style: status bar on the left, name, duration at the right edge.
 const stepRow = (color, mark, text, right, width) => {
-	const rw = width_(right), body = cut(`${color}▎${R}${bg(P.userBg)} ${color}${mark}${R}${bg(P.userBg)} ${S.dim}${text}`, Math.max(8, width - rw - 1));
+	const rw = width_(right), full = `${color}▎${R}${bg(P.userBg)} ${color}${mark}${R}${bg(P.userBg)} ${S.dim}${text}`, avail = Math.max(8, width - rw - 1);
+	// A cut command ends in an ellipsis, so it does not run into the duration.
+	const body = width_(full) > avail ? `${cut(full, avail - 2)}${bg(P.userBg)}${S.dim}…` : full;
 	return `${bg(P.userBg)}${pad(body, width - rw - 1)}${S.faint}${right}${R}${bg(P.userBg)} ${R}`;
 };
+// Secrets (extensions/secrets.ts): the `secret` tool and bash commands with a {{secret:name}} placeholder get their own
+// slim card: magenta bar, the secret names used, the command with placeholders shown as ‹name›. Values never reach here.
+const SECRET_REF = /\{\{secret:([A-Za-z][\w-]*(?:\.\w+)?)\}\}/g;
+const isSecretStep = (b) => b.name === "secret" || (b.name === "bash" && typeof b.args?.command === "string" && b.args.command.includes("{{secret:"));
+const secretLabel = (b) => {
+	const a = b.args ?? {};
+	if (b.name === "secret" && a.action === "list") return "secret · elenco dei segreti";
+	const cmd = String(a.command ?? "");
+	const used = [...new Set([...cmd.matchAll(SECRET_REF)].map((m) => m[1].split(".")[0]))];
+	const root = /\bsudo\b/.test(cmd) ? " · root" : "";
+	return `secret · ${used.length ? used.join(", ") : "run"}${root}  ${cmd.replace(SECRET_REF, "‹$1›").replace(/\s+/g, " ")}`;
+};
 const toolLine = (b, width) => {
+	if (isSecretStep(b)) {
+		const color = b.done === undefined ? S.yel : b.blocked ? S.yel : b.failed ? S.err : S.mag;
+		const mark = b.done === undefined ? "⠿" : b.blocked ? "⊘" : b.failed ? "✗" : "◆";
+		const time = b.done === undefined ? "…" : b.blocked ? "bloccato" : b.ms != null ? (b.ms >= 1000 ? `${(b.ms / 1000).toFixed(1)}s` : `${b.ms}ms`) : "";
+		return stepRow(color, mark, secretLabel(b), time, width);
+	}
 	const color = b.done === undefined ? S.yel : b.failed ? S.err : S.ok;
 	const mark = b.done === undefined ? "⠿" : b.failed ? "✗" : "✓";
 	const time = b.done === undefined ? "…" : b.ms != null ? (b.ms >= 1000 ? `${(b.ms / 1000).toFixed(1)}s` : `${b.ms}ms`) : "";
@@ -950,7 +970,7 @@ const frame = () => {
 				extra.push(bar.trimEnd());
 				extra.push(hint(["⏎", "sì"], ["esc", "annulla"]));
 			} else {
-				extra.push(`${bar}${bg(P.userBg)}${S.mag}› ${S.text}${pad(`${dialog.text}${S.mag}▌`, iw - 2)}${R}`);
+				extra.push(`${bar}${bg(P.userBg)}${S.mag}› ${S.text}${pad(`${dialog.mask ? "•".repeat(dialog.text.length) : dialog.text}${S.mag}▌`, iw - 2)}${R}`);
 				extra.push(bar.trimEnd());
 				extra.push(hint(["⏎", "conferma"], ["esc", "annulla"]));
 			}
@@ -1211,7 +1231,7 @@ const onRecord = (r) => {
 			if (ac) { ac.finished = { isError: !!r.isError, at: Date.now() }; sideVer++; schedule(); setTimeout(() => { sideVer++; schedule(); agentCalls.delete(r.toolCallId); }, 20500).unref?.(); }
 			if (r.toolName === "ask_user_question") { qz = undefined; if (dialog?.method === "quiz") dialog = undefined; }
 			const t = blocks.findLast((b) => b.id === r.toolCallId);
-			if (t) { t.failed = !!r.isError; t.done = true; t.ms = r.durationMs; if (r.result?.details?.patch) t.patch = r.result.details.patch; }
+			if (t) { t.failed = !!r.isError; t.done = true; t.ms = r.durationMs; if (r.result?.details?.patch) t.patch = r.result.details.patch; if (isSecretStep(t)) t.blocked = /^(Bloccato|L'utente non ha|Archivio dei segreti|Servirebbe una conferma)/.test(String(r.result?.content?.[0]?.text ?? "")); }
 			if (r.toolName === "todo") planFrom(r.result?.details);
 			if (r.toolName === "bash" && !r.isError && isLaunch(t?.args?.command)) trackProc(t.args.command, (r.result?.content ?? []).map((c) => c.text ?? "").join("\n"));
 			if (r.toolName === "bash") testResult(t?.args?.command, (r.result?.content ?? []).map((c) => c.text ?? "").join("\n"), !!r.isError);
@@ -1242,7 +1262,7 @@ const onRecord = (r) => {
 			if (booting) bootNote(m === "setStatus" || m === "setWidget" ? `estensione: ${r.statusKey ?? r.widgetKey}` : m === "notify" ? "estensioni: avvisi iniziali" : "estensioni in caricamento");
 			if (m === "select") dialog = { id: r.id, method: m, title: r.title, options: r.options ?? [], sel: 0 };
 			else if (m === "confirm") dialog = { id: r.id, method: m, title: r.title, message: r.message };
-			else if (m === "input" || m === "editor") dialog = { id: r.id, method: m, title: r.title, text: r.prefill ?? r.text ?? "" };
+			else if (m === "input" || m === "editor") dialog = { id: r.id, method: m, title: r.title, text: r.prefill ?? r.text ?? "", mask: m === "input" && String(r.title ?? "").startsWith("\u{1F512}") };
 			else if (m === "notify" && String(r.message ?? "").split("\n").length >= 4) dialog = { id: r.id, method: "pager", title: "", lines: String(r.message).split("\n"), top: 0 };
 			else if (m === "notify") { toast = String(r.message ?? "").replace(/\s*\n\s*/g, " ").replace(/[\x00-\x1f]/g, ""); setTimeout(() => { toast = ""; schedule(); }, 8000).unref(); }
 			else if (m === "setStatus" && r.statusKey === "claude-wait") { if (r.statusText && running) { sigWhat = r.statusText.replace(/\x1b\[[0-9;]*m/g, ""); sigAt = Date.now(); } } // phase from the bridge (API retry, usage limit)
