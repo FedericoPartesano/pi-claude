@@ -57,13 +57,14 @@ export default function (pi: ExtensionAPI) {
 		return "Passphrase sbagliata per tre volte.";
 	};
 
+	const WANTS = /\b(segret\w*|credenzial\w*|password|login|token|api[ -]?key|sudo)\b/i;
 	pi.on("before_agent_start", (event) => {
 		const names = peekNames(defaultPath());
 		const at = event.systemPrompt.indexOf(`\n\n${MARKER}`);
 		const base = at >= 0 ? event.systemPrompt.slice(0, at) : event.systemPrompt;
 		const active = pi.getActiveTools();
-		if (names.length && !active.includes("secret")) pi.setActiveTools([...active, "secret"]);
-		const next = names.length ? `${base}\n\n${MARKER}tool secret (list/run) o {{secret:nome}} nei comandi bash (login .user/.password/.url); sudo usa la password salvata. Mai chiedere o stampare i valori. Disponibili: ${names.join(", ")}.` : base;
+		if ((names.length || WANTS.test(event.prompt ?? "")) && !active.includes("secret")) pi.setActiveTools([...active, "secret"]);
+		const next = names.length ? `${base}\n\n${MARKER}tool secret (list/run/add) o {{secret:nome}} nei comandi bash (login .user/.password/.url); sudo usa la password salvata. Mai chiedere o stampare i valori. Disponibili: ${names.join(", ")}.` : base;
 		return next === event.systemPrompt ? undefined : { systemPrompt: next };
 	});
 
@@ -100,6 +101,28 @@ export default function (pi: ExtensionAPI) {
 		return undefined;
 	});
 
+	/** Asks the user for every field in masked dialogs and saves; the model never sees the typed values. Returns a message. */
+	const askAndSave = async (name: string, k: string | undefined, ctx: ExtensionContext): Promise<string> => {
+		const kind = (k ?? (name === "sudo" ? "sudo" : "var")) as Kind;
+		if (!NAME_RE.test(name)) return "Nome non valido: lettere, cifre, _ e -, deve iniziare con una lettera.";
+		if (!KINDS.includes(kind)) return "Tipo: var, login o sudo.";
+		if (!ctx.hasUI) return "Serve l'interfaccia per chiedere i valori all'utente.";
+		const err = await ensureUnlocked(ctx);
+		if (err) return err;
+		if (vault.get(name) && !(await ctx.ui.confirm("Segreti", `«${name}» esiste già. Sovrascrivere?`))) return "Annullato, niente salvato.";
+		const answers: Record<string, string> = {};
+		for (const f of fieldsFor(kind)) {
+			const v = await ctx.ui.input(`${f.secret ? LOCK : ""}${name}: ${f.label}`, "");
+			if (v === undefined) return "Annullato, niente salvato.";
+			answers[f.key] = v;
+		}
+		const secret = build(kind, answers);
+		if (typeof secret === "string") return `Non salvato: ${secret}.`;
+		vault.set(name, secret);
+		audit(`ADD ${name} ${kind}`);
+		return `Salvato ${name} (${kind}). Nei comandi: {{secret:${name}${kind === "login" ? ".password" : ""}}}`;
+	};
+
 	const reply = (text: string) => ({ content: [{ type: "text" as const, text }], details: {} });
 	pi.registerTool({
 		name: "secret",
@@ -107,21 +130,22 @@ export default function (pi: ExtensionAPI) {
 		description:
 			"Private credentials the user stored; values are never shown to you. action list: names, kinds and bound hosts. " +
 			"action run {command}: runs a shell command with {{secret:name}} (login: .user/.password/.url) filled in; `sudo ...` gets the stored sudo password after the user confirms. " +
-			"Output is scrubbed. If the needed secret is not listed, ask the user to add it with /secret add.",
+			"action add {name, kind}: opens masked dialogs so the USER types the values (you never see them); use it when the user wants to save a login/token/password, or a needed secret is missing. Output is scrubbed.",
 		parameters: {
 			type: "object",
-			properties: { action: { type: "string", enum: ["list", "run"] }, command: { type: "string" } },
+			properties: { action: { type: "string", enum: ["list", "run", "add"] }, command: { type: "string" }, name: { type: "string" }, kind: { type: "string", enum: ["var", "login", "sudo"] } },
 			required: ["action"],
 		} as never,
 		defaultActive: false,
 		async execute(id, raw, signal, _update, ctx) {
-			const params = raw as { action: string; command?: string };
+			const params = raw as { action: string; command?: string; name?: string; kind?: string };
+			if (params.action === "add") return reply(params.name ? await askAndSave(params.name, params.kind, ctx) : "Uso: action add {name, kind}.");
 			if (params.action === "list") {
 				if (vault.exists && !vault.unlocked) { const err = await ensureUnlocked(ctx); if (err) return reply(err); }
 				if (!vault.unlocked) return reply("Nessun segreto salvato. L'utente può aggiungerne con /secret add NOME.");
 				return reply(vault.names().map((n) => { const s = vault.get(n)!; const host = "url" in s && s.url ? ` → ${s.url}` : ""; return `${n} (${s.kind})${host}`; }).join("\n") || "Nessun segreto.");
 			}
-			if (params.action !== "run" || !params.command) return reply("Uso: action list | run {command}.");
+			if (params.action !== "run" || !params.command) return reply("Uso: action list | run {command} | add {name, kind}.");
 			const r = await prepare(params.command, id, ctx);
 			try {
 				if ("block" in r) return reply(`Bloccato: ${r.block}`);
@@ -175,19 +199,8 @@ export default function (pi: ExtensionAPI) {
 			const err = await ensureUnlocked(ctx);
 			if (err) { ctx.ui.notify(err, "warning"); return; }
 			if (cmd === "rm") { audit(`RM ${name}`); ctx.ui.notify(vault.remove(name) ? `Rimosso ${name}.` : `${name}: non esiste.`, "info"); return; }
-			const kind = (k ?? (name === "sudo" ? "sudo" : "var")) as Kind;
-			if (!KINDS.includes(kind)) { ctx.ui.notify("Tipo: var, login o sudo.", "warning"); return; }
-			const answers: Record<string, string> = {};
-			for (const f of fieldsFor(kind)) {
-				const v = await ctx.ui.input(`${f.secret ? LOCK : ""}${name}: ${f.label}`, "");
-				if (v === undefined) { ctx.ui.notify("Annullato, niente salvato.", "info"); return; }
-				answers[f.key] = v;
-			}
-			const secret = build(kind, answers);
-			if (typeof secret === "string") { ctx.ui.notify(`Non salvato: ${secret}.`, "warning"); return; }
-			vault.set(name, secret);
-			audit(`ADD ${name} ${kind}`);
-			ctx.ui.notify(`Salvato ${name} (${kind}). Nei comandi: {{secret:${name}${kind === "login" ? ".password" : ""}}}`, "info");
+			const res = await askAndSave(name, k, ctx);
+			ctx.ui.notify(res, "info");
 		},
 	});
 

@@ -20,6 +20,9 @@ const ctx = { hasUI: false, ui: {} } as any;
 test("no secrets: prompt untouched, bash passes through", async () => {
 	assert.equal(handlers.before_agent_start({ systemPrompt: "base" }, ctx), undefined);
 	assert.ok(!active.includes("secret"), "tool stays off without secrets");
+	handlers.before_agent_start({ systemPrompt: "base", prompt: "salva il login di github" }, ctx);
+	assert.ok(active.includes("secret"), "a credentials request switches it on");
+	active = [];
 	const input = { command: "ls {{secret:x}}" };
 	assert.equal(await handlers.tool_call({ toolName: "bash", toolCallId: "1", input }, ctx), undefined);
 });
