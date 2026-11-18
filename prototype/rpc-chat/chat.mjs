@@ -1197,6 +1197,26 @@ const phaseOf = (r) => {
 		default: return undefined; // queue_update and the like keep the last phase
 	}
 };
+const DLG = new Set(["select", "confirm", "input", "editor"]);
+const dlgQueue = [];
+const pendingIds = new Set(); // dialog requests Pi is still waiting on
+// ctrl+c: answer every unanswered dialog request with "cancelled", so Pi is never left waiting on a dialog nobody can see.
+const cancelDialogs = () => {
+	for (const id of pendingIds) send({ type: "extension_ui_response", id, cancelled: true });
+	pendingIds.clear(); dlgQueue.length = 0;
+	if (dialog && dialog.method !== "quiz") dialog = undefined;
+};
+const toastMsg = (msg) => { toast = String(msg ?? "").replace(/\s*\n\s*/g, " ").replace(/[\x00-\x1f]/g, ""); setTimeout(() => { toast = ""; schedule(); }, 8000).unref(); };
+const openDialog = (r) => {
+	const m = r.method;
+	if (m === "select") dialog = { id: r.id, method: m, title: r.title, options: r.options ?? [], sel: 0 };
+	else if (m === "confirm") dialog = { id: r.id, method: m, title: r.title, message: r.message };
+	else if (m === "input" || m === "editor") dialog = { id: r.id, method: m, title: r.title, text: r.prefill ?? r.text ?? "", mask: m === "input" && String(r.title ?? "").startsWith("\u{1F512}") };
+	else dialog = { id: r.id, method: "pager", title: "", lines: String(r.message).split("\n"), top: 0 };
+	if (r.timeout) setTimeout(() => { if (dialog?.id === r.id) { dialog = undefined; pendingIds.delete(r.id); pumpDialog(); schedule(); } }, r.timeout).unref();
+};
+// Opens the next queued request once the current dialog is gone.
+const pumpDialog = () => { if (!dialog && dlgQueue.length) openDialog(dlgQueue.shift()); };
 const onRecord = (r) => {
 	if (r.type !== "response") { sentAt = 0; const ph = phaseOf(r); if (ph || !sigWhat) sigWhat = ph ?? r.type; sigAt = Date.now(); }
 	switch (r.type) {
@@ -1259,18 +1279,19 @@ const onRecord = (r) => {
 			const m = r.method;
 			sideVer++;
 			if (qzIntercept(r)) break;
+			if (DLG.has(m)) pendingIds.add(r.id);
 			if (booting) bootNote(m === "setStatus" || m === "setWidget" ? `estensione: ${r.statusKey ?? r.widgetKey}` : m === "notify" ? "estensioni: avvisi iniziali" : "estensioni in caricamento");
-			if (m === "select") dialog = { id: r.id, method: m, title: r.title, options: r.options ?? [], sel: 0 };
-			else if (m === "confirm") dialog = { id: r.id, method: m, title: r.title, message: r.message };
-			else if (m === "input" || m === "editor") dialog = { id: r.id, method: m, title: r.title, text: r.prefill ?? r.text ?? "", mask: m === "input" && String(r.title ?? "").startsWith("\u{1F512}") };
-			else if (m === "notify" && String(r.message ?? "").split("\n").length >= 4) dialog = { id: r.id, method: "pager", title: "", lines: String(r.message).split("\n"), top: 0 };
-			else if (m === "notify") { toast = String(r.message ?? "").replace(/\s*\n\s*/g, " ").replace(/[\x00-\x1f]/g, ""); setTimeout(() => { toast = ""; schedule(); }, 8000).unref(); }
+			if (DLG.has(m) || (m === "notify" && String(r.message ?? "").split("\n").length >= 4)) {
+				// never replace an open dialog: its request would stay unanswered and Pi would wait forever
+				if (dialog) { if (m === "notify") toastMsg(r.message); else dlgQueue.push(r); break; }
+				openDialog(r);
+			}
+			else if (m === "notify") toastMsg(r.message);
 			else if (m === "setStatus" && r.statusKey === "claude-wait") { if (r.statusText && running) { sigWhat = r.statusText.replace(/\x1b\[[0-9;]*m/g, ""); sigAt = Date.now(); } } // phase from the bridge (API retry, usage limit)
 			else if (m === "setStatus") r.statusText ? statuses.set(r.statusKey, r.statusText) : statuses.delete(r.statusKey);
 			else if (m === "setWidget") r.widgetLines?.length ? widgets.set(r.widgetKey, r.widgetLines) : widgets.delete(r.widgetKey);
 			else if (m === "setTitle") { title = r.title ?? title; out.write(`\x1b]0;${r.title}\x07`); }
 			else if (m === "set_editor_text") { input = r.text ?? ""; cursor = input.length; }
-			if (dialog && dialog.id === r.id && r.timeout) setTimeout(() => { if (dialog?.id === r.id) { dialog = undefined; schedule(); } }, r.timeout).unref();
 			break;
 		}
 		case "agent_settled": {
@@ -1290,7 +1311,7 @@ const onRecord = (r) => {
 };
 
 const answer = (body) => {
-	if (dialog.local) { const d = dialog; dialog = undefined; if (!body.cancelled) d.local(body.value); return; } send({ type: "extension_ui_response", id: dialog.id, ...body }); dialog = undefined; };
+	if (dialog.local) { const d = dialog; dialog = undefined; if (!body.cancelled) d.local(body.value); return; } pendingIds.delete(dialog.id); send({ type: "extension_ui_response", id: dialog.id, ...body }); dialog = undefined; pumpDialog(); };
 // Keys while a dialog is open (select / confirm / input / editor); returns true when consumed.
 const dialogKey = (key, csi) => {
 	if (!dialog) return false;
@@ -1302,7 +1323,7 @@ const dialogKey = (key, csi) => {
 		else if (csi === "B") d.top = Math.min(Math.max(0, d.lines.length - page), d.top + 1);
 		else if (csi === "5~") d.top = Math.max(0, d.top - page);
 		else if (csi === "6~" || key === " ") d.top = Math.min(Math.max(0, d.lines.length - page), d.top + page);
-		else if (key === "\x1b" || key === "q" || key === "\r") dialog = undefined;
+		else if (key === "\x1b" || key === "q" || key === "\r") { dialog = undefined; pumpDialog(); }
 		return true;
 	}
 	if (d.method === "sessions") {
@@ -1591,6 +1612,7 @@ process.stdin.on("data", (data) => {
 			const key = m[8];
 			if (booting) { if (key === "\x03") return quit(); continue; } // nothing to type into yet
 			if (cockpit) { if (key === "\x03") return quit(); cockpitKey(key); drawNow(); continue; }
+			if (key === "\x03" && (pendingIds.size || dialog?.local)) { cancelDialogs(); dialog = undefined; if (running) send({ type: "abort" }); schedule(); continue; }
 			if (dialogKey(key)) continue;
 			const items = popup();
 			if (key === "\x03") {
