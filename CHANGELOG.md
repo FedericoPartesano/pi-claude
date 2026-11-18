@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.37.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.36.0...pi-claude-v0.37.0) (2026-11-18)
+
+
+### Features
+
+* il tool secret salva credenziali dalla chat con campi mascherati ([b093ecf](https://github.com/FedericoPartesano/pi-claude/commit/b093ecf4b0b461774534a88be791c0eba23a0d1c))
+* segreti nella chat con segnaposto, tool secret e askpass per sudo ([c842a76](https://github.com/FedericoPartesano/pi-claude/commit/c842a7662cc19597e959c25ad265a29806cfc642))
+
+
+### Bug Fixes
+
+* perf-harness carica da solo gli import di chat.mjs ([b3458d3](https://github.com/FedericoPartesano/pi-claude/commit/b3458d3a517b9364a51ed08e4dc58139e222ca43))
+
 ## [0.36.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.35.0...pi-claude-v0.36.0) (2026-11-17)
 
 
