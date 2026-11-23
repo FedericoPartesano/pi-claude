@@ -7,6 +7,7 @@
  * prefix is never rewritten. No compaction yet → no tool, no prompt text, zero fixed cost. Search is lexical (BM25),
  * so there is no model download and no dependency.
  */
+import { readFileSync, statSync } from "node:fs";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 export interface Chunk {
@@ -49,14 +50,38 @@ export function contentText(content: unknown): string {
 	return parts.join("\n");
 }
 
-/** Entries the last compaction left out of the live context (everything before firstKeptEntryId), oldest first. */
-export function archivedEntries(branch: readonly Entry[]): Entry[] {
+/** Entries out of the live context, oldest first: everything before the last compaction's firstKeptEntryId, plus
+ *  the entries billion-context folded into a compress block (`folded`, see foldedIds). */
+export function archivedEntries(branch: readonly Entry[], folded?: ReadonlySet<string>): Entry[] {
 	let last = -1;
 	for (let i = 0; i < branch.length; i++) if (branch[i].type === "compaction") last = i;
-	if (last < 0) return [];
-	const kept = branch[last].firstKeptEntryId;
-	const keptAt = kept ? branch.findIndex((entry) => entry.id === kept) : -1;
-	return branch.slice(0, keptAt >= 0 && keptAt < last ? keptAt : last);
+	let cut = 0;
+	if (last >= 0) {
+		const kept = branch[last].firstKeptEntryId;
+		const keptAt = kept ? branch.findIndex((entry) => entry.id === kept) : -1;
+		cut = keptAt >= 0 && keptAt < last ? keptAt : last;
+	}
+	if (!folded?.size) return branch.slice(0, cut);
+	return branch.filter((entry, i) => i < cut || (entry.type === "message" && folded.has(String(entry.id))));
+}
+
+const foldCache = new Map<string, { mtime: number; ids: Set<string> }>();
+/** Entry ids billion-context-pi folded away: the active blocks of its sidecar `<session>.acp.json`. Cached by mtime. */
+export function foldedIds(sessionFile: string | undefined): Set<string> {
+	if (!sessionFile) return new Set();
+	const file = `${sessionFile}.acp.json`;
+	try {
+		const mtime = statSync(file).mtimeMs;
+		const hit = foldCache.get(file);
+		if (hit?.mtime === mtime) return hit.ids;
+		const state = JSON.parse(readFileSync(file, "utf8")) as { blocks?: { active?: boolean; effectiveMessageIds?: string[] }[] };
+		const ids = new Set<string>();
+		for (const block of state.blocks ?? []) if (block.active) for (const id of block.effectiveMessageIds ?? []) ids.add(id);
+		foldCache.set(file, { mtime, ids });
+		return ids;
+	} catch {
+		return new Set();
+	}
 }
 
 /** Splits the archive into short chunks, each remembering its entry, role and (for tool results) tool. */
@@ -215,8 +240,8 @@ export interface ArchiveOverview {
 	compactions: number;
 }
 
-export function archiveOverview(branch: readonly (Entry & { customType?: string; content?: unknown; details?: unknown; timestamp?: string })[]): ArchiveOverview {
-	const archived = archivedEntries(branch);
+export function archiveOverview(branch: readonly (Entry & { customType?: string; content?: unknown; details?: unknown; timestamp?: string })[], folded?: ReadonlySet<string>): ArchiveOverview {
+	const archived = archivedEntries(branch, folded);
 	const injections: ArchiveOverview["injections"] = [];
 	let lastUser = "";
 	for (const entry of branch) {
@@ -263,6 +288,9 @@ export function autoRecall(chunks: readonly Chunk[], prompt: string, limit = 150
 	let hits: Hit[];
 	if (keys.length >= 2) {
 		hits = search(chunks, keys.join(" "), 6).filter((hit) => !repeatsPrompt(hit, prompt)).filter((hit) => { const words = new Set(tokens(hit.text)); return keys.every((key) => words.has(key)); }).slice(0, 3);
+		if (hits.length === 0) return keyExcerpts(chunks, own, keys, prompt, limit, onUsed);
+	} else if (names(terms, own, prompt, chunks).length >= 2) {
+		return keyExcerpts(chunks, own, names(terms, own, prompt, chunks), prompt, limit, onUsed);
 	} else {
 		const need = Math.max(MIN_MATCHED, Math.ceil(terms.length * MIN_SHARE));
 		hits = search(chunks, prompt, 3).filter((hit) => hit.matched >= need && !repeatsPrompt(hit, prompt));
@@ -270,6 +298,154 @@ export function autoRecall(chunks: readonly Chunk[], prompt: string, limit = 150
 	if (hits.length === 0) return "";
 	for (const hit of hits) onUsed?.(hit);
 	return `${HEADER()}\n${renderHits(hits, limit)}`;
+}
+
+/** Exact lines for the code identifiers the prompt names and the archive holds; "" otherwise. */
+export function keyRecall(chunks: readonly Chunk[], prompt: string, limit = 1500, onUsed?: (hit: Hit) => void): string {
+	const own = chunks.map((chunk) => new Set(tokens(chunk.text)));
+	const keys = names([...new Set(tokens(prompt))], own, prompt, chunks);
+	// A single name only brings back its definition (cheap, rarely wrong); a mere use of it is not worth a turn's tokens.
+	return keys.length === 0 ? "" : keyExcerpts(chunks, own, keys, prompt, limit, onUsed, keys.length === 1);
+}
+
+// Path segments too common to name a file by ("src", "extensions") are not taken as a reference to it.
+const GENERIC_SEGMENTS = new Set(["src", "lib", "dist", "test", "tests", "index", "main", "extensions", "users", "home", "documents", "projects", "tmp", "private", "node_modules"]);
+const TOP_CONST = /^(?:export\s+)?const\s+[A-Z][A-Z0-9_]*\s*=.*$/gm;
+
+/**
+ * Top-level constants of the files read earlier that a question refers to by name ("l'estensione vault", "il pannello
+ * di pi-ui") without any identifier: a one-line summary keeps what a file does, rarely its values. A part that names an
+ * identifier or a file path is left to keyRecall (and is usually a request to read the file again).
+ * `source` is every earlier read, not only the archive: billion-context's emergency truncation keeps a live file's first
+ * and last ~2000 characters, so a constant in the middle is gone from the context while its read is still live.
+ * Lazy, so the reads are only chunked when the prompt describes something.
+ */
+export function constRecall(source: readonly Chunk[] | (() => readonly Chunk[]), prompt: string, limit = 600, onUsed?: (hit: Hit) => void): string {
+	const parts = prompt.split(/(?:^|\s)\d{1,2}[).]\s|\n+|;/).filter((part) => !/[A-Z][A-Z0-9]*_[A-Z0-9_]+|\d|\/|\b\w+\.[a-z]{1,4}\b/.test(part));
+	const words = new Set(parts.flatMap((part) => part.toLowerCase().match(/[a-z0-9][a-z0-9-]*[a-z0-9]/g) ?? []).filter((word) => word.length >= 3 && !STOP.has(word)));
+	if (words.size === 0) return "";
+	const chunks = typeof source === "function" ? source() : source;
+	// A read file is rebuilt from its chunks: a constant may straddle two of them.
+	const files = new Map<string, { path: string; text: string; first: Chunk }>();
+	for (const chunk of chunks) {
+		if (chunk.role !== "toolResult") continue;
+		const origin = /^<(\{.*?\})> /.exec(chunk.text);
+		const path = origin ? /"path":"([^"]+)"/.exec(origin[1])?.[1] : undefined;
+		if (!path) continue;
+		const key = `${chunk.entryId}\u0000${path}`;
+		const file = files.get(key) ?? { path, text: "", first: chunk };
+		file.text += chunk.text.slice(origin![0].length);
+		files.set(key, file);
+	}
+	const lines: string[] = [];
+	const seen = new Set<string>();
+	let used = 0;
+	for (const file of files.values()) {
+		const segments = file.path.toLowerCase().split("/").map((segment) => segment.replace(/\.[a-z0-9]+$/, "")).filter((segment) => !GENERIC_SEGMENTS.has(segment));
+		if (!segments.some((segment) => words.has(segment))) continue;
+		const short = file.path.split("/").slice(-2).join("/");
+		let took = false;
+		for (const line of file.text.match(TOP_CONST) ?? []) {
+			const item = `${short}: ${line.trim().slice(0, 140)}`;
+			if (seen.has(item) || used + item.length > limit) continue;
+			seen.add(item);
+			lines.push(item);
+			used += item.length + 1;
+			took = true;
+		}
+		if (took) onUsed?.({ ...file.first, score: 0, matched: 0 });
+	}
+	return lines.length ? `${HEADER()}\n${lines.join("\n")}` : "";
+}
+
+const FACT_STOP = new Set([...STOP, "il", "lo", "la", "le", "di", "da", "in", "su", "al", "ai", "delle", "dello", "degli", "sulla", "sullo", "nella", "nello", "scrivi", "rispondi", "solo", "valori", "esatti", "so", "se"]);
+// Five-letter stems: "contato" finds "conta", "deciso" finds "decisione".
+const stems = (text: string) => tokens(text).filter((word) => !FACT_STOP.has(word)).map((word) => word.slice(0, 5));
+
+/**
+ * Facts the user stated, and what came back for an old request ("conta con bash…" → 14403), for each part of the prompt
+ * ("1) il ticket 2) …") whose words an old user message holds: identifiers miss them, they have none. A part counts
+ * only if the matched words carry most of its weight (idf), so "FADE_DAYS in memory.ts" does not pull "read memory.ts".
+ */
+export function factRecall(chunks: readonly Chunk[], prompt: string, limit = 900, onUsed?: (hit: Hit) => void): string {
+	const parts = prompt.split(/(?:^|\s)\d{1,2}[).]\s|\n+|;/).map((part) => stems(part)).filter((part) => part.length > 0);
+	if (parts.length === 0) return "";
+	const own = chunks.map((chunk) => new Set(stems(chunk.text)));
+	const idf = (stem: string) => Math.log(1 + chunks.length / (1 + own.filter((doc) => doc.has(stem)).length));
+	const lines: string[] = [];
+	const taken = new Set<number>();
+	let used = 0;
+	for (const part of parts) {
+		const total = part.reduce((sum, stem) => sum + idf(stem), 0);
+		let best = -1;
+		let bestScore = 0;
+		chunks.forEach((chunk, index) => {
+			if (chunk.role !== "user" || chunk.text.length > 600 || repeatsPrompt(chunk as Hit, prompt)) return;
+			const score = part.filter((stem) => own[index].has(stem)).reduce((sum, stem) => sum + idf(stem), 0);
+			if (score > bestScore) [best, bestScore] = [index, score];
+		});
+		if (best < 0 || taken.has(best) || bestScore < total * 0.6) continue;
+		taken.add(best);
+		// What followed the message until the next user turn: a tool output and the last non-trivial reply.
+		const after: string[] = [];
+		for (let at = best + 1; at < chunks.length && chunks[at].role !== "user"; at++) {
+			const text = chunks[at].text.replace(/<!--suggerimenti-->[\s\S]*/, "").replace(/\s+/g, " ").trim();
+			if (chunks[at].role === "toolResult") after.push(text.slice(0, 160));
+			else if (text.length > 3 && text.length <= 300) after.push(text);
+		}
+		const chunk = chunks[best];
+		const line = `[#${chunk.entryId.slice(0, 8)} user] ${chunk.text.replace(/\s+/g, " ").trim()}${after.length ? ` → ${after.slice(-2).join(" | ")}` : ""}`;
+		if (used + line.length > limit) break;
+		lines.push(line);
+		used += line.length;
+		onUsed?.({ ...chunk, score: bestScore, matched: 1 });
+	}
+	return lines.length ? `${HEADER()}\n${lines.join("\n")}` : "";
+}
+
+/** End of the statement that starts at `from` (after ";" or ","), at least 100 and at most 400 chars on. */
+const statementEnd = (flat: string, from: number) => {
+	const stop = flat.slice(from + 100, from + 400).search(/[;,]/);
+	return stop < 0 ? from + 400 : from + 100 + stop + 1;
+};
+
+/** Code identifiers of the prompt (snake_case, or an ALL-CAPS word as written) that some archived chunk holds. */
+const names = (terms: readonly string[], own: readonly Set<string>[], prompt: string, chunks: readonly Chunk[]) => {
+	// An ALL-CAPS word counts only if the archive holds it in capitals too (a constant, not a shouted word).
+	const caps = new Set((prompt.match(/\b[A-Z][A-Z0-9_]{4,}\b/g) ?? []).filter((word) => chunks.some((chunk) => chunk.text.includes(word))).map((word) => word.toLowerCase()));
+	return terms.filter((term) => (term.includes("_") || caps.has(term)) && /[a-z]/.test(term) && own.some((doc) => doc.has(term)));
+};
+
+/** One short window around each key, from the best chunk that holds it: the exact line comes back, not the whole chunk. */
+function keyExcerpts(chunks: readonly Chunk[], _own: readonly Set<string>[], keys: readonly string[], prompt: string, limit: number, onUsed?: (hit: Hit) => void, definitionOnly = false): string {
+	const lines: string[] = [];
+	let used = 0;
+	for (const key of keys.slice(0, 10)) {
+		// An excerpt already sent for another key may hold this one too.
+		if (lines.some((line) => line.toLowerCase().includes(key))) continue;
+		// Prefer the definition (KEY = …, KEY: …) over a mere use of the name.
+		const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+		const definition = new RegExp(`\\b${escaped}\\b\\s*(?::[^=\\n]{0,40})?[=:]`, "i");
+		const candidates = search(chunks, key, 12).filter((h) => tokens(h.text).includes(key) && !repeatsPrompt(h, prompt));
+		const defined = chunks.find((c) => definition.test(c.text) && !repeatsPrompt(c as Hit, prompt));
+		const hit = (defined ? { ...defined, score: 0, matched: 1 } : undefined) ?? (definitionOnly ? undefined : candidates[0]);
+		if (!hit) continue;
+		// Chunks of an entry are consecutive and do not overlap: glue the next one so a value cut at the edge comes back whole.
+		const index = chunks.findIndex((chunk) => chunk.entryId === hit.entryId && chunk.text === hit.text);
+		const next = chunks[index + 1];
+		const origin = hit.text.startsWith("<") ? hit.text.slice(0, hit.text.indexOf("> ") + 2) : "";
+		const tail = next && next.entryId === hit.entryId ? next.text.slice(origin && next.text.startsWith(origin) ? origin.length : 0, 400) : "";
+		const flat = (hit.text + tail).replace(/\s+/g, " ");
+		const found = definition.exec(flat);
+		const at = found ? found.index : flat.toLowerCase().indexOf(key);
+		if (at < 0) continue;
+		const line = `[#${hit.entryId.slice(0, 8)} ${hit.label}] …${flat.slice(Math.max(0, at - 40), statementEnd(flat, at + key.length)).trim()}…`;
+		if (used + line.length > limit) break;
+		lines.push(line);
+		used += line.length;
+		onUsed?.(hit);
+	}
+	return lines.length ? `${HEADER()}\n${lines.join("\n")}` : "";
 }
 
 export function renderHits(hits: readonly Hit[], limit = OUTPUT_CHARS): string {
@@ -290,6 +466,8 @@ const searchChunks = search;
 export default function (pi: ExtensionAPI) {
 	if (process.env.PI_ARCHIVE === "0") return;
 	let registered = false;
+	// Archive = what a Pi compaction left out plus what billion-context folded into compress blocks.
+	const archived = (ctx: ExtensionContext) => archivedEntries(ctx.sessionManager.getBranch() as Entry[], foldedIds(ctx.sessionManager.getSessionFile?.()));
 
 	/** Safe against a stale pi after a reload. */
 	const safely = (action: () => void) => {
@@ -318,7 +496,7 @@ export default function (pi: ExtensionAPI) {
 			} as never,
 			async execute(_id, params, _signal, _update, ctx) {
 				const { query = "", k, id } = params as { query?: string; k?: number; id?: string };
-				const entries = archivedEntries(ctx.sessionManager.getBranch() as Entry[]);
+				const entries = archived(ctx);
 				if (id) return { content: [{ type: "text" as const, text: openEntry(entries, id) }], details: undefined };
 				const chunks = chunkArchive(entries);
 				const text = renderHits(search(chunks, query, Math.min(Math.max(Math.round(k ?? 4), 1), 8)));
@@ -333,7 +511,7 @@ export default function (pi: ExtensionAPI) {
 			// No tool unless PI_ARCHIVE_TOOL=1: turning it on rewrites the cached prefix (bench §17) and the model never called it.
 			if (process.env.PI_ARCHIVE_TOOL !== "1") return;
 			// PI_ARCHIVE_EARLY=1 (bench arm D): tool on from the first request, so turning it on never rewrites the cache.
-			if (process.env.PI_ARCHIVE_EARLY !== "1" && archivedEntries(ctx.sessionManager.getBranch() as Entry[]).length === 0) return;
+			if (process.env.PI_ARCHIVE_EARLY !== "1" && archived(ctx).length === 0) return;
 			register();
 			const active = pi.getActiveTools();
 			if (!active.includes("richiama")) pi.setActiveTools([...active, "richiama"]);
@@ -354,7 +532,7 @@ export default function (pi: ExtensionAPI) {
 		indexing = true;
 		void (async () => {
 			try {
-				const chunks = chunkArchive(archivedEntries(ctx.sessionManager.getBranch() as Entry[]));
+				const chunks = chunkArchive(archived(ctx));
 				if (chunks.length === 0) return;
 				if (!embedder) {
 					const { sharedEmbedder, MODELS } = await import("../pi-memory/src/embed.ts");
@@ -377,7 +555,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("before_agent_start", async (event, ctx) => {
 		if (process.env.PI_ARCHIVE_AUTO === "0") return undefined;
 		try {
-			const chunks = chunkArchive(archivedEntries(ctx.sessionManager.getBranch() as Entry[]));
+			const chunks = chunkArchive(archived(ctx));
 			let text = "";
 			let method = "semantic";
 			const used: { id: string; label: string; z?: number }[] = [];
@@ -385,7 +563,25 @@ export default function (pi: ExtensionAPI) {
 				injected.add(hit.entryId);
 				used.push({ id: hit.entryId.slice(0, 8), label: hit.label, z: hit.z });
 			};
-			if (embedder?.ready && vectors.size > 0) {
+			// Named identifiers first: their exact lines beat any semantic neighbour.
+			// Only a short window is sent, not the entry: it stays recallable for other keys (not marked injected).
+			text = keyRecall(chunks, event.prompt, 1500, (hit) => used.push({ id: hit.entryId.slice(0, 8), label: hit.label }));
+			if (text) method = "keys";
+			// Stated facts ride along: a quiz names constants and user facts at once.
+			const facts = factRecall(chunks, event.prompt, 900, (hit) => used.push({ id: hit.entryId.slice(0, 8), label: "fact" }));
+			if (facts) {
+				text = text ? `${text}\n${facts.slice(facts.indexOf("\n") + 1)}` : facts;
+				method = method === "keys" ? "keys+facts" : "facts";
+			}
+			// Files named by description ("l'estensione vault"): their constants, which summaries drop.
+			const branch = ctx.sessionManager.getBranch() as Entry[];
+			const reads = () => chunkArchive(branch.filter((entry) => entry.message?.role === "assistant" || (entry.message?.role === "toolResult" && entry.message.toolName === "read")));
+			const consts = constRecall(reads, event.prompt, 600, (hit) => used.push({ id: hit.entryId.slice(0, 8), label: "const" }));
+			if (consts) {
+				text = text ? `${text}\n${consts.slice(consts.indexOf("\n") + 1)}` : consts;
+				method = method === "semantic" ? "consts" : `${method}+consts`;
+			}
+			if (!text && embedder?.ready && vectors.size > 0) {
 				try {
 					const [query] = await embedder.embed([event.prompt.slice(0, 600)], "query");
 					text = semanticRecall(chunks, vectors, query, event.prompt, SEM_Z, 1500, injected, note);
@@ -407,14 +603,15 @@ export default function (pi: ExtensionAPI) {
 		handler: async (_args, ctx) => {
 			if (ctx.mode !== "tui" && ctx.mode !== "rpc") return ctx.ui.notify("/archive serve il terminale interattivo.", "warning");
 			const branch = ctx.sessionManager.getBranch() as Entry[];
-			const overview = archiveOverview(branch);
+			const folded = foldedIds(ctx.sessionManager.getSessionFile?.());
+			const overview = archiveOverview(branch, folded);
 			if (overview.entries.length === 0) return ctx.ui.notify("Archivio vuoto: nulla \u00e8 stato ancora compattato in questa sessione.", "info");
-			const chunks = chunkArchive(archivedEntries(branch));
+			const chunks = chunkArchive(archivedEntries(branch, folded));
 			if (ctx.mode === "rpc") {
 				// No custom views over RPC: the client shows a multi-line notification in a pager.
 				const arg = _args.trim();
 				if (!arg) return ctx.ui.notify(archiveText(overview), "info");
-				if (/^[0-9a-f]{6,}$/i.test(arg)) return ctx.ui.notify(openEntry(archivedEntries(branch), arg), "info");
+				if (/^[0-9a-f]{6,}$/i.test(arg)) return ctx.ui.notify(openEntry(archivedEntries(branch, folded), arg), "info");
 				const hits = embedder?.ready && vectors.size > 0 ? rankSemantic(chunks, vectors, (await embedder.embed([arg.slice(0, 600)], "query"))[0], 8) : searchChunks(chunks, arg, 8);
 				return ctx.ui.notify(hits.length ? hits.map((hit) => `#${hit.entryId.slice(0, 8)} ${hit.label}${hit.z !== undefined ? ` z${hit.z.toFixed(1)}` : ""}\n${hit.text}`).join("\n\n") : "Nessun risultato.", "info");
 			}
@@ -429,7 +626,7 @@ export default function (pi: ExtensionAPI) {
 			const status = { chunks: chunks.length, vectors: vectors.size, semantic: Boolean(embedder?.ready), threshold: SEM_Z };
 			await ctx.ui.custom<void>(
 				(tui, theme, _keybindings, done) =>
-					new ArchiveView({ fg: (role, text) => theme.fg(role, text), bold: (text) => theme.bold(text) }, overview, status, search, (id) => openEntry(archivedEntries(branch), id), done, () => tui.requestRender(), () => tui.terminal.rows),
+					new ArchiveView({ fg: (role, text) => theme.fg(role, text), bold: (text) => theme.bold(text) }, overview, status, search, (id) => openEntry(archivedEntries(branch, folded), id), done, () => tui.requestRender(), () => tui.terminal.rows),
 				{ overlay: true, overlayOptions: { anchor: "center", width: "100%", maxHeight: "100%" } },
 			);
 		},
@@ -438,10 +635,14 @@ export default function (pi: ExtensionAPI) {
 	const publish = (ctx: ExtensionContext) =>
 		safely(() => {
 			if (!ctx.hasUI) return;
-			const overview = archiveOverview(ctx.sessionManager.getBranch() as Entry[]);
+			const overview = archiveOverview(ctx.sessionManager.getBranch() as Entry[], foldedIds(ctx.sessionManager.getSessionFile?.()));
 			ctx.ui.setStatus("archivio", overview.entries.length ? `${overview.entries.length} voci · ${overview.injections.length} richiami` : undefined);
 		});
 	pi.on("session_start", (_event, ctx) => { turnOn(ctx); buildIndex(ctx); publish(ctx); });
 	pi.on("session_compact", (_event, ctx) => { turnOn(ctx); buildIndex(ctx); publish(ctx); });
+	// billion-context cancels Pi's compaction and folds ranges with its `compress` tool instead: index those too.
+	pi.on("tool_result", (event, ctx) => {
+		if ((event as { toolName?: string }).toolName === "compress" && !(event as { isError?: boolean }).isError) buildIndex(ctx);
+	});
 	pi.on("agent_end", (_event, ctx) => publish(ctx));
 }

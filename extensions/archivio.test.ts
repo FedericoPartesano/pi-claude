@@ -2,7 +2,7 @@ process.env.PI_ARCHIVE_SEM = "0"; // no model worker in unit tests
 process.env.PI_ARCHIVE_TOOL = "1"; // the tool is opt-in; its tests need it on
 import assert from "node:assert/strict";
 import test from "node:test";
-import archivio, { archiveOverview, archivedEntries, rankSemantic, autoRecall, chunkArchive, openEntry, renderHits, search, semanticRecall } from "./archivio.ts";
+import archivio, { constRecall, factRecall, keyRecall, archiveOverview, archivedEntries, rankSemantic, autoRecall, chunkArchive, openEntry, renderHits, search, semanticRecall } from "./archivio.ts";
 
 const msg = (id: string, role: string, text: string, toolName?: string) => ({ type: "message", id, message: { role, toolName, content: [{ type: "text", text }] } });
 const branch = [
@@ -135,4 +135,116 @@ test("archiveText summarises entries and injections for clients without the full
 	assert.match(text, /1 voci, 1 compattazioni, 1 iniezioni/);
 	assert.match(text, /sem #abcdef123456 ← dove sta il file\?/);
 	assert.match(text, /#abcdef12 user 40c ×2  ciao mondo/);
+});
+
+test("billion-context folds count as archive: entries covered by an active compress block are searchable", async () => {
+	const { mkdtempSync, writeFileSync } = await import("node:fs");
+	const { join } = await import("node:path");
+	const { tmpdir } = await import("node:os");
+	const { foldedIds } = await import("./archivio.ts");
+	const live = [msg("a1", "user", "Imposta MCP_TOOL_TIMEOUT a 120000"), msg("a2", "toolResult", "provider.ts:412 const MCP_TOOL_TIMEOUT = 120000", "bash"), msg("a3", "assistant", "ok"), msg("b1", "user", "footer")];
+	const file = join(mkdtempSync(join(tmpdir(), "arch-")), "s.jsonl");
+	assert.equal(foldedIds(file).size, 0, "no sidecar, nothing folded");
+	writeFileSync(`${file}.acp.json`, JSON.stringify({ blocks: [{ blockId: "b1", active: true, effectiveMessageIds: ["a1", "a2"] }, { blockId: "b0", active: false, effectiveMessageIds: ["a3"] }] }));
+	const folded = foldedIds(file);
+	assert.deepEqual([...folded].sort(), ["a1", "a2"]);
+	assert.deepEqual(archivedEntries(live, folded).map((entry) => entry.id), ["a1", "a2"]);
+	assert.ok(search(chunkArchive(archivedEntries(live, folded)), "provider.ts MCP_TOOL_TIMEOUT", 2).some((hit) => hit.entryId === "a2"));
+	// Both a Pi compaction and folds: union, oldest first, no duplicates.
+	assert.deepEqual(archivedEntries(branch, new Set(["a1", "b2"])).map((entry) => entry.id), ["a1", "a2", "a3", "b2"]);
+});
+
+test("autoRecall: a prompt naming several identifiers held by different entries gets a short excerpt for each", () => {
+	const filler = (n: number) => Array.from({ length: n }, (_, i) => `riga ${i} di codice qualunque`).join("\n");
+	const arch = [
+		msg("f1", "toolResult", `${filler(30)}\nconst FADE_DAYS = 45;\n${filler(30)}`, "read"),
+		msg("f2", "toolResult", `${filler(30)}\nconst REMIND_AFTER = 3;\n${filler(30)}`, "read"),
+		msg("f3", "toolResult", `${filler(30)}\nexport const QUADRO_CHARS = 2400;\n${filler(30)}`, "read"),
+	];
+	const text = autoRecall(chunkArchive(arch), "Senza rileggere i file dimmi i valori esatti di FADE_DAYS, REMIND_AFTER e QUADRO_CHARS", 1500);
+	assert.match(text, /FADE_DAYS = 45/);
+	assert.match(text, /REMIND_AFTER = 3/);
+	assert.match(text, /QUADRO_CHARS = 2400/);
+	assert.ok(text.length < 1500, `short excerpts, got ${text.length}`);
+});
+
+test("keyRecall: the definition line wins over a use; a shouted word in the prompt is not an identifier", () => {
+	const arch = [
+		msg("u1", "toolResult", "if (pending >= REMIND_AFTER) notify(); stale(FADE_DAYS)", "read"),
+		msg("d1", "toolResult", "/** docs */ const FADE_DAYS = 60;\nconst REMIND_AFTER = 5;", "read"),
+		msg("x1", "assistant", "le risposte sono pronte"),
+	];
+	const text = keyRecall(chunkArchive(arch), "Dimmi FADE_DAYS e REMIND_AFTER in un blocco RISPOSTE:");
+	assert.match(text, /FADE_DAYS = 60/);
+	assert.match(text, /REMIND_AFTER = 5/);
+	assert.doesNotMatch(text, /#x1/);
+	assert.equal(text.split("\n").length, 2, "one excerpt covers both keys");
+	assert.match(keyRecall(chunkArchive(arch), "quanto vale FADE_DAYS?"), /FADE_DAYS = 60/, "one key: its definition");
+	assert.equal(keyRecall(chunkArchive([arch[0]]), "quanto vale FADE_DAYS?"), "", "one key with no definition archived: nothing");
+});
+
+test("keyRecall: a long value is not cut, the window runs to the end of the statement", () => {
+	const path = "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe";
+	const arch = [msg("p1", "toolResult", `${"x ".repeat(80)}const POWERSHELL = "${path}";\nconst OTHER_THING = 1;`, "read")];
+	assert.ok(keyRecall(chunkArchive(arch), "quanto vale POWERSHELL e OTHER_THING?").includes(`"${path}"`));
+});
+
+test("keyRecall: a definition split across two chunks of the same entry comes back whole", () => {
+	const path = "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe";
+	const body = `const POWERSHELL = "${path}";\nconst OTHER_THING = 1;`;
+	const chunks = chunkArchive([msg("p1", "toolResult", body, "read")]);
+	const split = [{ ...chunks[0], text: body.slice(0, 40) }, { ...chunks[0], text: body.slice(40) }];
+	assert.ok(keyRecall(split, "quanto vale POWERSHELL e OTHER_THING?").includes(`"${path}"`));
+});
+
+test("factRecall: a fact the user stated, and the answer to an old request, come back for a question that names them", () => {
+	const chunks = chunkArchive([
+		msg("u1", "user", "Annota per dopo: il ticket è PIC-2291, il revisore è Giulia Ferraris. Rispondi solo: ok."),
+		msg("a1", "assistant", "ok"),
+		msg("u2", "user", "Leggi per intero con il tool read /x/panel.ts. Poi scrivi una sola riga di sintesi."),
+		msg("a2", "assistant", "panel.ts: pannello laterale."),
+		msg("u3", "user", "Conta con bash il totale delle righe di extensions/*.ts e scrivi solo il numero."),
+		{ type: "message", id: "a3", message: { role: "assistant", content: [{ type: "toolCall", id: "c1", name: "bash", arguments: { command: "wc -l" } }] } },
+		{ type: "message", id: "t3", message: { role: "toolResult", toolCallId: "c1", toolName: "bash", content: [{ type: "text", text: "14403 total" }] } },
+		msg("a4", "assistant", "14403"),
+		msg("u4", "user", "Un'ultima nota: il nome in codice del rilascio è Aurora Boreale. Rispondi solo: ok."),
+		msg("a5", "assistant", "ok"),
+	]);
+	const text = factRecall(chunks, "Rispondi con valori esatti: 1) il ticket 2) il revisore 3) il nome in codice del rilascio 4) il totale delle righe contato con bash");
+	assert.match(text, /PIC-2291/);
+	assert.match(text, /Giulia Ferraris/);
+	assert.match(text, /Aurora Boreale/);
+	assert.match(text, /14403/);
+	assert.doesNotMatch(text, /panel\.ts/);
+	// An ordinary prompt shares too few words with any stated fact: nothing is sent.
+	assert.equal(factRecall(chunks, "Leggi per intero con il tool read /x/vault.ts. Poi scrivi una sola riga di sintesi."), "");
+	assert.equal(factRecall(chunks, "Sistema il bug nel parser"), "");
+});
+
+// Long chat: after compress the reads of vault.ts and panel.ts survived only as one-line summaries ("e5 embeddings"),
+// and the quiz asked for them by description, with no identifier: "non so" twice, while off still had them live.
+test("constRecall: a question naming a file read earlier, without identifiers, brings back that file's constants", () => {
+	const read = (id: string, path: string, text: string) => [
+		{ type: "message", id: `c${id}`, message: { role: "assistant", content: [{ type: "toolCall", id: `k${id}`, name: "read", arguments: { path } }] } },
+		{ type: "message", id: `t${id}`, message: { role: "toolResult", toolCallId: `k${id}`, toolName: "read", content: [{ type: "text", text }] } },
+	];
+	const chunks = chunkArchive([
+		...read("1", "/r/extensions/vault.ts", `import x from "y";\n${"// filler\n".repeat(120)}const MODEL_NAME = "Xenova/multilingual-e5-small";\nconst helper = 1;\nexport const PROMPT_MARKER = "Vault:";`),
+		...read("2", "/r/pi-ui/src/panel.ts", "export const PANEL_KEY = \"alt+p\";\nexport const PANEL_WIDTH = 40;\nfunction f() {\n\tconst INNER = 2;\n}"),
+		...read("3", "/r/extensions/loop.ts", "const WHEN_TIMEOUT_MS = 5 * 60_000;"),
+	]);
+	const text = constRecall(chunks, "Rispondi: 1) il modello di embedding usato dall'estensione vault 2) la larghezza del pannello di pi-ui 3) WHEN_TIMEOUT_MS in loop.ts");
+	assert.match(text, /vault\.ts: const MODEL_NAME = "Xenova\/multilingual-e5-small";/);
+	assert.match(text, /PROMPT_MARKER/);
+	assert.match(text, /panel\.ts: export const PANEL_WIDTH = 40;/);
+	// Only top-level constants; a part with an identifier is keyRecall's job.
+	assert.doesNotMatch(text, /INNER|helper|WHEN_TIMEOUT_MS/);
+	assert.equal(constRecall(chunks, "Sistema il bug nel parser"), "");
+	// The reads are only chunked when the prompt describes something.
+	let built = 0;
+	assert.equal(constRecall(() => (built++, chunks), "1) PIC_TICKET 2) /a/b.ts"), "");
+	assert.equal(built, 0);
+	assert.match(constRecall(() => (built++, chunks), "la larghezza del pannello di pi-ui"), /PANEL_WIDTH = 40/);
+	assert.equal(built, 1);
+	assert.equal(constRecall(chunks, "Leggi per intero con il tool read /r/extensions/vault.ts e riassumi"), "");
 });
