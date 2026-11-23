@@ -58,6 +58,7 @@
     "pngjs": "^7.0.0"
   },
   "devDependencies": {
+    "@earendil-works/pi-tui": "^1.6.0",
     "typescript": "^5.9.3"
   }
 }
