@@ -27,7 +27,7 @@ export interface WrittenSession {
 	sessionId: string | undefined;
 	dispose: () => void;
 	/**
-	 * Blocks of a user turn the history ended with (tool results of an interrupted run). They are not written: next to the
+	 * Blocks of a user turn the history ended with, when it holds more than tool results. They are not written: next to the
 	 * message sent after `--resume` they would be two user turns in a row, and Claude Code puts a synthetic assistant
 	 * "No response requested." between them, which the model then reads as its own last answer. Send them with that message.
 	 */
@@ -40,14 +40,41 @@ export function claudeProjectDirectory(cwd: string): string {
 	return join(configDirectory, "projects", cwd.replace(/[^a-zA-Z0-9]/g, "-"));
 }
 
+/** Key under which the provider keeps a tool call's input when its JSON does not parse. */
+export const UNPARSED_TOOL_INPUT = "__unparsedToolInput";
+const UNPARSED_TAIL_CHARS = 200;
+
+/** Raw input of each tool call whose JSON did not parse, by Pi tool call id. */
+function unparsedInputs(history: ConversationMessage[]): Map<string, string> {
+	const raw = new Map<string, string>();
+	for (const message of history) {
+		if (message.role !== "assistant") continue;
+		for (const block of message.content) {
+			const input = block.type === "toolCall" ? (block.arguments as Record<string, unknown> | undefined)?.[UNPARSED_TOOL_INPUT] : undefined;
+			if (typeof input === "string") raw.set((block as { id: string }).id, input);
+		}
+	}
+	return raw;
+}
+
+/** Claude Code's own answer to a tool_use whose JSON does not parse (claude 2.1.330), with the tail of the input. */
+function unparsedError(name: string, raw: string): string {
+	const shown = raw.length > UNPARSED_TAIL_CHARS ? `last ${UNPARSED_TAIL_CHARS} of ${raw.length} bytes): …${raw.slice(-UNPARSED_TAIL_CHARS)}` : `${raw.length} bytes): ${raw}`;
+	return `<tool_use_error>InputValidationError: ${name} was called with input that could not be parsed as JSON.\nYou sent (${shown}\nCommon causes: unbalanced brackets or braces, unescaped backslashes or control characters, truncated output. Retry with valid JSON.</tool_use_error>`;
+}
+
 export function writeClaudeSession(history: ConversationMessage[], cwd: string, model: string): WrittenSession {
 	const sessionId = randomUUID();
 	const directory = claudeProjectDirectory(cwd);
 	const file = join(directory, `${sessionId}.jsonl`);
 
 	const toolIds = new ToolIdMap();
-	const entries = mergeConsecutiveRoles(history.map((message) => toSessionEntry(message, toolIds, model)).filter(isNonEmpty));
-	const trailingUser = entries.at(-1)?.role === "user" ? entries.pop()!.content : [];
+	const unparsed = unparsedInputs(history);
+	const entries = mergeConsecutiveRoles(history.map((message) => toSessionEntry(message, toolIds, model, unparsed)).filter(isNonEmpty));
+	// Tool results stay written: held back, Claude Code answers the dangling tool_use with a synthetic "interrupted"
+	// result on resume and the real one is lost (measured, claude 2.1.330). Only a turn with other blocks is held.
+	const last = entries.at(-1);
+	const trailingUser = last?.role === "user" && last.content.some((block) => block.type !== "tool_result") ? entries.pop()!.content : [];
 	if (entries.length === 0) return { sessionId: undefined, dispose: () => {}, trailingUser };
 	mkdirSync(directory, { recursive: true });
 
@@ -85,12 +112,12 @@ export function writeClaudeSession(history: ConversationMessage[], cwd: string, 
 	return { sessionId, dispose: () => rmSync(file, { force: true }), trailingUser };
 }
 
-function toSessionEntry(message: ConversationMessage, toolIds: ToolIdMap, model: string): SessionEntry {
+function toSessionEntry(message: ConversationMessage, toolIds: ToolIdMap, model: string, unparsed: Map<string, string>): SessionEntry {
 	switch (message.role) {
 		case "user":
 			return { role: "user", content: toContentBlocks(message.content) };
 		case "toolResult":
-			return { role: "user", content: [toToolResultBlock(message, toolIds)] };
+			return { role: "user", content: [toToolResultBlock(message, toolIds, unparsed.get(message.toolCallId))] };
 		case "assistant":
 			return { role: "assistant", content: toAssistantBlocks(message, toolIds), model: message.responseModel ?? model };
 	}
@@ -117,14 +144,19 @@ function toAssistantBlocks(message: AssistantMessage, toolIds: ToolIdMap): Anthr
 				type: "tool_use",
 				id: toolIds.get(block.id),
 				name: claudeToolName(block.name),
-				input: block.arguments,
+				// Unparseable JSON: Claude Code records no input, the error result carries the raw text.
+				input: UNPARSED_TOOL_INPUT in (block.arguments ?? {}) ? {} : block.arguments,
 			});
 		}
 	}
 	return blocks;
 }
 
-function toToolResultBlock(message: ToolResultMessage, toolIds: ToolIdMap): AnthropicBlock {
+function toToolResultBlock(message: ToolResultMessage, toolIds: ToolIdMap, unparsedRaw?: string): AnthropicBlock {
+	if (unparsedRaw !== undefined) {
+		const text = unparsedError(claudeToolName(message.toolName), unparsedRaw);
+		return { type: "tool_result", tool_use_id: toolIds.get(message.toolCallId), content: [{ type: "text", text }], is_error: true };
+	}
 	const content = toContentBlocks(message.content);
 	return {
 		type: "tool_result",

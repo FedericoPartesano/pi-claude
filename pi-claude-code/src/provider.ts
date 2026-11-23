@@ -35,9 +35,9 @@ import {
 	type ToolResultMessage,
 	type TranscriptContext,
 } from "@earendil-works/pi-ai";
-import { reapIdle, reapLimits } from "./idle-reaper.ts";
+import { closeOrphaned, evictOverflow, reapIdle, reapLimits } from "./idle-reaper.ts";
 import { ClaudeSession, type ClaudeRecord, MCP_TOOL_PREFIX, advisorFor } from "./claude-session.ts";
-import { toContentBlocks, writeClaudeSession } from "./claude-transcript.ts";
+import { toContentBlocks, UNPARSED_TOOL_INPUT, writeClaudeSession } from "./claude-transcript.ts";
 import { McpHttpServer, type McpToolCallResult, type McpToolDefinition } from "./mcp-http-server.ts";
 import type { RateLimitInfo } from "./footer.ts";
 
@@ -71,6 +71,12 @@ function startReaper(): void {
 	reaper.unref();
 }
 
+/** Keeps the pool within MAX_LIVE_SESSIONS without closing a session in the middle of a tool call. */
+function trimPool(): void {
+	const closed = evictOverflow(liveSessions, MAX_LIVE_SESSIONS);
+	if (closed.length) debugLog?.(`evicted ${closed.length} session(s), pool ${liveSessions.length}`);
+}
+
 const debugLogPath = process.env.PI_CLAUDE_DEBUG;
 const debugLog = debugLogPath
 	? (line: string) => appendFileSync(debugLogPath, `${new Date().toISOString()} ${line}\n`)
@@ -100,7 +106,7 @@ export async function prewarmSession(modelId: string, thinkingLevel: string | un
 		onWait: (text) => waitListener?.(text),
 	});
 	liveSessions.unshift(session);
-	while (liveSessions.length > MAX_LIVE_SESSIONS) liveSessions.pop()?.dispose();
+	trimPool();
 	startReaper();
 }
 
@@ -224,6 +230,9 @@ export function streamClaudeCode(
 				session = startSessionFromTranscript(signature, model, effort, systemPrompt, tools, conversation);
 			}
 			session.knownFingerprints = fingerprints;
+			const resultIds = conversation.flatMap((message) => (message.role === "toolResult" ? [message.toolCallId] : []));
+			const orphaned = closeOrphaned(liveSessions, session, resultIds);
+			if (orphaned.length) debugLog?.(`closed ${orphaned.length} orphaned session(s), pool ${liveSessions.length}`);
 
 			stream.push({ type: "start", partial: output });
 			session.activeRequests++;
@@ -276,8 +285,15 @@ function findReusableSession(
 	for (const session of liveSessions) {
 		if (!session.isAlive || session.signature !== signature) continue;
 		const known = session.knownFingerprints;
-		if (known.length >= fingerprints.length) continue;
-		if (!known.every((fingerprint, index) => fingerprint === fingerprints[index])) continue;
+		if (known.length >= fingerprints.length) {
+			debugLog?.(`not reusable: known ${known.length} >= request ${fingerprints.length}`);
+			continue;
+		}
+		const diverged = known.findIndex((fingerprint, index) => fingerprint !== fingerprints[index]);
+		if (diverged !== -1) {
+			debugLog?.(`not reusable: diverged at ${diverged}/${known.length} (${known[diverged]} vs ${fingerprints[diverged]})`);
+			continue;
+		}
 
 		// The new tail may only contain tool results for calls this process is waiting on,
 		// followed by user messages. Anything else means the histories diverged.
@@ -285,8 +301,14 @@ function findReusableSession(
 		const firstUserIndex = tail.findIndex((message) => message.role !== "toolResult");
 		const toolResults = firstUserIndex === -1 ? tail : tail.slice(0, firstUserIndex);
 		const rest = firstUserIndex === -1 ? [] : tail.slice(firstUserIndex);
-		if (!toolResults.every((message) => session.hasPendingToolCall((message as ToolResultMessage).toolCallId))) continue;
-		if (!rest.every((message) => message.role === "user")) continue;
+		if (!toolResults.every((message) => session.hasPendingToolCall((message as ToolResultMessage).toolCallId))) {
+			debugLog?.(`not reusable: tool results for calls not pending`);
+			continue;
+		}
+		if (!rest.every((message) => message.role === "user")) {
+			debugLog?.(`not reusable: tail has ${rest.map((message) => message.role).join(",")}`);
+			continue;
+		}
 
 		// Most recently used first.
 		liveSessions.splice(liveSessions.indexOf(session), 1);
@@ -332,7 +354,7 @@ function startSessionFromTranscript(
 		onWait: (text) => waitListener?.(text),
 	});
 	liveSessions.unshift(session);
-	while (liveSessions.length > MAX_LIVE_SESSIONS) liveSessions.pop()?.dispose();
+	trimPool();
 	startReaper();
 
 	// Tool results the history ended with go first in the same user turn (see WrittenSession.trailingUser).
@@ -485,7 +507,7 @@ async function streamOneAssistantMessage(
 							// and the model retries. Mirror that: hand Pi arguments that fail its validation,
 							// and do not wait for an MCP call that will never come.
 							parsed = false;
-							block.arguments = { __unparsedToolInput: block.partialJson };
+							block.arguments = { [UNPARSED_TOOL_INPUT]: block.partialJson };
 						}
 					}
 					delete (block as { partialJson?: string }).partialJson;
@@ -592,10 +614,28 @@ function toMcpResult(message: ToolResultMessage): McpToolCallResult {
 	return { content, isError: message.isError };
 }
 
-function fingerprintMessage(message: ConversationMessage | AssistantMessage): string {
+const TRUNCATION = /\n\n\.\.\.\[truncated for context space\] — original ~\d+ tokens\]\.\.\.\n\n/;
+const EDGE_CHARS = 1000;
+
+/**
+ * A long text is identified by its two ends: billion-context's emergency truncation keeps ~2000 characters at each end
+ * of a message and drops the middle while usage is high, then sends it whole again. Both versions are the same message
+ * to the live Claude Code process, which has already seen it; telling them apart cost a restart and a full cache write.
+ */
+function stableText(raw: string): string {
+	// billion-context's reference tag carries the message's current size, which changes when it is truncated.
+	const text = raw.replace(/<acp tokens="[^"]*"/g, "<acp");
+	const cut = TRUNCATION.exec(text);
+	const head = cut ? text.slice(0, cut.index) : text;
+	const tail = cut ? text.slice(cut.index + cut[0].length) : text;
+	if (!cut && text.length <= 4 * EDGE_CHARS) return text;
+	return `${head.slice(0, EDGE_CHARS)}\u0000${tail.slice(-EDGE_CHARS)}`;
+}
+
+export function fingerprintMessage(message: ConversationMessage | AssistantMessage): string {
 	switch (message.role) {
 		case "user":
-			return `user:${hash(JSON.stringify(message.content))}`;
+			return `user:${hash(JSON.stringify(typeof message.content === "string" ? stableText(message.content) : message.content.map((block) => (block.type === "text" ? { ...block, text: stableText(block.text) } : block))))}`;
 		case "assistant": {
 			const toolCallIds = message.content.filter((block) => block.type === "toolCall").map((block) => (block as ToolCall).id);
 			const text = message.content

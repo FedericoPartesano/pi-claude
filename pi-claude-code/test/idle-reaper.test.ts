@@ -50,3 +50,26 @@ test("a busy process (streaming or waiting for a tool) is never closed, however 
 	assert.equal(busy.lastUsed, now, "idle countdown restarts when it finishes");
 	assert.deepEqual(list, [latest, busy]);
 });
+
+test("a session waiting for a tool whose result Pi sent to another session is orphaned and closed (no leak after compress)", async () => {
+	const { closeOrphaned } = await import("../src/idle-reaper.ts");
+	const mk = (pending: string[], activeRequests = 0) => ({
+		isAlive: true,
+		activeRequests,
+		disposed: false,
+		hasPendingToolCall: (id: string) => pending.includes(id),
+		dispose() {
+			this.disposed = true;
+		},
+	});
+	const chosen = mk(["t9"]);
+	const orphan = mk(["t1"]);
+	const otherConversation = mk(["t2"]);
+	const streaming = mk(["t1"], 1);
+	const list = [chosen, orphan, otherConversation, streaming];
+	const closed = closeOrphaned(list, chosen, ["t1", "t0"]);
+	assert.deepEqual(closed, [orphan]);
+	assert.equal(orphan.disposed, true);
+	assert.equal(chosen.disposed || otherConversation.disposed || streaming.disposed, false);
+	assert.deepEqual(list, [chosen, otherConversation, streaming]);
+});
