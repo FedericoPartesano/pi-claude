@@ -133,6 +133,7 @@ H1: 158 turni con haiku, 19 domande divise in due quiz (prima e dopo la ripresa)
 | H1-off-noarch | 11/19 | 7,57M | 114 | nessuno |
 | H1-bc | 11/19 | 6,11M (−25%) | 34 | nessuno |
 | H1-bc-noarch | 5/19 | 6,26M | 36 | nessuno |
+| H1-bc-rn (spinta + fix `closeOrphaned`) | 14/19 | 6,47M (−21% su H1-off) | 35, nessun processo rimasto vivo | `search_context` 21, `decompress` 5 |
 | R1-off | 5/14 | 3,88M | 64 | nessuno |
 | R1-bc | 5/14 | 3,99M | 25 | `search_context` 14, `decompress` 1 (solo nel quiz 2) |
 | R1-bc-noarch | 12/14 | 3,84M | 22 | `search_context` 20 |
@@ -155,7 +156,16 @@ Quando interviene, aggiunge un messaggio nascosto e chiede una sola continuazion
   - la spinta è scattata e il modello ha fatto 4 `search_context` e 1 `decompress`;
   - punteggio da 6/9 a 7/9: la scadenza superata è stata corretta, 2 fatti restano «non detto», l'astensione di controllo resta giusta;
   - costo della spinta: 69k token pesati su quella domanda (prima risposta 7k), circa l'1% di una run H1.
-- Limite: è una sola ripresa di un solo quiz, su una sessione che conteneva già la risposta precedente. Manca una run completa con la spinta attiva.
+- Run completa H1-bc-rn, con la spinta e il fix `closeOrphaned`:
+  - punteggio 14/19, contro 13/19 di H1-off e 11/19 della vecchia H1-bc;
+  - nel quiz 1 la spinta porta da 5/10 a 8/10 (slot, righe `wc`, nome in codice);
+  - costo pesato 6,47M, cioè −21% su H1-off e +6% sulla vecchia H1-bc, per il costo delle ricerche;
+  - 35 avvii di `claude` contro 102 di H1-off, nessun processo rimasto vivo a fine run (prima del fix erano 21 su 22);
+  - durata 871 s contro 6.895 s della vecchia H1-bc: senza i processi orfani nessuna richiesta resta in coda;
+  - le 5 compattazioni di Pi sono state tutte annullate da billion-context, come previsto;
+  - restano sbagliati i valori aggiornati (porta, scadenza) e 3 fatti letti in file mai nominati nelle domande.
+- `score.mjs` ora valuta l'ultimo blocco «RISPOSTE:» del turno: con la spinta il modello risponde due volte e prima veniva valutata la risposta data prima di cercare. Le run precedenti, riscorate, hanno gli stessi punteggi.
+- Limite: una sola run per configurazione; la differenza tra 14/19 e 13/19 sta dentro il rumore, il risparmio di costo no.
 
 ## Conclusione
 

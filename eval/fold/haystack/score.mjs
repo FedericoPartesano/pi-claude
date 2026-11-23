@@ -27,7 +27,8 @@ for (const e of events) {
 const proposed = (turnText[truth.assistantTurn] ?? "").replace(/[*_`"«»]/g, "").match(/[A-Za-zÀ-ÿ][\wÀ-ÿ-]+/)?.[0] ?? "\u0000";
 const quizTurns = turnText.map((t, i) => (/RISPOSTE:?[\s*]*1[).]/i.test(t ?? "") ? i : 0)).filter(Boolean);
 const quizzes = truth.quizzes.map((qs, k) => {
-	const n = quizTurns[k], a = turnText[n] ?? "";
+	// A turn can hold several answers (the recall nudge asks the model to search and answer again): score the last one.
+	const n = quizTurns[k], all = turnText[n] ?? "", a = all.slice(Math.max(0, all.search(/RISPOSTE:?[\s*]*1[).](?![\s\S]*RISPOSTE:?[\s*]*1[).])/i)));
 	const result = qs.map((q, i) => {
 		const part = a.split(new RegExp(`(?:^|\\n)\\s*\\**${i + 1}[).]`))[1]?.split(new RegExp(`\\n\\s*\\**${i + 2}[).]`))[0] ?? "";
 		const said = abstain.test(part);
