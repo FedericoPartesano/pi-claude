@@ -1,0 +1,3 @@
+#!/bin/bash
+echo "$(date +%s) $*" | grep -o -- "--resume\|^[0-9]*" | tr '\n' ' ' >> "$SHIM_LOG"; echo >> "$SHIM_LOG"
+exec "${REAL_CLAUDE:-$HOME/.local/bin/claude}" "$@"

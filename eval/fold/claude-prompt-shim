@@ -1,0 +1,3 @@
+#!/bin/bash
+args=("$@"); for ((i=0;i<${#args[@]};i++)); do case "${args[i]}" in --system-prompt-file) cp "${args[i+1]}" "$SHIM_OUT.sys.md";; --mcp-config) cp "${args[i+1]}" "$SHIM_OUT.mcp.json";; esac; done
+exec "${REAL_CLAUDE:-$HOME/.local/bin/claude}" "$@"

@@ -1,0 +1,31 @@
+# Long chat: 22 file letti, fatti detti dall'utente, un risultato di bash, richiami a metà, alla fine e dopo il riavvio.
+Sto per fare un refactoring. Annota per dopo: il ticket è PIC-2291, il revisore è Giulia Ferraris, la scadenza è venerdì 4 dicembre. Rispondi solo: ok.
+Leggi per intero con il tool read {R}/pi-ui/index.ts (se troncato continua con offset fino alla fine). Poi scrivi una sola riga di sintesi, nient'altro.
+Leggi per intero con il tool read {R}/extensions/memory.ts (se troncato continua con offset fino alla fine). Poi scrivi una sola riga di sintesi, nient'altro.
+Leggi per intero con il tool read {R}/extensions/memory-core.ts (se troncato continua con offset fino alla fine). Poi scrivi una sola riga di sintesi, nient'altro.
+Leggi per intero con il tool read {R}/pi-memory/src/dashboard-tui.ts (se troncato continua con offset fino alla fine). Poi scrivi una sola riga di sintesi, nient'altro.
+Leggi per intero con il tool read {R}/extensions/goal.ts (se troncato continua con offset fino alla fine). Poi scrivi una sola riga di sintesi, nient'altro.
+Leggi per intero con il tool read {R}/pi-memory/src/recall.ts (se troncato continua con offset fino alla fine). Poi scrivi una sola riga di sintesi, nient'altro.
+Leggi per intero con il tool read {R}/extensions/graph/graphify.ts (se troncato continua con offset fino alla fine). Poi scrivi una sola riga di sintesi, nient'altro.
+Decisione presa con il team: il bridge non si tocca in questo lavoro, e il server di prova gira sulla porta 7342. Rispondi solo: ok.
+Conta con bash il totale delle righe di {R}/extensions/*.ts (wc -l, riga del totale) e scrivi solo il numero.
+Leggi per intero con il tool read {R}/prototype/rpc-chat/cockpit.mjs (se troncato continua con offset fino alla fine). Poi scrivi una sola riga di sintesi, nient'altro.
+Leggi per intero con il tool read {R}/pi-desk/renderer/src/render.ts (se troncato continua con offset fino alla fine). Poi scrivi una sola riga di sintesi, nient'altro.
+Leggi per intero con il tool read {R}/pi-team/src/orchestrator.ts (se troncato continua con offset fino alla fine). Poi scrivi una sola riga di sintesi, nient'altro.
+Leggi per intero con il tool read {R}/pi-claude-code/src/provider.ts (se troncato continua con offset fino alla fine). Poi scrivi una sola riga di sintesi, nient'altro.
+Leggi per intero con il tool read {R}/pi-team/index.ts (se troncato continua con offset fino alla fine). Poi scrivi una sola riga di sintesi, nient'altro.
+Leggi per intero con il tool read {R}/eval/cases.mjs (se troncato continua con offset fino alla fine). Poi scrivi una sola riga di sintesi, nient'altro.
+Leggi per intero con il tool read {R}/extensions/archivio.ts (se troncato continua con offset fino alla fine). Poi scrivi una sola riga di sintesi, nient'altro.
+Senza rileggere niente: qual è il ticket e chi è il revisore? Una riga.
+Leggi per intero con il tool read {R}/extensions/intent.ts (se troncato continua con offset fino alla fine). Poi scrivi una sola riga di sintesi, nient'altro.
+Leggi per intero con il tool read {R}/extensions/vault.ts (se troncato continua con offset fino alla fine). Poi scrivi una sola riga di sintesi, nient'altro.
+Leggi per intero con il tool read {R}/pi-ui/src/panel.ts (se troncato continua con offset fino alla fine). Poi scrivi una sola riga di sintesi, nient'altro.
+Leggi per intero con il tool read {R}/extensions/auto/loop.ts (se troncato continua con offset fino alla fine). Poi scrivi una sola riga di sintesi, nient'altro.
+Un'ultima nota: il nome in codice del rilascio è Aurora Boreale. Rispondi solo: ok.
+Leggi per intero con il tool read {R}/extensions/browser/session.ts (se troncato continua con offset fino alla fine). Poi scrivi una sola riga di sintesi, nient'altro.
+Leggi per intero con il tool read {R}/extensions/graph.ts (se troncato continua con offset fino alla fine). Poi scrivi una sola riga di sintesi, nient'altro.
+Leggi per intero con il tool read {R}/extensions/loop.ts (se troncato continua con offset fino alla fine). Poi scrivi una sola riga di sintesi, nient'altro.
+Leggi per intero con il tool read {R}/pi-claude-code/src/claude-session.ts (se troncato continua con offset fino alla fine). Poi scrivi una sola riga di sintesi, nient'altro.
+Senza rileggere file (vietati read, bash, grep e search sui file; i tool di contesto sono ammessi), rispondi in un blocco "RISPOSTE:" con valori esatti: 1) il ticket 2) il revisore 3) la scadenza 4) la porta del server di prova 5) cosa abbiamo deciso sul bridge 6) il nome in codice del rilascio 7) il totale delle righe contato con bash 8) FADE_DAYS in memory.ts 9) la stringa POWERSHELL in pi-ui/index.ts 10) QUADRO_CHARS in memory-core.ts 11) LOOKBACK_CHARS in memory.ts 12) il modello di embedding usato dall'estensione vault 13) la larghezza del pannello di pi-ui 14) WHEN_TIMEOUT_MS in loop.ts. Se non lo sai scrivi "non so".
+RESTART
+Senza rileggere file (vietati read, bash, grep e search sui file; i tool di contesto sono ammessi), rispondi in un blocco "RISPOSTE:" con valori esatti: 1) il ticket 2) il revisore 3) la scadenza 4) la porta del server di prova 5) cosa abbiamo deciso sul bridge 6) il nome in codice del rilascio 7) il totale delle righe contato con bash 8) FADE_DAYS in memory.ts 9) la stringa POWERSHELL in pi-ui/index.ts 10) QUADRO_CHARS in memory-core.ts 11) LOOKBACK_CHARS in memory.ts 12) il modello di embedding usato dall'estensione vault 13) la larghezza del pannello di pi-ui 14) WHEN_TIMEOUT_MS in loop.ts. Se non lo sai scrivi "non so".

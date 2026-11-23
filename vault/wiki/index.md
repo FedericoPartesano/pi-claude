@@ -12,6 +12,7 @@
 - [[pi-memory]] — memoria profonda ed embedder locale
 - [[extension-vault]] — indice e ricerca di CLAUDE.md e vault Obsidian
 - [[extension-archivio]] — archivio e recupero semantico della storia compattata
+- [[billion-context-pi]] — compressione del contesto decisa dal modello, predefinita col profilo v2
 - [[extension-graph]] — /graph: grafo del progetto con Graphify
 
 ## Concepts
@@ -25,12 +26,14 @@
 - [[partesano-2026-notes]] — NOTES.md: fattibilità e architettura del bridge
 - [[partesano-2026-handoff]] — HANDOFF.md: stato dei lavori e misure
 - [[partesano-2026-eval-vault]] — eval/vault/REPORT.md: misure della ricerca
+- [[partesano-2026-eval-fold]] — eval/fold/REPORT.md: misure di billion-context
 - [[partesano-2026-changelog]] — CHANGELOG.md: release 0.8.0
 
 ## Queries
 - [[la-soglia-coseno-regge-su-un-vault-reale]] — taratura del pavimento del coseno
 
 ## Comparisons
+- [[compact-pi-vs-billion-context]] — token, contesto vivo e richiamo dei due modi di compattare
 - [[solo-vettori-vs-ibrido]] — hit@3 delle due ricerche su due corpora
 
 ## Synthesis

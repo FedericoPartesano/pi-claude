@@ -1,5 +1,12 @@
 # Log
 
+## [2026-11-23] update | Chat lunga con billion-context
+- Aggiornati [[billion-context-pi]] (profilo vB, troncatura d'emergenza e impronte del bridge, misure della chat lunga) e [[partesano-2026-eval-fold]] (§6).
+
+## [2026-11-23] ingest | eval/fold/REPORT.md — billion-context
+- Creati [[partesano-2026-eval-fold]], [[billion-context-pi]], [[compact-pi-vs-billion-context]].
+- Aggiornati [[extension-archivio]] (ponte con i blocchi compressi, richiamo per identificatori), [[decisioni-di-progetto]], `index.md`.
+
 ## [2026-11-17] update | Grafica di domande e wizard
 - Aggiornato [[chat-rpc]]: card dei questionari con passo «n di m», gerarchia e «Rivedi» in colonne; dialog con titolo e linea sottile.
 

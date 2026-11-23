@@ -1,0 +1,16 @@
+Benchmark di contesto. Fase 1: leggi con il tool read, UNO PER VOLTA e per intero (se il file è troncato continua con offset fino alla fine), questi file nell'ordine, e dopo ciascuno scrivi una sola riga di sintesi:
+/Users/fede/Documents/projects/strumenti-ai/pi-claude/pi-ui/index.ts
+/Users/fede/Documents/projects/strumenti-ai/pi-claude/extensions/memory.ts
+/Users/fede/Documents/projects/strumenti-ai/pi-claude/extensions/memory-core.ts
+/Users/fede/Documents/projects/strumenti-ai/pi-claude/pi-memory/src/dashboard-tui.ts
+/Users/fede/Documents/projects/strumenti-ai/pi-claude/extensions/goal.ts
+/Users/fede/Documents/projects/strumenti-ai/pi-claude/pi-memory/src/recall.ts
+/Users/fede/Documents/projects/strumenti-ai/pi-claude/extensions/graph/graphify.ts
+/Users/fede/Documents/projects/strumenti-ai/pi-claude/prototype/rpc-chat/cockpit.mjs
+/Users/fede/Documents/projects/strumenti-ai/pi-claude/pi-desk/renderer/src/render.ts
+/Users/fede/Documents/projects/strumenti-ai/pi-claude/pi-team/src/orchestrator.ts
+/Users/fede/Documents/projects/strumenti-ai/pi-claude/pi-claude-code/src/provider.ts
+/Users/fede/Documents/projects/strumenti-ai/pi-claude/pi-team/index.ts
+/Users/fede/Documents/projects/strumenti-ai/pi-claude/eval/cases.mjs
+/Users/fede/Documents/projects/strumenti-ai/pi-claude/extensions/archivio.ts
+Fase 2: senza rileggere quei file (vietati read, bash, grep su di essi; puoi usare altri tool di contesto se li hai), rispondi in un blocco finale "RISPOSTE:" con i valori esatti di: 1) FADE_DAYS in memory.ts 2) REMIND_AFTER in memory.ts 3) la stringa POWERSHELL in pi-ui/index.ts 4) MAX_TOPICS_PER_DREAM in memory-core.ts 5) QUADRO_CHARS in memory-core.ts. Se non lo sai scrivi "non so".
