@@ -1,6 +1,7 @@
 // Background processes for the session panel: servers and watchers that `bash` calls leave running after the tool returns.
-// A launch is recognised from the command (`&`, nohup, setsid, disown); the pid is found in /proc (Linux) and the port from the command or
+// A launch is recognised from the command (`&`, nohup, setsid, disown); the pid is found in /proc (Linux) or with `ps` (macOS) and the port from the command or
 // the output; liveness is a signal-0 check on the pid, or a TCP probe on the port. Zero dependencies; the chat polls only while rows exist.
+import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import { connect } from "node:net";
 
@@ -22,22 +23,35 @@ export function coreOf(command) {
 	return s;
 }
 
-/** Linux: lowest pid whose command line contains the core, skipping `sh -c` wrappers and the given pids. Undefined elsewhere or if none. */
+/** Lowest pid whose command line contains the core, skipping `sh -c` wrappers and the given pids. Reads /proc on Linux;
+ * where there is no /proc (macOS, BSD) falls back to a single `ps` call. Undefined if none. */
 export function findPid(core, skip = [], proc = "/proc") {
 	if (!core) return undefined;
-	let names;
-	try { names = readdirSync(proc); } catch { return undefined; }
 	let best;
-	for (const name of names) {
-		if (!/^\d+$/.test(name)) continue;
-		const pid = Number(name);
+	for (const [pid, line] of processTable(proc)) {
 		if (skip.includes(pid) || (best !== undefined && pid > best)) continue;
-		let args;
-		try { args = readFileSync(`${proc}/${name}/cmdline`, "utf8").split("\0"); } catch { continue; }
-		if (/(?:^|\/)(?:ba|z|da)?sh$/.test(args[0]) && args[1] === "-c") continue;
-		if (args.join(" ").replace(/\s+/g, " ").includes(core)) best = pid;
+		if (/^\S*(?:^|\/)(?:ba|z|da)?sh -c /.test(line)) continue;
+		if (line.replace(/\s+/g, " ").includes(core)) best = pid;
 	}
 	return best;
+}
+
+/** [pid, command line] pairs from /proc, or from `ps` when /proc is missing (only for the default path). */
+function processTable(proc) {
+	let names;
+	try { names = readdirSync(proc); } catch {
+		if (proc !== "/proc") return [];
+		try {
+			const out = execFileSync("ps", ["-axww", "-o", "pid=,args="], { encoding: "utf8", timeout: 2000, stdio: ["ignore", "pipe", "ignore"] });
+			return out.split("\n").map((l) => /^\s*(\d+)\s+(.*)$/.exec(l)).filter(Boolean).map((m) => [Number(m[1]), m[2]]);
+		} catch { return []; }
+	}
+	const rows = [];
+	for (const name of names) {
+		if (!/^\d+$/.test(name)) continue;
+		try { rows.push([Number(name), readFileSync(`${proc}/${name}/cmdline`, "utf8").split("\0").filter(Boolean).join(" ")]); } catch {}
+	}
+	return rows;
 }
 
 export const pidAlive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === "EPERM"; } };

@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { isLaunch, portOf, coreOf, findPid, newRow, refresh, visible, processLines } from "../prototype/rpc-chat/processes.mjs";
 
 const S = new Proxy({}, { get: () => "" });
@@ -45,4 +48,16 @@ test("findPid ignores sh -c wrappers; lines show state", () => {
 	const l = processLines([up, down], 80, 65000, S, fit);
 	assert.match(l[0], /:3000 · pid 7 · attivo da 1m05/);
 	assert.match(l[2], /FERMO da 1m00/);
+});
+
+test("findPid on a /proc tree: skips sh -c wrappers and skipped pids, lowest pid wins", () => {
+	const proc = mkdtempSync(join(tmpdir(), "proc-"));
+	const add = (pid: number, ...args: string[]) => { mkdirSync(join(proc, String(pid))); writeFileSync(join(proc, String(pid), "cmdline"), args.join("\0") + "\0"); };
+	add(10, "/bin/sh", "-c", "node server.js &");
+	add(20, "node", "server.js");
+	add(30, "node", "server.js");
+	add(5, "vim", "x");
+	assert.equal(findPid("node server.js", [], proc), 20);
+	assert.equal(findPid("node server.js", [20], proc), 30);
+	assert.equal(findPid("node server.js", [], join(proc, "missing")), undefined);
 });
