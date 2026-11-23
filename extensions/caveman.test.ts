@@ -72,3 +72,12 @@ test("/caveman cambia livello subito, aggiorna il badge e lo ricorda", () => wit
 	h.command.handler("boh", ctx);
 	assert.ok(log.at(-1)!.startsWith("notify:Livelli"));
 }));
+test("compattazione: con billion-context (tool compress) non spreca una chiamata che l'altra estensione annullerebbe", async () => {
+	delete process.env.PI_CAVEMAN;
+	const handlers: Record<string, any> = {};
+	caveman({ on: (name: string, h: any) => (handlers[name] = h), registerCommand: () => {}, getAllTools: () => [{ name: "read" }, { name: "compress" }] } as any);
+	let asked = false;
+	const ctx = { model: { id: "m" }, modelRegistry: { getApiKeyAndHeaders: async () => { asked = true; return { ok: false }; } } };
+	assert.equal(await handlers.session_before_compact({ preparation: {}, signal: new AbortController().signal }, ctx), undefined);
+	assert.equal(asked, false);
+});

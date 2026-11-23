@@ -89,6 +89,8 @@ export default function (pi: ExtensionAPI) {
 	// Se qualcosa va storto si lascia fare a Pi (ritorno undefined).
 	pi.on("session_before_compact", async (event, ctx) => {
 		if (level === "off") return undefined;
+		// Model-driven compression (billion-context) cancels Pi's compact: summarising here would be a wasted full-context call.
+		if (pi.getAllTools?.().some((tool) => tool.name === "compress")) return undefined;
 		try {
 			const model = ctx.model;
 			if (!model) return undefined;

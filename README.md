@@ -213,6 +213,11 @@ Dopo la prima compattazione Pi tiene piccolo il contesto vivo e l'estensione ren
 
 `/archive` apre a schermo intero l'archivio della sessione: schede Iniezioni (cosa è rientrato con ogni prompt, metodo e z-score), Voci (tutto ciò che la compattazione ha tolto, testo intero) e Prova (scrivi una domanda e vedi la classifica con la soglia z). Tab cambia scheda, ↑↓ scorre, PgSu/PgGiù il dettaglio, Esc chiude. Costo in token zero.
 
+## Compressione del contesto (billion-context)
+Il contesto lo gestisce il modello: comprime a blocchi le parti vecchie della conversazione con un riassunto e, se gli serve il dettaglio, le riapre (`decompress`). Il compact automatico di Pi resta spento. Lo fa il pacchetto [`billion-context-pi`](https://github.com/ranxianglei/billion-context), installato da `install.sh` a versione fissa (`scripts/setup.mjs`, niente aggiornamento automatico). Il profilo `scripts/acp-profile.json` finisce in `~/.pi/acp.json` solo nelle chiavi che non hai già scelto tu. Accorcia il prompt fisso: le regole dei livelli 2 e 3 entrano solo nei messaggi che le chiedono. Misure in `eval/fold/REPORT.md`.
+
+Questo prodotto usa [billion-context](https://github.com/ranxianglei/billion-context) e [acp-kernel](https://github.com/ranxianglei/acp-kernel) di ranxianglei (licenza MIT con clausola di attribuzione).
+
 ## Chat predefinita (`prototype/rpc-chat`)
 `pi` avvia la chat nuova, scritta sopra `pi --mode rpc` (zero dipendenze, CPU circa 4× più bassa di `pi-ui` sul carico di solo testo e 7× sul ricco, misure in `eval/ui/REPORT.md`). `pi --classic` o `PI_UI_CLASSIC=1` tornano alla UI classica descritta sotto; `-p`, `--mode`, sottocomandi e stream non TTY restano classici. Elenco di parità, voci scartate e comandi: `prototype/rpc-chat/README.md`. Su Windows lo `setup.mjs` aggiunge la funzione `pi` al profilo PowerShell.
 

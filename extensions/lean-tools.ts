@@ -161,6 +161,8 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	pi.on("tool_result", (event) => {
+		// billion-context's compress folds earlier reads out of the visible context: the model no longer has them.
+		if (event.toolName === "compress" && !event.isError) tracker.reset();
 		if (event.isError) {
 			if (event.toolName !== "bash") return undefined;
 		}

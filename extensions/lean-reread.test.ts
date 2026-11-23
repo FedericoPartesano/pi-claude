@@ -23,3 +23,18 @@ test("small reads are never replaced (the note would not save anything)", () => 
 	tracker.check({ path: "/p/tiny", content: "ok" , minChars: 200 });
 	assert.equal(tracker.check({ path: "/p/tiny", content: "ok", minChars: 200 }), undefined);
 });
+
+test("after a model-driven compress (billion-context) the folded content is gone: re-reads pass again", async () => {
+	const { default: lean } = await import("./lean-tools.ts");
+	const handlers: Record<string, any[]> = {};
+	const pi: any = { on: (n: string, h: any) => (handlers[n] ??= []).push(h), registerTool: () => {}, registerCommand: () => {}, events: { emit: () => {}, on: () => {} } };
+	lean(pi);
+	const result = (ev: any) => handlers.tool_result.map((h) => h(ev)).find(Boolean);
+	const read = { toolName: "read", input: { path: "/p/big.ts" }, content: [{ type: "text", text: "x".repeat(2000) }] };
+	assert.equal(result(read), undefined);
+	assert.ok(result(read), "second read is replaced by the note");
+	result({ toolName: "compress", input: {}, content: [{ type: "text", text: "ok" }] });
+	assert.equal(result(read), undefined, "after compress the read passes whole");
+	result({ toolName: "compress", isError: true, input: {}, content: [{ type: "text", text: "fail" }] });
+	assert.ok(result(read), "a failed compress folds nothing");
+});

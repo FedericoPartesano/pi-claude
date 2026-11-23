@@ -67,6 +67,37 @@ export function migrateSettings(settings, { source: wanted }) {
 	return s;
 }
 
+/** Model-driven context compression (billion-context, MIT + attribution). Pinned: Pi never re-checks exact versions. */
+export const BILLION_CONTEXT = "npm:billion-context-pi@0.1.83";
+const isBillionContext = (value) => typeof value === "string" && /^npm:billion-context-pi(@|$)/.test(value);
+
+/** Adds the pinned billion-context-pi entry once; other versions of it are replaced, an object entry keeps its options. */
+export function applyContextCompression(settings) {
+	const s = structuredClone(settings);
+	const packages = s.packages ?? [];
+	const first = packages.find((entry) => isBillionContext(sourceOf(entry)));
+	const entry = typeof first === "object" && first ? { ...first, source: BILLION_CONTEXT } : BILLION_CONTEXT;
+	const at = first ? packages.indexOf(first) : packages.length;
+	const rest = packages.filter((p) => !isBillionContext(sourceOf(p)));
+	s.packages = [...rest.slice(0, at), entry, ...rest.slice(at)];
+	return s;
+}
+
+/**
+ * ~/.pi/acp.json from scripts/acp-profile.json: version pinned by this repo (no npm self-update), no delegate tools
+ * (pi-team delegates), lean prompt. Keys the user set win; section maps are merged key by key. `$` keys are notes.
+ */
+export function applyAcpDefaults(acp, profile) {
+	const a = { ...acp };
+	for (const [key, value] of Object.entries(profile)) {
+		if (key.startsWith("$")) continue;
+		const mine = a[key];
+		const bothMaps = value && typeof value === "object" && mine && typeof mine === "object";
+		a[key] = bothMaps ? { ...value, ...mine } : (mine ?? value);
+	}
+	return a;
+}
+
 const readJson = (file) => (existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {});
 const writeJson = (file, value) => {
 	mkdirSync(dirname(file), { recursive: true });
@@ -94,7 +125,9 @@ function main(argv) {
 	const fromGit = resolve(repo).startsWith(resolve(agentDir, "git"));
 	const source = at !== -1 ? argv[at + 1] : fromGit ? GIT_SOURCE : repo;
 	const settingsFile = join(agentDir, "settings.json");
-	writeJson(settingsFile, migrateSettings(applyDefaults(readJson(settingsFile)), { source }));
+	writeJson(settingsFile, applyContextCompression(migrateSettings(applyDefaults(readJson(settingsFile)), { source })));
+	const acpFile = join(homedir(), ".pi", "acp.json");
+	writeJson(acpFile, applyAcpDefaults(readJson(acpFile), readJson(join(repo, "scripts", "acp-profile.json"))));
 	const keysFile = join(agentDir, "keybindings.json");
 	writeJson(keysFile, applyKeybindings(readJson(keysFile)));
 	if (process.platform === "win32") installPowerShell(repo);
