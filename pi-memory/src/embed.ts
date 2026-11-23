@@ -190,11 +190,11 @@ export class WorkerEmbedder implements Embedder {
 					const worker = new Worker(new URL("./embed-worker.ts", import.meta.url), { workerData: { inflight: counter.buffer } });
 					counter.attach(worker);
 					guardExit();
-					worker.unref();
 					this.worker = worker;
 					worker.on("message", (message: { type: string; id?: number; vectors?: Float32Array[]; error?: string }) => {
 						if (message.type === "ready") {
 							this.isReady = true;
+							if (this.pending.size === 0) worker.unref();
 							this.touch();
 							resolve(true);
 						} else if (message.type === "failed") {
@@ -203,6 +203,7 @@ export class WorkerEmbedder implements Embedder {
 						} else if (message.type === "result" && message.id !== undefined) {
 							const entry = this.pending.get(message.id);
 							this.pending.delete(message.id);
+							if (this.pending.size === 0) worker.unref();
 							if (message.error) entry?.reject(new Error(message.error));
 							else entry?.resolve(message.vectors ?? []);
 						}
@@ -213,6 +214,9 @@ export class WorkerEmbedder implements Embedder {
 						if (!this.isReady) useFallback();
 						this.isReady = false;
 					});
+					// Referenced only while the model loads or a request waits: an idle worker must never keep Pi alive (pi -p
+					// answered, then hung until the idle unload), a busy one must. Adding a "message" listener refs the worker
+					// again, so an unref() placed before the listeners did nothing.
 					worker.postMessage({ type: "load", name: this.profile.name, cacheDir: process.env.PI_MEMORY_MODEL_CACHE ?? join(homedir(), ".cache", "pi-memory", "models") });
 				})
 				.catch(useFallback);
@@ -231,6 +235,7 @@ export class WorkerEmbedder implements Embedder {
 		const id = this.nextId++;
 		return new Promise((resolve, reject) => {
 			this.pending.set(id, { resolve, reject });
+			this.worker!.ref();
 			this.worker!.postMessage({ type: "embed", id, texts: texts.map((text) => prefix + text) });
 		});
 	}
