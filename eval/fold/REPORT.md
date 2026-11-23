@@ -167,6 +167,23 @@ Quando interviene, aggiunge un messaggio nascosto e chiede una sola continuazion
 - `score.mjs` ora valuta l'ultimo blocco «RISPOSTE:» del turno: con la spinta il modello risponde due volte e prima veniva valutata la risposta data prima di cercare. Le run precedenti, riscorate, hanno gli stessi punteggi.
 - Limite: una sola run per configurazione; la differenza tra 14/19 e 13/19 sta dentro il rumore, il risparmio di costo no.
 
+### Valori aggiornati (porta, scadenza)
+- Causa, misurata sullo stato di billion-context a fine H1-bc-rn:
+  - l'aggiornamento («la porta è cambiata, ora è 9124… scadenza slittata a 7 gennaio») stava nei blocchi b40 e b41, che segnava anche 8817 come superato;
+  - b43, rifondendo b41 e b42, ha riscritto la nota vecchia «porta 8817» e perso il valore nuovo, e nessun blocco attivo lo contiene più;
+  - 16 riassunti attivi ripetono i fatti iniziali (8817, 15 dicembre), quindi il modello li trova nel contesto e non cerca;
+  - l'archivio peggiorava le cose: `factRecall` iniettava il messaggio vecchio, perché ha più parole in comune con la domanda (porta) o vince il pareggio (scadenza), e mai l'aggiornamento.
+- Correzione in `extensions/archivio.ts`, `factRecall`:
+  - dopo il fatto scelto aggiunge i messaggi successivi dell'utente con gli stessi termini (tutti tranne al più uno) e un segnale di aggiornamento («cambiata», «ora è», «slittata»…), marcati «più recente»;
+  - lo fa anche quando il messaggio vecchio è già stato mandato per un'altra voce della domanda;
+  - «attuale», «corrente», «ultimo» non pesano più nella soglia: sono qualificatori della domanda, non parole del fatto.
+- Verifica offline sui 158 turni di H1-bc-rn: l'aggiornamento compare solo nei 2 quiz, mai nei 156 turni normali; costo dell'iniezione circa +38 token in tutta la sessione.
+- Replay dei due quiz su uno stato pulito (sessione troncata prima del quiz 1, tolti i blocchi b56 e b57 nati durante il quiz):
+  - porta 9124 e scadenza 7 gennaio corrette già alla prima risposta, prima di ogni ricerca;
+  - punteggio 18/19 (10/10 e 8/9) contro 14/19 di H1-bc-rn; il 13.750 del quiz 1 il modello lo ha trovato con `bash` sui dump di `decompress`, cosa che la domanda vietava: senza, 17/19;
+  - costo dei due turni 278k pesati contro 370k.
+- Limite: un solo replay dei due quiz, non una run completa.
+
 ## Conclusione
 
 Il profilo v2 tiene il contesto vivo a ~81k invece di 124k, non fa mai partire il compact di Pi, costa il 15% in meno in costo pesato (−2% di token in totali) e richiama tutti i 7 valori esatti anche senza l'archivio, dove off ne richiama 0. Nella chat lunga con ripresa (§6) il profilo predefinito vB costa il 10,6% in meno di off, riavvia il bridge 8 volte invece di 15, non fa compact di Pi e richiama 14 valori su 14 prima e dopo la ripresa. Le misure delle §2–3 (profilo lean, senza finestra di lavoro né archivio) restano valide per quel profilo: costava dal 3 al 17% in più.

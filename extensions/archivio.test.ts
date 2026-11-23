@@ -221,6 +221,26 @@ test("factRecall: a fact the user stated, and the answer to an old request, come
 	assert.equal(factRecall(chunks, "Sistema il bug nel parser"), "");
 });
 
+test("factRecall: a later message that updates a stated fact comes back too, after the old one and marked as the latest", () => {
+	const chunks = chunkArchive([
+		msg("u1", "user", "Altra nota: il budget approvato è 18.400 euro e il server di staging ascolta sulla porta 8817. Rispondi solo: ok."),
+		msg("a1", "assistant", "ok"),
+		msg("u2", "user", "Decisione presa con Marta: niente Redis. La scadenza è martedì 15 dicembre. Rispondi solo: ok."),
+		msg("a2", "assistant", "ok"),
+		msg("u3", "user", "Leggi per intero con il tool read src/staging/port.ts. Poi scrivi una sola riga di sintesi."),
+		msg("a3", "assistant", "port.ts: apre la porta di staging."),
+		msg("u4", "user", "Aggiornamento: la porta di staging è cambiata, ora è 9124. E la scadenza è slittata a giovedì 7 gennaio. Rispondi solo: ok."),
+		msg("a4", "assistant", "ok"),
+	]);
+	const port = factRecall(chunks, "Senza rileggere file, rispondi in un blocco RISPOSTE con valori esatti; se un valore non ti è mai stato dato scrivi non detto: 1) il ticket 2) la porta attuale del server di staging 3) CUSTOMS_HOLD_HOURS 4) il nome in codice");
+	assert.match(port, /8817[\s\S]*più recente[\s\S]*9124/);
+	assert.doesNotMatch(port, /port\.ts/);
+	assert.match(factRecall(chunks, "Senza rileggere file, rispondi in un blocco RISPOSTE con valori esatti; se un valore non ti è mai stato dato scrivi non detto: 1) il cliente 2) cosa abbiamo deciso con Marta 3) la scadenza attuale 4) FLEET_IDLE_ALERT_MIN"), /15 dicembre[\s\S]*più recente[\s\S]*7 gennaio/);
+	// The old message was already sent for another part of the prompt: the update still comes back.
+	// No update cue: a later message on the same subject is not an update.
+	assert.doesNotMatch(factRecall(chunks, "Senza rileggere file, rispondi in un blocco RISPOSTE con valori esatti; se un valore non ti è mai stato dato scrivi non detto: 1) il ticket 2) il budget approvato 3) LABEL_DPI 4) il nome in codice"), /più recente/);
+});
+
 // Long chat: after compress the reads of vault.ts and panel.ts survived only as one-line summaries ("e5 embeddings"),
 // and the quiz asked for them by description, with no identifier: "non so" twice, while off still had them live.
 test("constRecall: a question naming a file read earlier, without identifiers, brings back that file's constants", () => {

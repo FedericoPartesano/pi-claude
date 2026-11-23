@@ -358,7 +358,11 @@ export function constRecall(source: readonly Chunk[] | (() => readonly Chunk[]),
 	return lines.length ? `${HEADER()}\n${lines.join("\n")}` : "";
 }
 
-const FACT_STOP = new Set([...STOP, "il", "lo", "la", "le", "di", "da", "in", "su", "al", "ai", "delle", "dello", "degli", "sulla", "sullo", "nella", "nello", "scrivi", "rispondi", "solo", "valori", "esatti", "so", "se"]);
+const FACT_STOP = new Set([...STOP, "il", "lo", "la", "le", "di", "da", "in", "su", "al", "ai", "delle", "dello", "degli", "sulla", "sullo", "nella", "nello", "scrivi", "rispondi", "solo", "valori", "esatti", "so", "se",
+	// Qualifiers asking for the latest value: the fact itself never holds them.
+	"attuale", "attuali", "corrente", "ultimo", "ultima", "current", "latest"]);
+// A user message that changes something stated before.
+const UPDATE_CUE = /\b(?:cambiat[oaie]|slittat[oaie]|spostat[oaie]|rinviat[oaie]|anticipat[oaie]|aggiornament[oi]|aggiornat[oaie]|ora [eè]|adesso [eè]|non [eè] più|invece|changed|moved|now is|is now|updated?|instead)\b/i;
 // Five-letter stems: "contato" finds "conta", "deciso" finds "decisione".
 const stems = (text: string) => tokens(text).filter((word) => !FACT_STOP.has(word)).map((word) => word.slice(0, 5));
 
@@ -384,7 +388,9 @@ export function factRecall(chunks: readonly Chunk[], prompt: string, limit = 900
 			const score = part.filter((stem) => own[index].has(stem)).reduce((sum, stem) => sum + idf(stem), 0);
 			if (score > bestScore) [best, bestScore] = [index, score];
 		});
-		if (best < 0 || taken.has(best) || bestScore < total * 0.6) continue;
+		if (best < 0 || bestScore < total * 0.6) continue;
+		// Already sent for an earlier part: only its updates may still be missing.
+		const repeat = taken.has(best);
 		taken.add(best);
 		// What followed the message until the next user turn: a tool output and the last non-trivial reply.
 		const after: string[] = [];
@@ -394,11 +400,23 @@ export function factRecall(chunks: readonly Chunk[], prompt: string, limit = 900
 			else if (text.length > 3 && text.length <= 300) after.push(text);
 		}
 		const chunk = chunks[best];
-		const line = `[#${chunk.entryId.slice(0, 8)} user] ${chunk.text.replace(/\s+/g, " ").trim()}${after.length ? ` → ${after.slice(-2).join(" | ")}` : ""}`;
+		let line = repeat ? "" : `[#${chunk.entryId.slice(0, 8)} user] ${chunk.text.replace(/\s+/g, " ").trim()}${after.length ? ` → ${after.slice(-2).join(" | ")}` : ""}`;
+		// A later user message that changes this fact: without it the old value reads as current. It must hold the stems
+		// the old message matched (all but one of them) and an update cue ("è cambiata, ora è…").
+		const matched = part.filter((stem) => own[best].has(stem));
+		for (let at = best + 1; at < chunks.length; at++) {
+			const next = chunks[at];
+			if (next.role !== "user" || next.text.length > 600 || taken.has(at) || !UPDATE_CUE.test(next.text)) continue;
+			if (matched.filter((stem) => own[at].has(stem)).length < Math.max(1, matched.length - 1)) continue;
+			taken.add(at);
+			line += `${line ? "\n  " : ""}più recente: [#${next.entryId.slice(0, 8)} user] ${next.text.replace(/\s+/g, " ").trim()}`;
+			onUsed?.({ ...next, score: bestScore, matched: 1 });
+		}
+		if (!line) continue;
 		if (used + line.length > limit) break;
 		lines.push(line);
 		used += line.length;
-		onUsed?.({ ...chunk, score: bestScore, matched: 1 });
+		if (!repeat) onUsed?.({ ...chunk, score: bestScore, matched: 1 });
 	}
 	return lines.length ? `${HEADER()}\n${lines.join("\n")}` : "";
 }
