@@ -673,6 +673,9 @@ const sideLines = (w) => {
 	L.push(kv("immagini", imageProto === "?" ? "…" : imageProto));
 	const arc = statuses.get("archivio"), mem = statuses.get("memory");
 	if (arc) L.push(kv("archivio", arc));
+	// billion-context (extensions/blocchi.ts): explicit on/off, red when off so a missing install is seen at once.
+	const bc = statuses.get("billion-context");
+	if (bc) { const [state, ...rest] = bc.split(" · "), on = state === "attivo"; L.push(kv("billion-context", `${on ? S.ok : S.err}● ${state}`)); if (rest.length) L.push(...wrap(`${on ? S.dim : S.err}${rest.join(" · ")}${R}`, w)); }
 	if (mem) { const parts = mem.split(" · "); L.push(kv("memoria", parts[0])); for (const part of parts.slice(1)) L.push(...wrap(`${S.dim}${part}${R}`, w)); }
 	if (usage.h5 != null || usage.d7 != null) {
 		L.push(""); head("USO");
@@ -686,7 +689,7 @@ const sideLines = (w) => {
 		let first = true;
 		for (const [, lines] of wk) { if (!first) L.push(""); first = false; for (const l of lines) for (const x of wrapAnsi(`${S.text}${l}${R}`, w, 2)) L.push(x); }
 	}
-	const others = [...statuses].filter(([k]) => k !== "intent" && k !== "goal" && k !== "memory" && k !== "archivio" && k !== "claude-code" && !(k === "auto" && auto?.length));
+	const others = [...statuses].filter(([k]) => k !== "intent" && k !== "goal" && k !== "memory" && k !== "archivio" && k !== "billion-context" && k !== "claude-code" && !(k === "auto" && auto?.length));
 	if (others.length) { L.push(""); head("ESTENSIONI"); for (const [k, v] of others) L.push(...wrap(`${S.dim}${new RegExp(k, "i").test(v) ? v : `${k} ${v}`}${R}`, w)); }
 	return L;
 };

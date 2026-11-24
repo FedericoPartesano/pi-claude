@@ -210,9 +210,32 @@ function openBrowser(url: string) {
 	}
 }
 
+/** Side panel line: is billion-context loaded (its `compress` tool exists) and how much it holds in active blocks. */
+export function compressionStatus(loaded: boolean, state: State): string {
+	if (!loaded) return "spento · rilancia install.sh";
+	const active = (state.blocks ?? []).filter((b) => b.active);
+	if (!active.length) return "attivo · nessun blocco";
+	const tokens = active.reduce((sum, b) => sum + Number(b.compressedTokens ?? 0), 0);
+	return `attivo · ${active.length === 1 ? "1 blocco" : `${active.length} blocchi`} · ${Math.round(tokens / 1000)}k compressi`;
+}
+
 export default function blocchi(pi: ExtensionAPI) {
 	let server: { url: string; close: () => Promise<void> } | undefined;
 	let current: ExtensionContext | undefined;
+	// Only the small .acp.json is read, at session start and after each agent run (when blocks can change).
+	const showStatus = (ctx: ExtensionContext) => {
+		const loaded = pi.getAllTools?.().some((tool) => tool.name === "compress") ?? false;
+		let state: State = {};
+		const file = ctx.sessionManager.getSessionFile?.();
+		try {
+			if (loaded && file) state = JSON.parse(readFileSync(`${file}.acp.json`, "utf8")) as State;
+		} catch {
+			/* no blocks yet */
+		}
+		ctx.ui.setStatus?.("billion-context", compressionStatus(loaded, state));
+	};
+	pi.on("session_start", (_event, ctx) => showStatus(ctx));
+	pi.on("agent_end", (_event, ctx) => showStatus(ctx));
 	pi.registerCommand("blocchi", {
 		description: "Apri nel browser i blocchi della memoria compressa, aggiornati in tempo reale (clic per decomprimere)",
 		handler: async (_args, ctx) => {

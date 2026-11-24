@@ -111,3 +111,22 @@ test("/blocchi starts one server for the session and closes it on shutdown", asy
 	await handlers.session_shutdown({}, ctx2);
 	await assert.rejects(fetch(urls[0] as string));
 });
+
+test("panel status: billion-context on with its blocks, or plainly off with the fix", async () => {
+	const handlers: Record<string, (event: unknown, ctx: unknown) => Promise<void> | void> = {};
+	let tools = [{ name: "read" }, { name: "compress" }];
+	blocchi({ on: (name: string, handler: never) => void (handlers[name] = handler), registerCommand: () => {}, getAllTools: () => tools } as never);
+	const dir = mkdtempSync(join(tmpdir(), "blocchi-"));
+	const file = join(dir, "s.jsonl");
+	writeFileSync(file, "");
+	const status = new Map<string, string | undefined>();
+	const ctx = { sessionManager: { getSessionFile: () => file }, ui: { setStatus: (k: string, v?: string) => status.set(k, v), notify: () => {} } };
+	await handlers.session_start({}, ctx);
+	assert.equal(status.get("billion-context"), "attivo · nessun blocco");
+	writeFileSync(`${file}.acp.json`, JSON.stringify({ blocks: [block("b1", ["u1"], { compressedTokens: 42_000 }), block("b2", ["u2"], { active: false })] }));
+	await handlers.agent_end({}, ctx);
+	assert.equal(status.get("billion-context"), "attivo · 1 blocco · 42k compressi");
+	tools = [{ name: "read" }];
+	await handlers.session_start({}, ctx);
+	assert.equal(status.get("billion-context"), "spento · rilancia install.sh");
+});
