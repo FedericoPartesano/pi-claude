@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { aiArgs, aiPrompt, depsInstalled, diagnose, nextFixes, packageState } from "./pi-doctor.mjs";
+import { aiArgs, aiPrompt, depsInstalled, diagnose, nextFixes, packageState, sameJson } from "./pi-doctor.mjs";
 
 // A healthy install as gather() would describe it; each test breaks one thing.
 const healthy = () => ({
@@ -133,4 +133,11 @@ test("nextFixes: one run per fix object, a fix that already failed is not retrie
 	const checks = diagnose(facts);
 	assert.equal(nextFixes(checks, new Set()).length, 2);
 	assert.deepEqual(nextFixes(checks, new Set(["pi install npm:billion-context-pi@0.1.83"])).map((f) => f.cmd[1]), ["/home/u/pi-claude/scripts/setup.mjs"]);
+});
+
+test("sameJson: key order does not matter (setup.mjs merges as {...profile, ...mine}), values and array order do", () => {
+	assert.ok(sameJson({ a: 1, nudge: { x: 1, y: [1, 2] } }, { nudge: { y: [1, 2], x: 1 }, a: 1 }));
+	assert.ok(!sameJson({ nudge: { x: 1 } }, { nudge: { x: 2 } }));
+	assert.ok(!sameJson({ y: [1, 2] }, { y: [2, 1] }));
+	assert.ok(!sameJson({ a: 1 }, { a: 1, b: 2 }));
 });

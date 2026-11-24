@@ -44,6 +44,14 @@ export function depsInstalled(repo, dir, deps, exists) {
 	return deps.every((name) => roots.some((root) => exists(join(root, name))));
 }
 
+/** Deep equality that ignores object key order (arrays keep theirs). */
+export function sameJson(a, b) {
+	if (a === b) return true;
+	if (!a || !b || typeof a !== "object" || typeof b !== "object" || Array.isArray(a) !== Array.isArray(b)) return false;
+	const ka = Object.keys(a), kb = Object.keys(b);
+	return ka.length === kb.length && ka.every((k) => Object.hasOwn(b, k) && sameJson(a[k], b[k]));
+}
+
 const older = (version, [major, minor]) => {
 	const [a, b] = String(version).replace(/^v/, "").split(".").map(Number);
 	return a < major || (a === major && b < minor);
@@ -149,8 +157,8 @@ export async function gather(repo, agentDir) {
 		claude: versionOf("claude"),
 		pi: versionOf("pi"),
 		wantedPi,
-		settingsDrift: JSON.stringify(wanted) !== JSON.stringify(settings),
-		acpDrift: !acp || JSON.stringify(setup.applyAcpDefaults(acp, profile)) !== JSON.stringify(acp),
+		settingsDrift: !sameJson(wanted, settings),
+		acpDrift: !acp || !sameJson(setup.applyAcpDefaults(acp, profile), acp),
 		packages: sources.map((source) => ({ source, state: packageState(source, readVersion, exists) })),
 		folders,
 		repo,
