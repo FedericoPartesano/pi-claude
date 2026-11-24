@@ -4,7 +4,7 @@ import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import blocchi, { blockMessages, blockTree, startServer } from "./blocchi.ts";
+import blocchi, { blockLinks, blockMessages, blockTree, startServer } from "./blocchi.ts";
 
 const user = (id: string, text: string) => ({ type: "message", id, message: { role: "user", content: [{ type: "text", text }] } });
 const call = (id: string, callId: string, path: string) => ({ type: "message", id, message: { role: "assistant", content: [{ type: "text", text: "Leggo." }, { type: "toolCall", id: callId, name: "read", arguments: { path } }] } });
@@ -136,4 +136,33 @@ test("panel status: billion-context on with its blocks, or plainly off with the 
 	tools = [{ name: "read" }];
 	await handlers.session_start({}, ctx);
 	assert.equal(status.get("billion-context"), "spento · rilancia install.sh");
+});
+
+test("blockLinks: absorbed blocks, summaries citing messages of another block, rare terms shared (top 2 per block)", () => {
+	const B = (blockId: string, ids: string[], summary: string, extra: Record<string, unknown> = {}) => ({ blockId, topic: blockId, summary, active: true, directMessageIds: ids, effectiveMessageIds: ids, directBlockIds: [], ...extra });
+	const links = blockLinks({
+		messageRefs: { byRaw: { u1: "m00001", a1: "m00002", u2: "m00003", u3: "m00004", u4: "m00005", u5: "m00006" } },
+		blocks: [
+			B("b1", ["u1", "a1", "a1#t1"], "Porta del server letta da config/server.yaml.", { active: false }),
+			B("b2", ["u2"], "Scadenza del contratto Fincons spostata."),
+			// Absorbs b1 and cites m00003 (in b2) and m00002 (in b1: already linked as absorbed, not repeated).
+			B("b3", ["u3"], "Riprende m00003 e m00002: config/server.yaml cambiata.", { directBlockIds: ["b1"], effectiveMessageIds: ["u3", "u1", "a1"] }),
+			B("b4", ["u4"], "Contratto Fincons rinnovato, nuova scadenza."),
+			B("b5", ["u5"], "Nulla in comune con gli altri."),
+			// Only two plain words in common: too weak for a theme line.
+			B("b6", [], "Libreria installata e aggiornata."),
+			B("b7", [], "Pacchetto installata, aggiornata ieri."),
+		],
+	});
+	const has = (from: string, to: string, kind: string) => links.some((l) => l.from === from && l.to === to && l.kind === kind);
+	assert.ok(has("b3", "b1", "absorbs"));
+	assert.ok(has("b3", "b2", "cites"));
+	assert.deepEqual(links.find((l) => l.kind === "cites")?.why, ["m00003"]);
+	assert.ok(!has("b3", "b1", "cites"), "absorbed already linked");
+	const theme = links.filter((l) => l.kind === "theme");
+	assert.deepEqual(theme.map((l) => [l.from, l.to].sort().join("-")), ["b2-b4"]);
+	assert.ok(theme[0].why.includes("fincons"));
+	assert.ok(!links.some((l) => l.from === "b5" || l.to === "b5"));
+	// b1/b3 share config/server.yaml, but they are already linked (absorbs): no extra theme line.
+	assert.ok(!theme.some((l) => [l.from, l.to].includes("b1")));
 });
