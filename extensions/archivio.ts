@@ -122,24 +122,95 @@ export function tokens(text: string): string[] {
 }
 
 /** BM25 over the chunks; at most `k` hits, best first, at most one hit per neighbouring chunk of the same entry. */
+/**
+ * Term counts of a chunk text, compact: ids into one shared dictionary, sorted, with their counts (typed arrays, a few
+ * bytes a term instead of a Map entry and a string each). Chunks are rebuilt every turn, their texts are not: cached by
+ * text and pruned to the live archive.
+ */
+const termIds = new Map<string, number>();
+const termId = (term: string) => {
+	let id = termIds.get(term);
+	if (id === undefined) termIds.set(term, (id = termIds.size));
+	return id;
+};
+class Doc {
+	readonly length: number;
+	private readonly ids: Uint32Array;
+	private readonly counts: Uint16Array;
+	constructor(length: number, ids: Uint32Array, counts: Uint16Array) {
+		this.length = length;
+		this.ids = ids;
+		this.counts = counts;
+	}
+	static of(words: readonly string[]): Doc {
+		const tally = new Map<number, number>();
+		for (const word of words) {
+			const id = termId(word);
+			tally.set(id, (tally.get(id) ?? 0) + 1);
+		}
+		const ids = Uint32Array.from(tally.keys()).sort();
+		return new Doc(words.length, ids, Uint16Array.from(ids, (id) => Math.min(tally.get(id) as number, 65535)));
+	}
+	count(term: string): number {
+		const id = termIds.get(term);
+		if (id === undefined) return 0;
+		let [low, high] = [0, this.ids.length - 1];
+		while (low <= high) {
+			const mid = (low + high) >> 1;
+			if (this.ids[mid] === id) return this.counts[mid];
+			if (this.ids[mid] < id) low = mid + 1;
+			else high = mid - 1;
+		}
+		return 0;
+	}
+	has(term: string): boolean {
+		return this.count(term) > 0;
+	}
+	*termIds(): Iterable<number> {
+		yield* this.ids;
+	}
+}
+const docCache = new Map<string, Doc>();
+const docOf = (text: string): Doc => {
+	let doc = docCache.get(text);
+	if (!doc) docCache.set(text, (doc = Doc.of(tokens(text))));
+	return doc;
+};
+/** Drops cached entries of texts no longer in the archive, once the cache holds twice as many. */
+const prune = <V>(cache: Map<string, V>, chunks: readonly Chunk[]) => {
+	if (cache.size <= chunks.length * 2) return;
+	const live = new Set(chunks.map((chunk) => chunk.text));
+	for (const text of cache.keys()) if (!live.has(text)) cache.delete(text);
+};
+/** BM25 statistics of one archive: one turn's recall calls search the same chunk array several times. */
+type Corpus = { docs: Doc[]; average: number; frequency: Map<number, number> };
+const corpusCache = new WeakMap<readonly Chunk[], Corpus>();
+const corpusOf = (chunks: readonly Chunk[]): Corpus => {
+	let corpus = corpusCache.get(chunks);
+	if (!corpus) {
+		const docs = chunks.map((chunk) => docOf(chunk.text));
+		prune(docCache, chunks);
+		const frequency = new Map<number, number>();
+		for (const doc of docs) for (const id of doc.termIds()) frequency.set(id, (frequency.get(id) ?? 0) + 1);
+		const average = docs.reduce((sum, doc) => sum + doc.length, 0) / docs.length || 1;
+		corpusCache.set(chunks, (corpus = { docs, average, frequency }));
+	}
+	return corpus;
+};
+
 export function search(chunks: readonly Chunk[], query: string, k = 4): Hit[] {
 	const terms = [...new Set(tokens(query))];
 	if (terms.length === 0 || chunks.length === 0) return [];
-	const docs = chunks.map((chunk) => tokens(chunk.text));
-	const average = docs.reduce((sum, doc) => sum + doc.length, 0) / docs.length || 1;
-	const frequency = new Map<string, number>();
-	for (const doc of docs) for (const term of new Set(doc)) frequency.set(term, (frequency.get(term) ?? 0) + 1);
+	const { docs, average, frequency } = corpusOf(chunks);
 	const scored: Hit[] = [];
 	docs.forEach((doc, index) => {
-		const counts = new Map<string, number>();
-		for (const word of doc) counts.set(word, (counts.get(word) ?? 0) + 1);
 		let score = 0;
 		let matched = 0;
 		for (const term of terms) {
-			const tf = counts.get(term) ?? 0;
+			const tf = doc.count(term);
 			if (!tf) continue;
 			matched++;
-			const df = frequency.get(term) ?? 0;
+			const df = frequency.get(termIds.get(term) as number) ?? 0;
 			const idf = Math.log(1 + (docs.length - df + 0.5) / (df + 0.5));
 			score += (idf * tf * 2.2) / (tf + 1.2 * (0.25 + (0.75 * doc.length) / average));
 		}
@@ -149,7 +220,7 @@ export function search(chunks: readonly Chunk[], query: string, k = 4): Hit[] {
 	const seen = new Set<string>();
 	const hits: Hit[] = [];
 	for (const hit of scored) {
-		const key = `${hit.entryId}:${hit.text.slice(0, 40)}`;
+		const key = `${hit.entryId}:${hit.text}`;
 		if (seen.has(key)) continue;
 		seen.add(key);
 		hits.push(hit);
@@ -302,7 +373,7 @@ export function autoRecall(chunks: readonly Chunk[], prompt: string, limit = 150
 
 /** Exact lines for the code identifiers the prompt names and the archive holds; "" otherwise. */
 export function keyRecall(chunks: readonly Chunk[], prompt: string, limit = 1500, onUsed?: (hit: Hit) => void): string {
-	const own = chunks.map((chunk) => new Set(tokens(chunk.text)));
+	const own = corpusOf(chunks).docs;
 	const keys = names([...new Set(tokens(prompt))], own, prompt, chunks);
 	// A single name only brings back its definition (cheap, rarely wrong); a mere use of it is not worth a turn's tokens.
 	return keys.length === 0 ? "" : keyExcerpts(chunks, own, keys, prompt, limit, onUsed, keys.length === 1);
@@ -311,6 +382,25 @@ export function keyRecall(chunks: readonly Chunk[], prompt: string, limit = 1500
 // Path segments too common to name a file by ("src", "extensions") are not taken as a reference to it.
 const GENERIC_SEGMENTS = new Set(["src", "lib", "dist", "test", "tests", "index", "main", "extensions", "users", "home", "documents", "projects", "tmp", "private", "node_modules"]);
 const TOP_CONST = /^(?:export\s+)?const\s+[A-Z][A-Z0-9_]*\s*=.*$/gm;
+
+/** Entries that may hold a read file: the read results and the calls that name their paths. */
+const isRead = (entry: Entry) => entry.message?.role === "assistant" || (entry.message?.role === "toolResult" && entry.message.toolName === "read");
+
+/** The files read in the archive, each rebuilt from its chunks: a constant may straddle two of them. */
+function readFiles(chunks: readonly Chunk[]): Map<string, { path: string; text: string; first: Chunk }> {
+	const files = new Map<string, { path: string; text: string; first: Chunk }>();
+	for (const chunk of chunks) {
+		if (chunk.role !== "toolResult") continue;
+		const origin = /^<(\{.*?\})> /.exec(chunk.text);
+		const path = origin ? /"path":"([^"]+)"/.exec(origin[1])?.[1] : undefined;
+		if (!path) continue;
+		const key = `${chunk.entryId}\u0000${path}`;
+		const file = files.get(key) ?? { path, text: "", first: chunk };
+		file.text += chunk.text.slice(origin![0].length);
+		files.set(key, file);
+	}
+	return files;
+}
 
 /**
  * Top-level constants of the files read earlier that a question refers to by name ("l'estensione vault", "il pannello
@@ -324,19 +414,7 @@ export function constRecall(source: readonly Chunk[] | (() => readonly Chunk[]),
 	const parts = prompt.split(/(?:^|\s)\d{1,2}[).]\s|\n+|;/).filter((part) => !/[A-Z][A-Z0-9]*_[A-Z0-9_]+|\d|\/|\b\w+\.[a-z]{1,4}\b/.test(part));
 	const words = new Set(parts.flatMap((part) => part.toLowerCase().match(/[a-z0-9][a-z0-9-]*[a-z0-9]/g) ?? []).filter((word) => word.length >= 3 && !STOP.has(word)));
 	if (words.size === 0) return "";
-	const chunks = typeof source === "function" ? source() : source;
-	// A read file is rebuilt from its chunks: a constant may straddle two of them.
-	const files = new Map<string, { path: string; text: string; first: Chunk }>();
-	for (const chunk of chunks) {
-		if (chunk.role !== "toolResult") continue;
-		const origin = /^<(\{.*?\})> /.exec(chunk.text);
-		const path = origin ? /"path":"([^"]+)"/.exec(origin[1])?.[1] : undefined;
-		if (!path) continue;
-		const key = `${chunk.entryId}\u0000${path}`;
-		const file = files.get(key) ?? { path, text: "", first: chunk };
-		file.text += chunk.text.slice(origin![0].length);
-		files.set(key, file);
-	}
+	const files = readFiles(typeof source === "function" ? source() : source);
 	const lines: string[] = [];
 	const seen = new Set<string>();
 	let used = 0;
@@ -358,11 +436,105 @@ export function constRecall(source: readonly Chunk[] | (() => readonly Chunk[]),
 	return lines.length ? `${HEADER()}\n${lines.join("\n")}` : "";
 }
 
+const NAMED_CONST = /^(?:export\s+)?const\s+([A-Z][A-Z0-9_]*)\s*=.*$/gm;
+
+/**
+ * Constants of files read earlier that a search points at, since compress summaries keep what a file does, not its
+ * numbers, so a value described in words is otherwise found only as block summaries:
+ * - constants whose name the search words spell out ("giorni reso return window" finds RETURN_WINDOW_DAYS), two name
+ *   parts at least, only the best-matching names;
+ * - every constant of a file the search names ("dock scheduler" names dock/dock-scheduler.ts; a one-word file name
+ *   needs its folder too), on one line per file, those sharing a word with the search first; two files at most.
+ */
+export function constSearch(chunks: readonly Chunk[], query: string, max = 3, perFile = 700): string {
+	const words = (query.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter((word) => word.length >= 3);
+	if (words.length < 2) return "";
+	const has = (part: string) => part.length >= 2 && words.some((word) => word === part || (part.length >= 3 && word.startsWith(part)));
+	const exact = new Set(words);
+	let best = 2;
+	const found: { item: string; name: string }[] = [];
+	const named = new Map<string, { short: string; consts: { name: string; text: string; hits: number }[] }>();
+	for (const file of readFiles(chunks).values()) {
+		const short = file.path.split("/").slice(-2).join("/");
+		const [folder = "", base = ""] = short.toLowerCase().replace(/\.[a-z0-9]+$/, "").split("/").slice(-2);
+		const parts = base.split(/[-_.]/).filter(Boolean);
+		const isNamed = parts.length > 0 && parts.every((part) => exact.has(part)) && (parts.length >= 2 || exact.has(folder)) && !GENERIC_SEGMENTS.has(base);
+		const consts: { name: string; text: string; hits: number }[] = [];
+		for (const match of file.text.matchAll(NAMED_CONST)) {
+			let hits = 0;
+			for (const part of new Set(match[1].toLowerCase().split("_"))) if (has(part)) hits++;
+			if (isNamed && !consts.some((known) => known.name === match[1])) consts.push({ name: match[1], text: match[0].replace(/^(?:export\s+)?const\s+/, "").replace(/;\s*$/, "").trim().slice(0, 80), hits });
+			if (hits < best) continue;
+			if (hits > best) {
+				best = hits;
+				found.length = 0;
+			}
+			const item = `${short}: ${match[0].trim().slice(0, 140)}`;
+			if (!found.some((known) => known.item === item)) found.push({ item, name: match[1] });
+		}
+		// A file read twice: the last read wins.
+		if (isNamed && consts.length) named.set(file.path, { short, consts });
+	}
+	const lines = found.slice(0, max).map((known) => known.item);
+	const shown = new Set(found.slice(0, max).map((known) => known.name));
+	for (const { short, consts } of [...named.values()].slice(-2)) {
+		const rest = consts.filter((item) => !shown.has(item.name)).sort((a, b) => b.hits - a.hits);
+		let line = `${short}:`;
+		for (const item of rest) {
+			if (line.length + item.text.length + 2 > perFile) break;
+			line += `${line.endsWith(":") ? " " : "; "}${item.text}`;
+		}
+		if (rest.length) lines.push(line);
+	}
+	return lines.length ? `Costanti dei file letti che corrispondono alla ricerca:\n${lines.join("\n")}` : "";
+}
+
+/** Lowercase, accents stripped, one output unit per input unit: offsets into it are offsets into the text. */
+const fold = (text: string) => Array.from({ length: text.length }, (_, i) => text[i].normalize("NFD")[0] ?? text[i]).join("").toLowerCase();
+
+/** The `width`-char window holding the most distinct query terms (then the most hits), whitespace collapsed. */
+function bestWindow(text: string, terms: readonly string[], width: number): string {
+	const folded = fold(text);
+	const hits: { at: number; term: number }[] = [];
+	terms.forEach((term, index) => {
+		const pattern = new RegExp(`(?<![a-z0-9_])${term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![a-z0-9_])`, "g");
+		for (const match of folded.matchAll(pattern)) hits.push({ at: match.index ?? 0, term: index });
+	});
+	hits.sort((a, b) => a.at - b.at);
+	let best = { start: 0, distinct: 0, count: 0, end: 0 };
+	for (let i = 0; i < hits.length; i++) {
+		const seen = new Set<number>();
+		let j = i;
+		for (; j < hits.length && hits[j].at - hits[i].at < width - 40; j++) seen.add(hits[j].term);
+		if (seen.size > best.distinct || (seen.size === best.distinct && j - i > best.count)) best = { start: hits[i].at, distinct: seen.size, count: j - i, end: hits[j - 1].at };
+	}
+	// Centre the matched span, then snap both ends to whitespace.
+	let start = Math.max(0, Math.min(best.start - Math.floor((width - (best.end - best.start)) / 2), text.length - width));
+	let end = Math.min(text.length, start + width);
+	if (start > 0) start = text.indexOf(" ", start) + 1 || start;
+	if (end < text.length) end = text.lastIndexOf(" ", end) > start ? text.lastIndexOf(" ", end) : end;
+	return `${start > 0 ? "…" : ""}${text.slice(start, end).replace(/\s+/g, " ").trim()}${end < text.length ? "…" : ""}`;
+}
+
+/**
+ * Exact passages of the folded messages for a search_context query. Its own hits are block summaries and whole messages
+ * previewed around the first query word, so a value deep in a long read is missed. Here: BM25 over 900-char chunks,
+ * at least two query words, each cut to the window with the most query words. The id is the message ref decompress takes.
+ */
+export function passageSearch(chunks: readonly Chunk[], query: string, k = 3, width = 360): string {
+	const terms = [...new Set(tokens(query))];
+	if (terms.length < 2) return "";
+	const hits = search(chunks, query, k * 2).filter((hit) => (hit.matched ?? 0) >= 2).slice(0, k);
+	if (hits.length === 0) return "";
+	const lines = hits.map((hit) => `${hit.entryId.slice(0, 8)} ${hit.label}: ${bestWindow(hit.text, terms, width)}`);
+	return `Exact passages from folded messages (decompress({ blockId: "<id>" }) opens one):\n${lines.join("\n")}`;
+}
+
 const FACT_STOP = new Set([...STOP, "il", "lo", "la", "le", "di", "da", "in", "su", "al", "ai", "delle", "dello", "degli", "sulla", "sullo", "nella", "nello", "scrivi", "rispondi", "solo", "valori", "esatti", "so", "se",
 	// Qualifiers asking for the latest value: the fact itself never holds them.
 	"attuale", "attuali", "corrente", "ultimo", "ultima", "current", "latest"]);
 // A user message that changes something stated before.
-const UPDATE_CUE = /\b(?:cambiat[oaie]|slittat[oaie]|spostat[oaie]|rinviat[oaie]|anticipat[oaie]|aggiornament[oi]|aggiornat[oaie]|ora [eè]|adesso [eè]|non [eè] più|invece|changed|moved|now is|is now|updated?|instead)\b/i;
+const UPDATE_CUE = /\b(?:cambiat[oaie]|slittat[oaie]|spostat[oaie]|rinviat[oaie]|anticipat[oaie]|aggiornament[oi]|aggiornat[oaie]|invece|changed|moved|now is|is now|updated?|instead)\b|\b(?:ora|adesso) [eè](?![a-zà-ù])|\bnon [eè] più(?![a-zà-ù])/i;
 // Five-letter stems: "contato" finds "conta", "deciso" finds "decisione".
 const stems = (text: string) => tokens(text).filter((word) => !FACT_STOP.has(word)).map((word) => word.slice(0, 5));
 
@@ -371,11 +543,25 @@ const stems = (text: string) => tokens(text).filter((word) => !FACT_STOP.has(wor
  * ("1) il ticket 2) …") whose words an old user message holds: identifiers miss them, they have none. A part counts
  * only if the matched words carry most of its weight (idf), so "FADE_DAYS in memory.ts" does not pull "read memory.ts".
  */
+// Stems per chunk text: chunks are rebuilt every turn, their texts are not. Pruned to the live archive.
+const stemCache = new Map<string, Doc>();
+const stemSet = (text: string) => {
+	let set = stemCache.get(text);
+	if (!set) stemCache.set(text, (set = Doc.of(stems(text))));
+	return set;
+};
+
 export function factRecall(chunks: readonly Chunk[], prompt: string, limit = 900, onUsed?: (hit: Hit) => void): string {
 	const parts = prompt.split(/(?:^|\s)\d{1,2}[).]\s|\n+|;/).map((part) => stems(part)).filter((part) => part.length > 0);
 	if (parts.length === 0) return "";
-	const own = chunks.map((chunk) => new Set(stems(chunk.text)));
-	const idf = (stem: string) => Math.log(1 + chunks.length / (1 + own.filter((doc) => doc.has(stem)).length));
+	const own = chunks.map((chunk) => stemSet(chunk.text));
+	prune(stemCache, chunks);
+	const df = new Map<string, number>();
+	const idf = (stem: string) => {
+		let count = df.get(stem);
+		if (count === undefined) df.set(stem, (count = own.reduce((sum, doc) => sum + (doc.has(stem) ? 1 : 0), 0)));
+		return Math.log(1 + chunks.length / (1 + count));
+	};
 	const lines: string[] = [];
 	const taken = new Set<number>();
 	let used = 0;
@@ -400,23 +586,29 @@ export function factRecall(chunks: readonly Chunk[], prompt: string, limit = 900
 			else if (text.length > 3 && text.length <= 300) after.push(text);
 		}
 		const chunk = chunks[best];
-		let line = repeat ? "" : `[#${chunk.entryId.slice(0, 8)} user] ${chunk.text.replace(/\s+/g, " ").trim()}${after.length ? ` → ${after.slice(-2).join(" | ")}` : ""}`;
+		const old = repeat ? "" : `[#${chunk.entryId.slice(0, 8)} user] ${chunk.text.replace(/\s+/g, " ").trim()}${after.length ? ` → ${after.slice(-2).join(" | ")}` : ""}`;
 		// A later user message that changes this fact: without it the old value reads as current. It must hold the stems
 		// the old message matched (all but one of them) and an update cue ("è cambiata, ora è…").
 		const matched = part.filter((stem) => own[best].has(stem));
+		const updates: Chunk[] = [];
 		for (let at = best + 1; at < chunks.length; at++) {
 			const next = chunks[at];
 			if (next.role !== "user" || next.text.length > 600 || taken.has(at) || !UPDATE_CUE.test(next.text)) continue;
 			if (matched.filter((stem) => own[at].has(stem)).length < Math.max(1, matched.length - 1)) continue;
 			taken.add(at);
-			line += `${line ? "\n  " : ""}più recente: [#${next.entryId.slice(0, 8)} user] ${next.text.replace(/\s+/g, " ").trim()}`;
-			onUsed?.({ ...next, score: bestScore, matched: 1 });
+			updates.push(next);
 		}
+		// Only the last change is the current value; earlier ones are history.
+		const changes = updates.map((next, i) => `${i === updates.length - 1 ? "più recente" : "poi"}: [#${next.entryId.slice(0, 8)} user] ${next.text.replace(/\s+/g, " ").trim()}`);
+		let line = [old, ...changes].filter(Boolean).join("\n  ");
+		let sent = old ? [chunk, ...updates] : updates;
+		// No room for the whole history: the latest value alone beats the stale one.
+		if (used + line.length > limit && changes.length) [line, sent] = [changes.at(-1) as string, updates.slice(-1)];
 		if (!line) continue;
 		if (used + line.length > limit) break;
 		lines.push(line);
 		used += line.length;
-		if (!repeat) onUsed?.({ ...chunk, score: bestScore, matched: 1 });
+		for (const hit of sent) onUsed?.({ ...hit, score: bestScore, matched: 1 });
 	}
 	return lines.length ? `${HEADER()}\n${lines.join("\n")}` : "";
 }
@@ -428,14 +620,14 @@ const statementEnd = (flat: string, from: number) => {
 };
 
 /** Code identifiers of the prompt (snake_case, or an ALL-CAPS word as written) that some archived chunk holds. */
-const names = (terms: readonly string[], own: readonly Set<string>[], prompt: string, chunks: readonly Chunk[]) => {
+const names = (terms: readonly string[], own: readonly { has(term: string): boolean }[], prompt: string, chunks: readonly Chunk[]) => {
 	// An ALL-CAPS word counts only if the archive holds it in capitals too (a constant, not a shouted word).
 	const caps = new Set((prompt.match(/\b[A-Z][A-Z0-9_]{4,}\b/g) ?? []).filter((word) => chunks.some((chunk) => chunk.text.includes(word))).map((word) => word.toLowerCase()));
 	return terms.filter((term) => (term.includes("_") || caps.has(term)) && /[a-z]/.test(term) && own.some((doc) => doc.has(term)));
 };
 
 /** One short window around each key, from the best chunk that holds it: the exact line comes back, not the whole chunk. */
-function keyExcerpts(chunks: readonly Chunk[], _own: readonly Set<string>[], keys: readonly string[], prompt: string, limit: number, onUsed?: (hit: Hit) => void, definitionOnly = false): string {
+function keyExcerpts(chunks: readonly Chunk[], _own: readonly { has(term: string): boolean }[], keys: readonly string[], prompt: string, limit: number, onUsed?: (hit: Hit) => void, definitionOnly = false): string {
 	const lines: string[] = [];
 	let used = 0;
 	for (const key of keys.slice(0, 10)) {
@@ -593,7 +785,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			// Files named by description ("l'estensione vault"): their constants, which summaries drop.
 			const branch = ctx.sessionManager.getBranch() as Entry[];
-			const reads = () => chunkArchive(branch.filter((entry) => entry.message?.role === "assistant" || (entry.message?.role === "toolResult" && entry.message.toolName === "read")));
+			const reads = () => chunkArchive(branch.filter(isRead));
 			const consts = constRecall(reads, event.prompt, 600, (hit) => used.push({ id: hit.entryId.slice(0, 8), label: "const" }));
 			if (consts) {
 				text = text ? `${text}\n${consts.slice(consts.indexOf("\n") + 1)}` : consts;
@@ -660,7 +852,19 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_compact", (_event, ctx) => { turnOn(ctx); buildIndex(ctx); publish(ctx); });
 	// billion-context cancels Pi's compaction and folds ranges with its `compress` tool instead: index those too.
 	pi.on("tool_result", (event, ctx) => {
-		if ((event as { toolName?: string }).toolName === "compress" && !(event as { isError?: boolean }).isError) buildIndex(ctx);
+		const { toolName, isError, input, content } = event as { toolName?: string; isError?: boolean; input?: { query?: unknown }; content?: unknown[] };
+		if (isError) return undefined;
+		if (toolName === "compress") buildIndex(ctx);
+		if (toolName !== "search_context" || typeof input?.query !== "string") return undefined;
+		// Its hits are block summaries, which drop a file's numbers: add the constants the search words name and the exact
+		// passages of folded messages around the search words.
+		try {
+			const branch = ctx.sessionManager.getBranch() as Entry[];
+			const added = [constSearch(chunkArchive(branch.filter(isRead)), input.query), process.env.PI_ARCHIVE_PASSAGE === "0" ? "" : passageSearch(chunkArchive(archived(ctx)), input.query)].filter(Boolean);
+			return added.length ? { content: [...(content ?? []), ...added.map((text) => ({ type: "text" as const, text }))] } : undefined;
+		} catch {
+			return undefined;
+		}
 	});
 	pi.on("agent_end", (_event, ctx) => publish(ctx));
 }

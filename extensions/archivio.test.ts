@@ -2,7 +2,7 @@ process.env.PI_ARCHIVE_SEM = "0"; // no model worker in unit tests
 process.env.PI_ARCHIVE_TOOL = "1"; // the tool is opt-in; its tests need it on
 import assert from "node:assert/strict";
 import test from "node:test";
-import archivio, { constRecall, factRecall, keyRecall, archiveOverview, archivedEntries, rankSemantic, autoRecall, chunkArchive, openEntry, renderHits, search, semanticRecall } from "./archivio.ts";
+import archivio, { constRecall, constSearch, passageSearch, factRecall, keyRecall, archiveOverview, archivedEntries, rankSemantic, autoRecall, chunkArchive, openEntry, renderHits, search, semanticRecall } from "./archivio.ts";
 
 const msg = (id: string, role: string, text: string, toolName?: string) => ({ type: "message", id, message: { role, toolName, content: [{ type: "text", text }] } });
 const branch = [
@@ -24,6 +24,19 @@ test("search finds an exact detail from before the compaction", () => {
 	assert.equal(hits[0].entryId.startsWith("a"), true);
 	assert.match(renderHits(hits), /120000/);
 	assert.match(renderHits(hits), /tool bash/);
+});
+
+test("search keeps every matching chunk of one read file, not only the first", () => {
+	const file = Array.from({ length: 40 }, (_, i) => `export const FILLER_${i}_DAYS = ${i};`).join("\n") + "\nexport const RETURN_WINDOW_DAYS = 41;";
+	const entries = [
+		{ id: "c1", type: "message", message: { role: "assistant", content: [{ type: "toolCall", id: "t1", name: "read", arguments: { path: "src/returns/returns-service.ts" } }] } },
+		{ id: "r1", type: "message", message: { role: "toolResult", toolCallId: "t1", toolName: "read", content: [{ type: "text", text: file }] } },
+	];
+	const chunks = chunkArchive(entries as never);
+	assert.ok(chunks.length > 1);
+	const text = renderHits(search(chunks, "RETURN_WINDOW_DAYS FILLER_1_DAYS", 4));
+	assert.match(text, /FILLER_1_DAYS = 1;/);
+	assert.match(text, /RETURN_WINDOW_DAYS = 41/);
 });
 
 test("no match and an empty archive give a clear answer", () => {
@@ -221,6 +234,38 @@ test("factRecall: a fact the user stated, and the answer to an old request, come
 	assert.equal(factRecall(chunks, "Sistema il bug nel parser"), "");
 });
 
+test("factRecall: updated twice, only the last change is marked as the latest", () => {
+	const chunks = chunkArchive([
+		msg("u1", "user", "Altra nota: il server di staging ascolta sulla porta 8817. Rispondi solo: ok."),
+		msg("a1", "assistant", "ok"),
+		msg("u2", "user", "Aggiornamento: la porta di staging è cambiata, ora è 9124. Rispondi solo: ok."),
+		msg("a2", "assistant", "ok"),
+		msg("u3", "user", "Altro cambio: la porta di staging ora è 9300, la 9124 è dismessa. Rispondi solo: ok."),
+		msg("a3", "assistant", "ok"),
+	]);
+	const text = factRecall(chunks, "Senza rileggere file, rispondi in un blocco RISPOSTE con valori esatti; se un valore non ti è mai stato dato scrivi non detto: 1) la porta attuale del server di staging 2) il ticket");
+	assert.match(text, /8817[\s\S]*poi:[^\n]*9124[\s\S]*più recente:[^\n]*9300/);
+	assert.equal(text.match(/più recente/g)?.length, 1);
+});
+
+test("factRecall: with no room for the old value and its update, the update alone comes back", () => {
+	const chunks = chunkArchive([
+		msg("u1", "user", "Altra nota: il budget approvato è 18.400 euro e il server di staging ascolta sulla porta 8817, ricordalo bene per dopo. Rispondi solo: ok."),
+		msg("a1", "assistant", "ok"),
+		msg("u2", "user", "Aggiornamento: la porta di staging è cambiata, ora è 9124. Rispondi solo: ok."),
+		msg("a2", "assistant", "ok"),
+	]);
+	const text = factRecall(chunks, "Senza rileggere file, rispondi in un blocco RISPOSTE con valori esatti; se un valore non ti è mai stato dato scrivi non detto: 1) la porta attuale del server di staging", 160);
+	assert.match(text, /9124/);
+	// Only what was sent is reported as used: the old message did not fit.
+	const used: string[] = [];
+	factRecall(chunks, "Senza rileggere file, rispondi in un blocco RISPOSTE con valori esatti; se un valore non ti è mai stato dato scrivi non detto: 1) la porta attuale del server di staging", 160, (hit) => used.push(hit.entryId));
+	assert.deepEqual(used, ["u2"]);
+	const none: string[] = [];
+	assert.equal(factRecall(chunks, "Senza rileggere file, rispondi in un blocco RISPOSTE con valori esatti; se un valore non ti è mai stato dato scrivi non detto: 1) la porta attuale del server di staging", 20, (hit) => none.push(hit.entryId)), "");
+	assert.deepEqual(none, []);
+});
+
 test("factRecall: a later message that updates a stated fact comes back too, after the old one and marked as the latest", () => {
 	const chunks = chunkArchive([
 		msg("u1", "user", "Altra nota: il budget approvato è 18.400 euro e il server di staging ascolta sulla porta 8817. Rispondi solo: ok."),
@@ -243,6 +288,58 @@ test("factRecall: a later message that updates a stated fact comes back too, aft
 
 // Long chat: after compress the reads of vault.ts and panel.ts survived only as one-line summaries ("e5 embeddings"),
 // and the quiz asked for them by description, with no identifier: "non so" twice, while off still had them live.
+const readOf = (id: string, path: string, text: string) => [
+	{ type: "message", id: `c${id}`, message: { role: "assistant", content: [{ type: "toolCall", id: `k${id}`, name: "read", arguments: { path } }] } },
+	{ type: "message", id: `t${id}`, message: { role: "toolResult", toolCallId: `k${id}`, toolName: "read", content: [{ type: "text", text }] } },
+];
+const orbita = [
+	...readOf("1", "/p/src/returns/returns-service.ts", `${"// filler\n".repeat(150)}export const RETURN_WINDOW_DAYS = 41;\nexport const WINDOW_WINDOW_HOURS = 4576;`),
+	...readOf("2", "/p/src/dispatch/dispatch-scheduler.ts", "export const RETURN_LABEL_DAYS = 51;\nexport const TOKEN_WINDOW_DAYS = 44_986;"),
+	...readOf("3", "/p/src/pricing/pricing-policy.ts", "export const FUEL_SURCHARGE_PCT = 7.25;"),
+	...readOf("4", "/p/src/dock/dock-scheduler.ts", "export const CURSOR_QUOTA_PCT = 2.25;\nexport const SLOT_LENGTH_MIN = 25;\nfunction f() {\n\tconst INNER = 2;\n}"),
+	...readOf("5", "/p/src/carrier/carrier-client.ts", "export const FANOUT_COUNT_COUNT = 18_753;\nexport const REQUEST_DEADLINE_MS = 13_750;"),
+	...readOf("6", "/p/src/carrier/carrier-scheduler.ts", "export const MARGIN_SPAN_PCT = 7.25;"),
+];
+
+test("constSearch: the words of a search name a constant by its parts, the best match only", () => {
+	const chunks = chunkArchive(orbita as never);
+	const reso = constSearch(chunks, "giorni reso return window clienti");
+	assert.match(reso, /returns-service\.ts: export const RETURN_WINDOW_DAYS = 41;/);
+	assert.doesNotMatch(reso, /WINDOW_WINDOW_HOURS|RETURN_LABEL_DAYS|TOKEN_WINDOW_DAYS/);
+	assert.match(constSearch(chunks, "return window days"), /RETURN_WINDOW_DAYS = 41/);
+	assert.doesNotMatch(constSearch(chunks, "return window days"), /TOKEN_WINDOW_DAYS|RETURN_LABEL_DAYS/);
+	assert.match(constSearch(chunks, "carburante sovrapprezzo fuel surcharge percentuale"), /FUEL_SURCHARGE_PCT = 7\.25/);
+	assert.equal(constSearch(chunks, "tempo massimo attesa richiesta timeout"), "");
+	assert.equal(constSearch(chunks, "return"), "");
+});
+
+test("constSearch: a file the search names brings all its constants, those sharing a word first", () => {
+	const chunks = chunkArchive(orbita as never);
+	const dock = constSearch(chunks, "durata slot pianificatore banchine dock scheduler slot");
+	assert.match(dock, /dock\/dock-scheduler\.ts: SLOT_LENGTH_MIN = 25; CURSOR_QUOTA_PCT = 2\.25/);
+	assert.doesNotMatch(dock, /INNER|MARGIN_SPAN_PCT/);
+	const carrier = constSearch(chunks, "tempo massimo attesa richiesta client corrieri carrier-client timeout");
+	assert.match(carrier, /carrier\/carrier-client\.ts: .*REQUEST_DEADLINE_MS = 13_750/);
+	assert.doesNotMatch(carrier, /carrier-scheduler/);
+	// One word of a two-part name is not a file named.
+	assert.equal(constSearch(chunks, "lo scheduler dei turni"), "");
+	// A constant matched by name is not repeated in its file's line.
+	const both = constSearch(chunks, "returns service return window");
+	assert.equal(both.match(/RETURN_WINDOW_DAYS/g)?.length, 1);
+});
+
+test("a search_context result gets the matching constants of files read earlier appended", () => {
+	const handlers: Record<string, (event: unknown, ctx: unknown) => unknown> = {};
+	archivio({ on: (name: string, handler: never) => void (handlers[name] = handler), registerTool: () => {}, registerCommand: () => {}, getActiveTools: () => [], setActiveTools: () => {} } as never);
+	const ctx = { sessionManager: { getBranch: () => orbita, getSessionFile: () => undefined } };
+	const content = [{ type: "text", text: "Found 5 match(es)" }];
+	const out = handlers.tool_result({ toolName: "search_context", input: { query: "giorni reso return window" }, content }, ctx) as { content: { text: string }[] };
+	assert.equal(out.content[0].text, "Found 5 match(es)");
+	assert.match(out.content[1].text, /RETURN_WINDOW_DAYS = 41/);
+	assert.equal(handlers.tool_result({ toolName: "search_context", input: { query: "postgres version" }, content }, ctx), undefined);
+	assert.equal(handlers.tool_result({ toolName: "read", input: { path: "x" }, content }, ctx), undefined);
+});
+
 test("constRecall: a question naming a file read earlier, without identifiers, brings back that file's constants", () => {
 	const read = (id: string, path: string, text: string) => [
 		{ type: "message", id: `c${id}`, message: { role: "assistant", content: [{ type: "toolCall", id: `k${id}`, name: "read", arguments: { path } }] } },
@@ -267,4 +364,33 @@ test("constRecall: a question naming a file read earlier, without identifiers, b
 	assert.match(constRecall(() => (built++, chunks), "la larghezza del pannello di pi-ui"), /PANEL_WIDTH = 40/);
 	assert.equal(built, 1);
 	assert.equal(constRecall(chunks, "Leggi per intero con il tool read /r/extensions/vault.ts e riassumi"), "");
+});
+
+test("passageSearch: the window around most query words, not the first one, with the ref decompress takes", () => {
+	const filler = "Lorem ipsum dolor sit amet, la revisione del codice procede senza intoppi. ".repeat(6);
+	const long = `Rifiuto dei fix: vedi sotto. ${filler}Revisione: fuori dalla catena il 46% dei fix proposti da agenti non viene unito. ${filler}`;
+	const chunks = chunkArchive([msg("abcdef1234", "toolResult", long, "read"), msg("99887766aa", "assistant", "Nessuna percentuale qui, solo il piano della settimana.")]);
+	const out = passageSearch(chunks, "percentuale fix proposti agenti non uniti", 3, 240);
+	assert.match(out, /46% dei fix proposti da agenti/);
+	assert.match(out, /\nabcdef12 tool read: /);
+	assert.ok(out.split("\n").slice(1).every((line) => line.length < 320), out);
+	assert.doesNotMatch(out, /Rifiuto dei fix: vedi sotto/);
+});
+
+test("passageSearch: nothing when no passage holds two of the query words", () => {
+	const chunks = chunkArchive([msg("abcdef1234", "assistant", "Il server risponde 403 sui link."), msg("1234abcd99", "user", "Domani si parla del piano.")]);
+	assert.equal(passageSearch(chunks, "piano rilascio versione gVisor"), "");
+	assert.equal(passageSearch([], "piano rilascio"), "");
+});
+
+test("a search_context result gets exact passages of folded messages appended, not of live ones", () => {
+	const handlers: Record<string, (event: unknown, ctx: unknown) => unknown> = {};
+	archivio({ on: (name: string, handler: never) => void (handlers[name] = handler), registerTool: () => {}, registerCommand: () => {}, getActiveTools: () => [], setActiveTools: () => {} } as never);
+	const folded = msg("abcdef1234", "toolResult", "Revisione: fuori dalla catena il 46% dei fix proposti da agenti non viene unito.", "read");
+	const live = msg("1234abcd99", "assistant", "Il 12% dei fix proposti resta aperto.");
+	const ctx = { sessionManager: { getBranch: () => [folded, { type: "compaction", id: "cmp1" }, live], getSessionFile: () => undefined } };
+	const out = handlers.tool_result({ toolName: "search_context", input: { query: "percentuale fix proposti non uniti" }, content: [{ type: "text", text: "No matches" }] }, ctx) as { content: { text: string }[] };
+	assert.equal(out.content.length, 2);
+	assert.match(out.content[1].text, /abcdef12 tool read: .*46% dei fix/);
+	assert.doesNotMatch(out.content[1].text, /12%/);
 });
