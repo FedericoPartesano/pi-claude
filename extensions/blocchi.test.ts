@@ -120,12 +120,19 @@ test("panel status: billion-context on with its blocks, or plainly off with the 
 	const file = join(dir, "s.jsonl");
 	writeFileSync(file, "");
 	const status = new Map<string, string | undefined>();
-	const ctx = { sessionManager: { getSessionFile: () => file }, ui: { setStatus: (k: string, v?: string) => status.set(k, v), notify: () => {} } };
+	// The system prompt counts too (chars/4, like the package): 8000 chars = 2k.
+	const ctx = { getSystemPrompt: () => "x".repeat(8_000), sessionManager: { getSessionFile: () => file }, ui: { setStatus: (k: string, v?: string) => status.set(k, v), notify: () => {} } };
 	await handlers.session_start({}, ctx);
-	assert.equal(status.get("billion-context"), "attivo · nessun blocco");
-	writeFileSync(`${file}.acp.json`, JSON.stringify({ blocks: [block("b1", ["u1"], { compressedTokens: 42_000 }), block("b2", ["u2"], { active: false })] }));
+	assert.equal(status.get("billion-context"), "attivo · 2k/100k · nessun blocco");
+	// Live context as billion-context counts it: messages not covered by an active block, plus the summaries.
+	const acp = {
+		blocks: [block("b1", ["u1"], { compressedTokens: 42_000, summary: "x".repeat(4_000) }), block("b2", ["u2"], { active: false })],
+		messageRefs: { byRaw: { u1: "m00001", u2: "m00002", u3: "m00003" } },
+		tokenSnapshot: { m00001: 42_000, m00002: 20_000, m00003: 6_000 },
+	};
+	writeFileSync(`${file}.acp.json`, JSON.stringify(acp));
 	await handlers.agent_end({}, ctx);
-	assert.equal(status.get("billion-context"), "attivo · 1 blocco · 42k compressi");
+	assert.equal(status.get("billion-context"), "attivo · 29k/100k · 1 blocco · 42k compressi");
 	tools = [{ name: "read" }];
 	await handlers.session_start({}, ctx);
 	assert.equal(status.get("billion-context"), "spento · rilancia install.sh");

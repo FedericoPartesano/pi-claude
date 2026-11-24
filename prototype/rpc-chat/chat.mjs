@@ -675,7 +675,8 @@ const sideLines = (w) => {
 	if (arc) L.push(kv("archivio", arc));
 	// billion-context (extensions/blocchi.ts): explicit on/off, red when off so a missing install is seen at once.
 	const bc = statuses.get("billion-context");
-	if (bc) { const [state, ...rest] = bc.split(" · "), on = state === "attivo"; L.push(kv("billion-context", `${on ? S.ok : S.err}● ${state}`)); if (rest.length) L.push(...wrap(`${on ? S.dim : S.err}${rest.join(" · ")}${R}`, w)); }
+	// "27k/100k" is the conversation billion-context counts against its working window: own bar, it nudges compress from 75%.
+	if (bc) { const [state, ...rest] = bc.split(" · "), on = state === "attivo", m = /^(\d+)k\/(\d+)k$/.exec(rest[0] ?? ""); L.push(kv("billion-context", `${on ? S.ok : S.err}● ${state}`)); if (m) { L.push(bar("bc", (100 * +m[1]) / +m[2])); rest.shift(); } if (rest.length) L.push(...wrap(`${on ? S.dim : S.err}${rest.join(" · ")}${R}`, w)); }
 	if (mem) { const parts = mem.split(" · "); L.push(kv("memoria", parts[0])); for (const part of parts.slice(1)) L.push(...wrap(`${S.dim}${part}${R}`, w)); }
 	if (usage.h5 != null || usage.d7 != null) {
 		L.push(""); head("USO");

@@ -18,7 +18,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 
 type Entry = { type?: string; id?: string; message?: { role?: string; toolName?: string; toolCallId?: string; content?: unknown } };
 type Block = { blockId: string; topic?: string; summary?: string; tier?: string | number; active?: boolean; compressedTokens?: number; directBlockIds?: string[]; effectiveMessageIds?: string[]; createdAt?: number };
-type State = { blocks?: Block[] };
+type State = { blocks?: Block[]; messageRefs?: { byRaw?: Record<string, string> }; tokenSnapshot?: Record<string, number> };
 export type Part = { kind: "text" | "thinking" | "tool" | "result" | "image"; text: string };
 export type Message = { id: string; role: string; label: string; parts: Part[] };
 export type BlockView = { blockId: string; topic: string; summary: string; tier: string; active: boolean; tokens: number; messages: number; createdAt?: number; children: BlockView[] };
@@ -211,18 +211,44 @@ function openBrowser(url: string) {
 }
 
 /** Side panel line: is billion-context loaded (its `compress` tool exists) and how much it holds in active blocks. */
-export function compressionStatus(loaded: boolean, state: State): string {
+export function compressionStatus(loaded: boolean, state: State, limit = 100_000, systemTokens = 0): string {
 	if (!loaded) return "spento · rilancia install.sh";
 	const active = (state.blocks ?? []).filter((b) => b.active);
-	if (!active.length) return "attivo · nessun blocco";
+	const k = (n: number) => `${Math.round(n / 1000)}k`;
+	const ctx = `${k(liveTokens(state) + systemTokens)}/${k(limit)}`;
+	if (!active.length) return `attivo · ${ctx} · nessun blocco`;
 	const tokens = active.reduce((sum, b) => sum + Number(b.compressedTokens ?? 0), 0);
-	return `attivo · ${active.length === 1 ? "1 blocco" : `${active.length} blocchi`} · ${Math.round(tokens / 1000)}k compressi`;
+	return `attivo · ${ctx} · ${active.length === 1 ? "1 blocco" : `${active.length} blocchi`} · ${k(tokens)} compressi`;
+}
+
+/**
+ * Conversation tokens billion-context sees: per-message counts of the last turn (tokenSnapshot, thinking included) for
+ * messages no active block covers, plus the block summaries. Its nudges add the system prompt (chars/4) and compare with modelContextLimit.
+ */
+export function liveTokens(state: State): number {
+	const refs = state.messageRefs?.byRaw ?? {};
+	const active = (state.blocks ?? []).filter((b) => b.active);
+	const covered = new Set(active.flatMap((b) => (b.effectiveMessageIds ?? []).map((id) => refs[id])));
+	let tokens = 0;
+	for (const [ref, n] of Object.entries(state.tokenSnapshot ?? {})) if (!covered.has(ref)) tokens += n;
+	for (const b of active) tokens += Math.ceil((b.summary ?? "").length / 4);
+	return tokens;
+}
+
+/** modelContextLimit from ~/.pi/acp.json (written by scripts/setup.mjs), 100k when missing. */
+function acpLimit(): number {
+	try {
+		return Number(JSON.parse(readFileSync(join(homedir(), ".pi", "acp.json"), "utf8")).modelContextLimit) || 100_000;
+	} catch {
+		return 100_000;
+	}
 }
 
 export default function blocchi(pi: ExtensionAPI) {
 	let server: { url: string; close: () => Promise<void> } | undefined;
 	let current: ExtensionContext | undefined;
 	// Only the small .acp.json is read, at session start and after each agent run (when blocks can change).
+	let limit: number | undefined;
 	const showStatus = (ctx: ExtensionContext) => {
 		const loaded = pi.getAllTools?.().some((tool) => tool.name === "compress") ?? false;
 		let state: State = {};
@@ -232,7 +258,9 @@ export default function blocchi(pi: ExtensionAPI) {
 		} catch {
 			/* no blocks yet */
 		}
-		ctx.ui.setStatus?.("billion-context", compressionStatus(loaded, state));
+		limit ??= acpLimit();
+		const system = (ctx as { getSystemPrompt?: () => unknown }).getSystemPrompt?.();
+		ctx.ui.setStatus?.("billion-context", compressionStatus(loaded, state, limit, typeof system === "string" ? Math.ceil(system.length / 4) : 0));
 	};
 	pi.on("session_start", (_event, ctx) => showStatus(ctx));
 	pi.on("agent_end", (_event, ctx) => showStatus(ctx));
