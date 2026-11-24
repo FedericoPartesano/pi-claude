@@ -180,9 +180,219 @@ Quando interviene, aggiunge un messaggio nascosto e chiede una sola continuazion
 - Verifica offline sui 158 turni di H1-bc-rn: l'aggiornamento compare solo nei 2 quiz, mai nei 156 turni normali; costo dell'iniezione circa +38 token in tutta la sessione.
 - Replay dei due quiz su uno stato pulito (sessione troncata prima del quiz 1, tolti i blocchi b56 e b57 nati durante il quiz):
   - porta 9124 e scadenza 7 gennaio corrette già alla prima risposta, prima di ogni ricerca;
-  - punteggio 18/19 (10/10 e 8/9) contro 14/19 di H1-bc-rn; il 13.750 del quiz 1 il modello lo ha trovato con `bash` sui dump di `decompress`, cosa che la domanda vietava: senza, 17/19;
+  - punteggio dello scorer 18/19 (10/10 e 8/9) contro 14/19 di H1-bc-rn; manca «giorni reso» (non detto). Il 13.750 del quiz 1 il modello lo ha trovato con `bash` sui dump di `decompress`, cosa che la domanda vietava: senza, 16/19. Una prima versione di questo report diceva 18/19 per un conteggio a mano sbagliato;
+  - un secondo replay con il codice successivo (cache del recall, aggiornamenti a catena) dà di nuovo 18/19 con lo stesso errore, ma costa 362k pesati: il modello ha usato `codemode` e un `compress`. Il costo dei due turni varia quindi tra 278k e 362k, contro i 370k di H1-bc-rn;
   - costo dei due turni 278k pesati contro 370k.
 - Limite: un solo replay dei due quiz, non una run completa.
+
+### Perché «giorni reso» non tornava (2026-11-23)
+
+Manca in tutte e 5 le run H1, anche in H1-off senza compressione: non è un difetto di billion-context da solo. La domanda «quanti giorni hanno i clienti per fare un reso» chiede la costante `RETURN_WINDOW_DAYS = 41` di `src/returns/returns-service.ts`, letta dal modello 600 turni prima. Ogni anello della catena la perdeva:
+
+- **Riassunti di `compress`.** Il blocco b6 elenca le costanti stringa del file (`"volume-219"`, `"rate-339"`) ma non quella numerica.
+- **`constRecall`.** Scatta solo se la domanda nomina il file per segmento di percorso; «reso» non è «returns».
+- **`search_context`.** Il modello cercava in inglese («giorni reso return window clienti»), ma riceveva riassunti di blocchi senza il numero. Ha decompresso i blocchi e non ha letto i dump.
+- **`search` dell'archivio.** Deduplicava i risultati con i primi 40 caratteri del chunk. Tutti i chunk di un file letto iniziano con lo stesso prefisso `<{"path":…}>`, quindi da ogni file usciva un solo chunk; con `RETURN_WINDOW_DAYS` come query, la definizione non compariva nemmeno tra 5.000 risultati. Ora la chiave è il testo intero (test `search keeps every matching chunk…`). Sul recall iniettato in H1-bc-rn e R1-bc l'effetto è nullo: 0 differenze su 229 prompt, perché lì il chunk vincente era già il primo.
+
+Correzione: `constSearch` (`extensions/archivio.ts`) aggancia il risultato di `search_context` e aggiunge le costanti di primo livello dei file letti il cui nome è composto da almeno due parole della ricerca (anche come prefisso: «returns» copre `RETURN`). Restituisce solo i nomi con il punteggio migliore, al più 3.
+
+- Verifica offline sulle 55 ricerche vere dei run H1-bc-rn, R1-bc e R1-bc-noarch (`/tmp/cs-real.mts`):
+  - scatta 3 volte, sempre sulla costante giusta: 41, 7,25 e 23;
+  - nessuna esca (`RETURN_LABEL_DAYS`, `TOKEN_WINDOW_DAYS`) e 0 attivazioni su R1;
+  - 361 caratteri aggiunti in tutto, 4–9 ms per ricerca.
+- Replay dei due quiz con lo stesso stato (`/tmp/rn-replay4`):
+  - quiz 2 9/9: il 41 e il 7,25 arrivano dalle righe aggiunte, con file e nome della costante;
+  - quiz 1 7/10 contro 9/10. Lì `constSearch` non è mai scattato; lo slot sbagliato (`LANE_SLOT_MS`) viene da un `grep` del modello sui dump di `decompress`, e il 13.750 non è stato trovato. Variabilità del modello, misurata su un solo replay;
+  - scorer 17/19 contro 18/19; costo 145k pesati contro 362k e 278k dei replay precedenti.
+- Restavano fuori i valori cercati con parole che non compongono il nome: `REQUEST_DEADLINE_MS` cercato come «timeout», `SLOT_LENGTH_MIN` come «durata slot dock scheduler».
+
+Estensione ai file nominati: se le parole della ricerca nominano un file letto, tornano tutte le sue costanti di primo livello su una riga, prima quelle con una parola in comune con la ricerca.
+- Il file è nominato quando tutte le parti del nome sono nella ricerca, per esempio «dock scheduler» o «carrier-client». Un nome di una sola parola richiede anche la cartella.
+- Limiti: al più 2 file, 700 caratteri per file; le costanti già trovate per nome non si ripetono.
+- Verifica offline (`/tmp/cs-real.mts`):
+  - H1-bc-rn: 11 ricerche su 21 fanno scattare `constSearch`, per 4.169 caratteri in tutto (circa 1.000 token);
+  - R1-bc e R1-bc-noarch: 0 su 34;
+  - la riga del file contiene il valore giusto, 13_750 o 25, e mai l'esca `REQUEST_TIMEOUT_MS`;
+  - 4–7 ms per ricerca.
+- Replay con lo stesso stato (`/tmp/rn-replay5`):
+  - quiz 1 9/10: il 13_750 e il 25 arrivano dalle righe aggiunte; nessun errore;
+  - quiz 2 9/9;
+  - scorer **19/19**, contro 17/19 e 18/19 dei replay precedenti e 14/19 di H1-bc-rn;
+  - costo 137k pesati, maxCtx 74k.
+- Limite: un solo replay per versione, con haiku.
+
+### «Nome in codice» nei replay: errore dello scorer (2026-11-23)
+
+Nei replay la risposta era giusta: il modello scrive «Nerofiume», il nome proposto al turno 13 di H1-bc-rn. Lo scorer prende il nome atteso dal turno 13 degli eventi della run, ma un replay riparte da una sessione troncata e ha solo i 2 turni del quiz. Il nome atteso diventava quindi `\0` e la risposta contava come sbagliata.
+
+Correzione: `truth.json` ha il campo `assistantPrompt`, scritto da `gen.py`. Se il turno manca negli eventi, `score.mjs` cerca nel file di sessione la risposta a quel prompt (test in `score.test.mjs`).
+
+Punteggi ricalcolati:
+- run complete H1 invariate: 13, 11, 11, 5 e 14 su 19;
+- replay +1: 18/19, 18/19, 17/19 e **19/19** per l'ultimo con `constSearch` esteso ai file nominati.
+
+### Variabilità dei replay (2026-11-23)
+
+Altri 3 replay identici con il codice attuale e lo stesso stato pulito (`/tmp/rn-var/r1..r3`, haiku). Insieme a `/tmp/rn-replay5` sono 4 prove:
+
+| replay | quiz 1 | quiz 2 | totale | pesato | maxCtx |
+|---|---|---|---|---|---|
+| rn-replay5 | 10/10 | 9/9 | 19/19 | 137k | 74k |
+| r1 | 10/10 | 9/9 | 19/19 | 131k | 73k |
+| r2 | 10/10 | 9/9 | 19/19 | 149k | 92k |
+| r3 | 9/10 | 9/9 | 18/19 | 356k | 106k |
+
+- Media 18,75/19 contro 14/19 della run H1-bc-rn e 17–18/19 dei replay prima di `constSearch`.
+- r3 è l'unico diverso. Il modello ha cercato prima su un file sbagliato (`depot-scheduler`) e ha chiamato un `compress` a metà quiz, che da solo spiega il costo più che doppio. Ha mancato solo il totale di `wc -l` («righe wc»), che sta nei dump di `decompress`, non in un file letto.
+- Le ricerche con i file nominati hanno riportato 13_750 e 25 in tutte e 4 le prove.
+- Secondo difetto dello scorer, corretto: in r3 la risposta 6) era «13750 ms, costante `REQUEST_DEADLINE_MS`…; nessuna descrizione esplicita». La parola «nessun» la faceva contare come astensione. Ora un valore giusto conta come astensione solo se la frase di astensione lo precede (test in `score.test.mjs`). Le run H1 e i replay precedenti non cambiano punteggio.
+- Processi `claude` durante e dopo i replay: nessuno rimasto dalle prove; gli unici vivi erano quelli di opus della sessione di lavoro.
+
+### Qualità della decompressione (2026-11-23)
+
+Script in `/tmp/dec-fid.py` e `/tmp/dec-use.py`. Misura su H1-bc-rn e sui 9 replay.
+
+Fedeltà: 10 blocchi ripristinati da `decompress` (b1, b2, b3, b5, b6, b9, b20, b31, b35, b39; 1,85M caratteri) confrontati con i messaggi originali della sessione.
+- Il 100% del testo torna alla lettera: messaggi utente, risposte del modello, argomenti dei tool e risultati dei tool. L'unica differenza è il JSON degli argomenti, scritto in forma compatta.
+- 3 messaggi su 1.851 non risolti (2 in b20, 1 in b39).
+- Rapporto originale/riassunto da 37x a 232x (b20: 622k caratteri contro un riassunto di 2,7k).
+
+Cosa resta senza decompressione: nella sessione prima del quiz, 34 blocchi attivi hanno 48k caratteri di riassunti. Contengono 9 dei 16 valori del quiz (ticket, referente, cliente, budget, code, slot, righe `wc`, chiave del manifest, sovrapprezzo). Gli altri 7 stanno solo negli originali: porta staging, scadenza (valori aggiornati), `CUSTOMS_HOLD_HOURS`, `LABEL_DPI`, deadline corrieri, `FLEET_IDLE_ALERT_MIN` e giorni reso. Il controllo è per regex: il `\b25\b` dello slot può comparire per caso.
+
+Uso nelle run:
+- modalità file (predefinita): circa 850 caratteri per chiamata (percorso e anteprima di 600). Il modello poi legge solo le righe che servono con `bash`/`grep` sul dump, da 375 a 9.007 caratteri per quiz;
+- modalità `inline: true`: 30k caratteri per blocco, 150k per quiz (circa 37k token). È successo in H1-bc-rn e r3: in r3 è la causa del costo di 356k pesati contro 131–149k;
+- valori arrivati solo dalla decompressione: «righe wc» in 4 replay su 4 con `constSearch`; prima di `constSearch` anche deadline corrieri e `FLEET_IDLE_ALERT_MIN`; in r3 il sovrapprezzo;
+- H1-bc e H1-bc-noarch non l'hanno mai chiamata.
+
+Sintesi: l'originale torna senza perdite, e in modalità file costa poco. I limiti sono altri: il modello deve sapere quale blocco aprire, e quando sceglie `inline` il costo sale di decine di migliaia di token.
+
+### Riassunti troncati o troppo corti? (2026-11-23, billion-context#6927)
+
+Script in `/tmp/summ-check.py`, `/tmp/summ-chain.py` e `/tmp/summ-merge.py`, su H1-bc, H1-bc-noarch, H1-bc-rn, R1-bc e R1-bc-noarch (231 blocchi).
+- Troncati: nessuno. Nessun riassunto finisce con `…` o `...`, nessuno ha un numero dispari di ```, tutti finiscono con una frase completa.
+- Corti: il minimo è 324 caratteri per 25k token (b17 di H1-bc-noarch), la mediana 0,09–0,11 caratteri per token. I più corti coprono letture di file; i blocchi da circa 6k token (una lettura) hanno 400–630 caratteri. Descrivono il file e citano 2–3 costanti a caso, non quelle chieste dal quiz. È una scelta del riassunto, non un troncamento.
+- Il difetto vero è un altro: la perdita quando il modello ricomprime blocchi già compressi in un blocco nuovo.
+  - Nel blocco nuovo sopravvivono solo il 15–16% dei numeri, dei nomi `UPPER_CASE` e dei file citati dai riassunti figli su H1, e il 23–31% su R1. Il caso peggiore è b47 di H1-bc-rn: 5% di 185.
+  - Porta 9124 e scadenza 7 gennaio sono scritte bene nel riassunto di b40 (H1-bc-rn) e di b36 (H1-bc). Si perdono al secondo passaggio (b43 e b37) e non sono nel blocco attivo al momento del quiz. Lo stesso per `FLEET_IDLE_ALERT_MIN` (b47 in H1-bc-rn; b9 in H1-bc, insieme a «righe wc» e alla chiave del manifest).
+  - In H1 buona parte dei «fatti» sono nomi di costanti di riempimento, quindi una ritenzione bassa è in parte attesa. Gli aggiornamenti dell'utente non lo sono.
+- Effetto: senza archivio né `decompress` i valori aggiornati tornano vecchi o mancano. È il caso di H1-bc-noarch, 5/19. L'originale resta recuperabile (fedeltà 100%, vedi sopra), e oggi è l'archivio a riportarlo.
+- Upstream: #6927 copre solo troncamento e rapporto minimo, non la perdita tra un passaggio e l'altro. acp-kernel#442 (chiusa) riguardava gli obiettivi aperti persi tra i passaggi, non i fatti.
+
+#### Riportare i fatti dei figli nella ricompressione? (2026-11-23) — no
+
+Fattibile: in Pi `tool_call` può modificare `event.input`, quindi un'estensione potrebbe aggiungere al `summary` di `compress` i fatti dei blocchi assorbiti. Simulazione offline sulle 5 run (`/tmp/carry-sim.py`), contando i valori del quiz presenti nei blocchi attivi a fine sessione:
+
+| run | solo frasi dell'utente con un valore | tutti i numeri e nomi `UPPER_CASE` |
+|---|---|---|
+| H1-bc-rn | +1.904 car., 11 → 11/16 | +25.357 car., 11 → 13/16 |
+| H1-bc-noarch | +9.264 car., 12 → 13/16 | +56.225 car., 12 → 13/16 |
+| H1-bc | +9.783 car., 12 → 14/16 | +45.029 car., 12 → 15/16 |
+| R1-bc | +257 car., 9 → 9/12 | +23.281 car., 9 → 10/12 |
+| R1-bc-noarch | +7.696 car., 12 → 12/12 | +24.764 car., 12 → 12/12 |
+
+- La variante completa costa 6–14k token in più nel contesto per tutta la sessione e recupera 0–3 valori.
+- Quella selettiva costa meno ma recupera 0–2 valori. Riconoscere le frasi dell'utente nel testo libero del riassunto è fragile: su H1-bc-rn porta e scadenza non vengono riprese.
+- Gli stessi valori li riporta già l'archivio, a costo zero quando non servono: 18,75/19 di media nei replay.
+- Decisione: non si implementa. Si riconsidera solo se una run senza archivio diventa un caso d'uso.
+
+#### `decompress` di un blocco sempre su file (2026-11-23)
+
+- Il modello ha chiesto `inline: true` su blocchi interi in H1-bc-rn (b1, b3, b5) e in r3 (b5 due volte, b6), circa 50k caratteri per chiamata. Tutti i blocchi coprono almeno 6k token, quindi non esiste un blocco «piccolo» per cui `inline` convenga.
+- `extensions/recall-nudge.ts` toglie `inline` da `decompress` quando `blockId` è un blocco (`b\d+`), con un hook su `tool_call` (costo fisso zero). I riferimenti a singoli messaggi restano inline. Test in `recall-nudge.test.ts`.
+- In modalità file il risultato è di circa 850 caratteri con anteprima, e il modello cerca nel dump con `grep`: è il caso di r1, r2, UP3, UP4 e r4.
+- Replay r4 dopo la modifica: 19/19, 204k pesati, maxCtx 75k. Il modello non ha chiesto `inline` (1 `decompress` su file, 1 `grep` sul dump), quindi l'hook non è scattato in questo replay. Il risparmio atteso per ogni chiamata evitata è di circa 12k token, valore stimato da r3 e non ancora misurato con l'hook attivo.
+
+### Giro completo H1 con il codice attuale (2026-11-23, H1-bc-v2)
+
+`eval/fold/haystack/run.sh H1-bc-v2 bc`, haiku, 158 turni, 922 s. Codice: archivio con aggiornamenti a catena e `constSearch`, spinta al recall, `decompress` dei blocchi sempre su file.
+
+| run | quiz | pesato | maxCtx | richieste |
+|---|---|---|---|---|
+| H1-off (Pi + archivio) | 13/19 | 8,17M | 124k | 423 |
+| H1-bc-rn | 14/19 | 6,47M | 170k | 344 |
+| **H1-bc-v2** | **17/19** | **6,51M** | **116k** | 347 |
+
+- Costo −20% rispetto a H1-off, contesto massimo −7% (−32% rispetto a H1-bc-rn).
+- Porta 9124 e scadenza 7 gennaio corrette, quiz 2 9/9; timeout corrieri (13750) e slot banchine (25) trovati.
+- Errori: «righe wc» e «nome in codice» (proposto «Vela»). Il modello ha individuato i blocchi giusti (b7, b5) e chiesto `inline`; l'hook li ha mandati su file (848 caratteri invece di circa 50k ciascuno). Il quiz vieta `read`, `bash` e `grep`, quindi non ha letto i dump e ha risposto «non verificato». È un limite del quiz combinato con la modalità file. Nell'uso normale la lettura del dump è permessa, ma la risposta corretta non è misurata.
+- Affidabilità: 36 spawn e 34 riprese senza errori, nessun processo `claude` rimasto. Suite completa 1148 pass e 0 fail, bridge 40/40.
+- R1 non rilanciata (circa 1,8 ore): i dati R1 restano quelli precedenti alle correzioni (R1-off 5/14, R1-bc 5/14, R1-bc-noarch 12/14).
+
+### Giro R1 con il codice attuale (2026-11-23, R1-bc-v2)
+
+`run.sh R1-bc-v2 bc /tmp/bc-real`, haiku, 71 turni. Haiku era lento (7,2 token/s in uscita contro 11,3 della run precedente; 15.355 s in tutto contro 6.661), quindi il limite `perl alarm` è scattato. Il segnale ha fermato solo `sh`: `long.py` ha continuato e ha finito la run. Credendola interrotta, ho ripreso la stessa sessione dal turno 59 (R1-bc-v2b): per circa 1,5 ore due processi hanno scritto sullo stesso file di sessione e sullo stesso `.acp.json`. Il contenuto letto è lo stesso registro, ma la misura non è pulita: va ripetuta prima di trarre conclusioni forti.
+
+| run | quiz 1 | quiz 2 | totale | pesato | maxCtx |
+|---|---|---|---|---|---|
+| R1-off (Pi + archivio) | 3/7 | 2/7 | 5/14 | 3,88M | 128k |
+| R1-bc (prima delle correzioni) | 1/7 | 4/7 | 5/14 | 3,99M | 132k |
+| R1-bc-noarch | 6/7 | 6/7 | 12/14 | 3,84M | 135k |
+| **R1-bc-v2** | 5/7 | 5/7 | **10/14** | **4,46M** | 142k |
+| R1-bc-v2b (ripresa dal turno 59) | 6/7 | 5/7 | 11/14 | +1,10M | 137k |
+
+- Memoria: 10–11/14 contro 5/14 di R1-off e R1-bc. Errori ricorrenti: «fix non uniti» (astensione), «durata e2e» (astensione), «tappe» (sbagliato in tutte le run).
+- Token: su R1 billion-context non risparmia, anzi costa +15% rispetto a R1-off (4,46M contro 3,88M). Il quiz usa 23 `search_context` e 25 `decompress` (24 nel quiz 2, quasi tutti su riferimenti di messaggio tramite `codemode`). Su H1 invece costa −20%.
+- Avvertenza per le prossime run: `perl alarm` su `sh run.sh` non ferma `long.py`. Va messo direttamente su `python3` oppure va terminato il gruppo di processi.
+
+### R1 ripetuta pulita (2026-11-23, R1-bc-v3)
+
+Limite di tempo sull'intero gruppo di processi (`/tmp/grp-timeout.pl`: `setpgrp`, poi `kill` di `-pgid`; verificato con un processo nipote). Run unica e senza interferenze, 656 s (haiku veloce, contro i 15.355 s della v2).
+
+| run | quiz 1 | quiz 2 | totale | pesato | maxCtx | output ×5 | cacheWrite ×1,25 |
+|---|---|---|---|---|---|---|---|
+| R1-off | 3/7 | 2/7 | 5/14 | 3,88M | 128k | 0,15M | 2,57M |
+| R1-bc-noarch | 6/7 | 6/7 | 12/14 | 3,84M | 135k | 0,44M | 2,20M |
+| **R1-bc-v3** | 5/7 | 5/7 | **10/14** | **4,28M** | 137k | 0,46M | 2,54M |
+
+- Memoria: 10/14, come la v2 sporca, quindi il risultato regge. Errori: «cartella link», «fix non uniti», «commit ADR», «METR», tutti per astensione. Nei quiz 14 `search_context` e nessun `decompress`.
+- Token: +10% rispetto a R1-off. La differenza viene dai riassunti scritti dal modello (output da 0,15M a 0,46M), mentre le scritture in cache non calano (2,54M contro 2,57M). Su R1 la sessione è corta rispetto alla finestra, quindi la compressione non ripaga il costo dei riassunti. Su H1 (158 turni) costa invece −20%.
+- R1-bc-noarch resta migliore su entrambi i fronti: 12/14 e 3,84M. Con 1 run per configurazione la differenza di 2 domande non è significativa: nei replay H1 la variabilità era di 1 domanda su 19.
+- Affidabilità: 26 spawn e 24 riprese, nessun errore in stderr, nessun processo rimasto.
+
+### `search_context` più preciso: passaggi esatti (2026-11-24)
+
+Problema (R1-bc-v3): le 4 risposte mancate erano tutte nella sessione, dentro letture da 15–40k caratteri. `search_context` di billion-context restituisce riassunti di blocco e messaggi interi con un'anteprima di 180 caratteri attorno alla **prima** parola della query, quindi il valore restava fuori. Esempio: «percentuale fix proposti agenti non uniti» → 5 riassunti di blocco, nessuno con il 46%.
+
+Soluzione (`extensions/archivio.ts`, `passageSearch`): l'hook `tool_result` su `search_context` aggiunge fino a 3 passaggi esatti dei messaggi compressi. Si usa BM25 su pezzi da 900 caratteri, con almeno 2 parole della query; ogni pezzo è tagliato alla finestra di 360 caratteri che contiene più parole distinte della query. Ogni passaggio riporta l'id del messaggio, che `decompress` accetta. I messaggi ancora visibili sono esclusi, e `PI_ARCHIVE_PASSAGE=0` disattiva la funzione. Test: 3 nuovi in `archivio.test.ts` (29/29).
+
+Copertura offline (le query reali dei quiz rigiocate sulle sessioni salvate; conta quante risposte compaiono nei risultati):
+
+| sessione | solo upstream | upstream + passaggi |
+|---|---|---|
+| R1-bc-v3 | 8/12 | 10/12 |
+| R1-bc | 6/12 | 7/12 |
+| H1-bc-v2 | 9/17 | 10/17 |
+
+Costo: circa 1.100 caratteri (~300 token) per ricerca e 11–15 ms.
+
+Replay dei 2 quiz sulla sessione R1-bc-v3, tagliata alla prima domanda (`/tmp/r1-var.sh`, 2 run per lato):
+
+| | quiz 1 | quiz 2 | totale | pesato |
+|---|---|---|---|---|
+| passaggi, run 1 | 7/7 | 6/7 | 13/14 | 216k |
+| passaggi, run 2 | 7/7 | 7/7 | **14/14** | 152k |
+| senza, run 1 | 4/7 | 5/7 | 9/14 | 156k |
+| senza, run 2 | 6/7 | 5/7 | 11/14 | 237k |
+
+- Le risposte sono state controllate a mano: 46,41%, f54a2e1, +19%, «nove» tappe e il 403 sono corretti. «Tappe», sbagliata in tutte le run precedenti, ora è giusta 3 volte su 4.
+- Media 13,5/14 contro 10/14. Costo simile: 184k contro 197k pesati, perché meno ricerche a vuoto compensano i passaggi in più.
+- Limite: è un replay dei soli quiz con 2 run per lato.
+
+Run R1 completa con i brani (R1-bc-v4, 71 turni, 707 s, timeout sul gruppo di processi):
+
+| run | quiz 1 | quiz 2 | totale | pesato | maxCtx |
+|---|---|---|---|---|---|
+| R1-off | 3/7 | 2/7 | 5/14 | 3,88M | 128k |
+| R1-bc-noarch | 6/7 | 6/7 | 12/14 | 3,84M | 135k |
+| R1-bc-v3 | 5/7 | 5/7 | 10/14 | 4,28M | 137k |
+| **R1-bc-v4** | **7/7** | 5/7 | **12/14** | **4,03M** | 128k |
+
+- Memoria: 12/14, contro 10/14 senza brani. Il quiz 1 è pieno per la prima volta; le 4 astensioni di v3 sono tutte risolte.
+- Token: 4,03M, +4% rispetto a R1-off (v3 era +10%). Le scritture in cache scendono da 2,54M a 2,30M; l'output resta più alto di off (0,51M contro 0,15M) per i riassunti di `compress`.
+- Errori: «tappe» (8 invece di 9: il registro dice «tappa 0 di 8», un caso difficile già sbagliato in tutte le run) e «revisore» inventato. Nel secondo caso il modello si era astenuto correttamente; poi la spinta `recall-nudge` lo ha fatto cercare di nuovo e un brano su un altro ADR («ADR 0017 … approvata da Federico») gli ha fatto cambiare risposta. È un rischio nuovo: brani esatti ma vicini alla domanda possono trasformare un'astensione giusta in un'invenzione.
+- Affidabilità: 25 spawn e 23 riprese, nessun errore, nessun processo rimasto.
+
 
 ## Conclusione
 

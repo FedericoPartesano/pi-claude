@@ -145,3 +145,13 @@ La strada 2 si prova solo se l'utente accetta che il traffico dell'abbonamento p
 5. Analisi del microcompact (fonte secondaria): https://harrisonsec.com/blog/claude-code-context-engineering-compression-pipeline/ ; https://blog.chanler.dev/en/posts/tech-learn/claude-code-context-management
 6. Anthropic, Context editing: https://platform.claude.com/docs/en/build-with-claude/context-editing
 7. Claude Cookbook, Context engineering: memory, compaction, and tool clearing: https://platform.claude.com/cookbook/tool-use-context-engineering-context-engineering-tools
+
+## Issue e discussioni upstream sulla decompressione (2026-11-23)
+
+Ricerca con `gh search issues "decompress"` in `ranxianglei/billion-context`, `billion-context-pi` e `acp-kernel`, più le discussioni dei primi due.
+- Fedeltà degli originali: billion-context#6834 (p1, aperta, PR #6852 in attesa): dopo un troncamento d'emergenza si salva come originale la vista troncata. billion-context-pi#593: le immagini non tornano. #582 e #603: blocchi `live-*` e fork non recuperabili. Nella nostra misura (H1-bc-rn) nessuno di questi casi.
+- Riassunti: billion-context#6927, segnalata proprio su billion-context-pi 0.1.83. Il kernel accetta riassunti troncati a metà parola o troppo corti per il range, e `compress.minSummaryLength` in `acp.json` non ha effetto. Fix in acp-kernel#521 e billion-context-pi#694, non ancora rilasciati.
+- Costo di `inline`: billion-context#5013, nessun controllo di dimensione prima di un restore grande. #4080: oltre 10k caratteri il restore va su file e il percorso di refold si rompe. billion-context-pi#359: economia della cache delle ripiegature.
+- Comportamento del modello: billion-context-pi#572, il modello decomprime subito dopo aver compresso perché crede il riassunto tagliato. #399: il pacchetto lean rende `search_context` un richiamo di routine. #470: rilavoro dopo il compress.
+- Nessuna issue o discussione misura quanto la decompressione recuperi nei quiz di richiamo come facciamo noi.
+- Stato del pacchetto: la discussione billion-context-pi#671 («Deprecated?», 2026-10-31) non ha risposta. La issue #633 dice che lo sviluppo continua in billion-context. 0.1.83 è ancora l'ultima versione su npm.
