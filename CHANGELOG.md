@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.39.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.38.0...pi-claude-v0.39.0) (2026-11-24)
+
+
+### Features
+
+* **blocchi:** grafo su canvas con force-graph, vicini accesi al passaggio del mouse ([cc2871c](https://github.com/FedericoPartesano/pi-claude/commit/cc2871cf3645d76279f79bdeb04a320c13d02072))
+* **blocchi:** vista a grafo dei blocchi con collegamenti e ricerca ([23df930](https://github.com/FedericoPartesano/pi-claude/commit/23df9308483c239399525ccce0e2be4b1c2a15e0))
+* **doctor:** comando pi doctor che controlla l'installazione e ripara ciò che manca ([3c2062b](https://github.com/FedericoPartesano/pi-claude/commit/3c2062b12b50c5d49faae8e41e112556ff9ad78e))
+* **pannello:** barra bc col contesto contato da billion-context ([aaf1701](https://github.com/FedericoPartesano/pi-claude/commit/aaf1701a9dbdd4e5636fac206a9eed9cfdfcf61e))
+* **pannello:** indicatore esplicito di billion-context attivo o spento ([1122b6f](https://github.com/FedericoPartesano/pi-claude/commit/1122b6fcd2c4869396b16e87fc3e5f7d73b97da3))
+
+
+### Bug Fixes
+
+* blocchi apre il browser su Windows ([f0c95f8](https://github.com/FedericoPartesano/pi-claude/commit/f0c95f8164de29d7a7568f7d58d9244171de0d6f))
+* **doctor:** confronto delle impostazioni senza badare all'ordine delle chiavi ([43103a0](https://github.com/FedericoPartesano/pi-claude/commit/43103a047a63b6d735fe606299c451080ccdac0c))
+* **setup:** gli array di acp.json restano array ([f6d22cb](https://github.com/FedericoPartesano/pi-claude/commit/f6d22cbea91fe7445d2dbdd0b92f5e088f21fe6d))
+
 ## [0.38.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.37.2...pi-claude-v0.38.0) (2026-11-24)
 
 
