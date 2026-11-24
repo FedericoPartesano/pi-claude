@@ -269,9 +269,15 @@ export async function startServer(sessionFile: () => string | undefined, port = 
 
 function openBrowser(url: string) {
 	if (process.env.PI_BLOCCHI_NO_OPEN === "1") return;
-	const command = process.platform === "darwin" ? "open" : process.platform === "win32" ? "explorer" : "xdg-open";
+	// Windows: `explorer <url>` opens File Explorer when the URL has a query string; FileProtocolHandler always uses the default browser.
+	const [command, args] =
+		process.platform === "darwin"
+			? ["open", [url]]
+			: process.platform === "win32"
+				? ["rundll32", ["url.dll,FileProtocolHandler", url]]
+				: ["xdg-open", [url]];
 	try {
-		execFile(command, [url], () => {}).unref();
+		execFile(command, args, () => {}).unref();
 	} catch {
 		/* the URL is shown anyway */
 	}
