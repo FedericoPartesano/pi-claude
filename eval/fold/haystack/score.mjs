@@ -1,7 +1,7 @@
 // Score a haystack run (eval/fold/long.py on the scenario of gen.py). usage: node score.mjs <run dir> <truth.json>
 // Prints one JSON line: tokens, live context, compactions, bridge restarts, context-tool calls (overall and during each
 // quiz) and, per quiz, which questions were answered right, wrong, stale (a superseded value) or wrongly abstained.
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 const [dir, truthPath] = process.argv.slice(2);
 const truth = JSON.parse(readFileSync(truthPath, "utf8"));
 const abstain = new RegExp(truth.abstain, "i");
@@ -23,8 +23,20 @@ for (const e of events) {
 	if (/compact/i.test(e.type)) other[e.type] = (other[e.type] ?? 0) + 1;
 	if (e.type === "agent_settled") { turnText[++turn] = text; turnTools[turn] = current; text = ""; current = {}; }
 }
-// The assistant's own proposal: the first word of its answer at that turn.
-const proposed = (turnText[truth.assistantTurn] ?? "").replace(/[*_`"«»]/g, "").match(/[A-Za-zÀ-ÿ][\wÀ-ÿ-]+/)?.[0] ?? "\u0000";
+// The assistant's own proposal: the first word of its answer at that turn. A replay resumed after it has no such turn
+// in its events: the reply to the prompt is then read from the session file.
+const fromSession = () => {
+	if (!truth.assistantPrompt || !existsSync(`${dir}/sess`)) return "";
+	for (const name of readdirSync(`${dir}/sess`).filter((f) => f.endsWith(".jsonl"))) {
+		const entries = readFileSync(`${dir}/sess/${name}`, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+		const textOf = (m) => (Array.isArray(m?.content) ? m.content.filter((c) => c?.type === "text").map((c) => c.text).join("") : String(m?.content ?? ""));
+		const at = entries.findIndex((e) => e.message?.role === "user" && textOf(e.message).includes(truth.assistantPrompt));
+		const reply = at < 0 ? undefined : entries.slice(at + 1).find((e) => e.message?.role === "assistant" && textOf(e.message).trim());
+		if (reply) return textOf(reply.message);
+	}
+	return "";
+};
+const proposed = (turnText[truth.assistantTurn] ?? fromSession()).replace(/[*_`"«»]/g, "").match(/[A-Za-zÀ-ÿ][\wÀ-ÿ-]+/)?.[0] ?? "\u0000";
 const quizTurns = turnText.map((t, i) => (/RISPOSTE:?[\s*]*1[).]/i.test(t ?? "") ? i : 0)).filter(Boolean);
 const quizzes = truth.quizzes.map((qs, k) => {
 	// A turn can hold several answers (the recall nudge asks the model to search and answer again): score the last one.
@@ -34,7 +46,9 @@ const quizzes = truth.quizzes.map((qs, k) => {
 		const said = abstain.test(part);
 		if (q.re === "ABSTAIN") return [q.name, q.kind, said ? "ok" : "invented"];
 		const re = q.re.startsWith("ASSISTANT:") ? new RegExp(`\\b${proposed}\\b`, "i") : new RegExp(q.re, "i");
-		if (re.test(part) && !said) return [q.name, q.kind, "ok"];
+		// The value given first and a hedge after it ("13750, no description found") is an answer, not an abstention.
+		const value = part.search(re), hedge = part.search(abstain);
+		if (value >= 0 && (hedge < 0 || value < hedge)) return [q.name, q.kind, "ok"];
 		if (q.old && new RegExp(q.old, "i").test(part)) return [q.name, q.kind, "stale"];
 		return [q.name, q.kind, said ? "abstained" : "wrong"];
 	});

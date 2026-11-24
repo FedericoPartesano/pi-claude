@@ -215,7 +215,7 @@ with open(os.path.join(out, "scenario.txt"), "w") as f:
     f.write("\n".join(prompts) + "\n")
 assistant_turn = next(i for i, p in enumerate([p for p in prompts if p != "RESTART"]) if p.startswith("Proponi un nome")) + 1
 truth = {"files": len(files), "chars": sum(len(t) for _, t in files), "lines": total_lines, "abstain": ABSTAIN,
-         "assistantTurn": assistant_turn,
+         "assistantTurn": assistant_turn, "assistantPrompt": "Proponi un nome in codice",
          "quizzes": [[{"name": q[0], "re": q[2], "kind": q[3], **({"old": OLD[q[0]]} if q[0] in OLD else {})} for q in qs]
                      for qs in (q1, q2)]}
 json.dump(truth, open(os.path.join(out, "truth.json"), "w"), indent=1, ensure_ascii=False)
