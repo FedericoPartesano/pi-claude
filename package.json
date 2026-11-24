@@ -1,6 +1,6 @@
 {
   "name": "pi-claude",
-  "version": "0.37.2",
+  "version": "0.38.0",
   "private": true,
   "type": "module",
   "description": "Pi with Claude Code: Neon Night UI, deep memory, goals, intents, loops and lean tools, as one Pi package",
@@ -43,7 +43,7 @@
       "./extensions/vault.ts",
       "./extensions/archivio.ts",
       "./extensions/recall-nudge.ts",
-    "./extensions/blocchi.ts",
+      "./extensions/blocchi.ts",
       "./extensions/micelio.ts"
     ],
     "themes": [

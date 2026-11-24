@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.38.0](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.37.2...pi-claude-v0.38.0) (2026-11-24)
+
+
+### Features
+
+* **archivio:** search_context aggiunge costanti dei file e brani esatti dei messaggi compressi ([35b6c82](https://github.com/FedericoPartesano/pi-claude/commit/35b6c82ce506ad51944e7d9eaa0d9a590eb3d42b))
+* **blocchi:** pagina web locale con i blocchi della memoria in tempo reale e decompressione al clic ([2d7dbb8](https://github.com/FedericoPartesano/pi-claude/commit/2d7dbb85065f6b59cdb66f7bd6494a1cf002d421))
+* compressione del contesto guidata dal modello (billion-context) attiva di serie ([392a7a2](https://github.com/FedericoPartesano/pi-claude/commit/392a7a21e840a126453f7324b6771196d7def6de))
+* l'archivio recupera anche i messaggi compressi da billion-context ([43fe0a7](https://github.com/FedericoPartesano/pi-claude/commit/43fe0a7af7ce2a030d10bf8bdab5b41fc18d1fba))
+* se il modello risponde «non lo so» su contesto compresso senza aver cercato, Pi lo fa cercare una volta ([e5ec912](https://github.com/FedericoPartesano/pi-claude/commit/e5ec91257adc32a57757bdc747378574c88e8aca))
+
+
+### Bug Fixes
+
+* **eval:** scorer del pagliaio più fedele (valori aggiornati, astensioni, proposte lette dalla sessione) ([41c447c](https://github.com/FedericoPartesano/pi-claude/commit/41c447c8200d31245d3a51aa2aec59a9cc4c21ca))
+* il bridge non perde processi claude dopo una compressione e conserva i risultati dei tool alla ripresa ([ed4f21d](https://github.com/FedericoPartesano/pi-claude/commit/ed4f21d8b622d66cd5f2f103df460830b7b117d9))
+* il pannello dei processi trova il pid anche su macOS ([8cd3fbc](https://github.com/FedericoPartesano/pi-claude/commit/8cd3fbc665225fa0c55c1320d7fb32ba3bc852a3))
+* il worker degli embedding non tiene più vivo Pi quando è inattivo ([bb5d60b](https://github.com/FedericoPartesano/pi-claude/commit/bb5d60b38f2d5edc0a6790fd3278b8db092aa7fd))
+* l'archivio riporta anche l'aggiornamento di un fatto, non solo il valore vecchio ([2ee5b0b](https://github.com/FedericoPartesano/pi-claude/commit/2ee5b0b8d2f8902c58eca98ce4b845bc76ed7d7b))
+* **recall-nudge:** decompress di un blocco sempre su file e più astensioni riconosciute ([b88fbe2](https://github.com/FedericoPartesano/pi-claude/commit/b88fbe254ab89a5b11dec11036ad95625b1637f8))
+
 ## [0.37.2](https://github.com/FedericoPartesano/pi-claude/compare/pi-claude-v0.37.1...pi-claude-v0.37.2) (2026-11-18)
 
 
