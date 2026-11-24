@@ -78,7 +78,8 @@ esac
 
 step "Dipendenze"
 if [ "$FROM_GIT" = 0 ]; then
-  (cd "$REPO" && npm install --no-audit --no-fund --loglevel=error)
+  # onnxruntime-node would fetch CUDA binaries on Linux x64 (not needed, and the 1.21.0 archive is a 404).
+  (cd "$REPO" && ONNXRUNTIME_NODE_INSTALL_CUDA=skip npm install --no-audit --no-fund --loglevel=error)
   ok "dipendenze del pacchetto"
 else
   ok "installate da pi install"
