@@ -14,6 +14,7 @@ const SUBCOMMANDS = new Set(["install", "remove", "uninstall", "update", "list",
 
 /** True when the classic Pi TUI must run. */
 export function isClassic(args, env = process.env, tty = Boolean(process.stdin.isTTY && process.stdout.isTTY)) {
+	if (args[0] === "doctor") return false;
 	if (env.PI_UI_CLASSIC === "1" || env.PI_UI === "off") return true;
 	if (!tty) return true;
 	if (args.some((arg) => CLASSIC_FLAGS.has(arg))) return true;
@@ -41,6 +42,12 @@ function main(argv) {
 	if (argv[0] === "secret") {
 		// `pi secret add|list|rm`: store management from a shell, typed secrets never echoed.
 		import("../extensions/secrets/cli.ts").then(async (m) => { try { process.exit(await m.runCli(argv.slice(1), m.terminalIO())); } catch (e) { console.error(String(e?.message ?? e)); process.exit(1); } });
+		return;
+	}
+	if (argv[0] === "doctor") {
+		// `pi doctor`: checks what pi-claude needs and installs what is missing (bin/pi-doctor.mjs).
+		const child = spawn(process.execPath, [join(dirname(fileURLToPath(import.meta.url)), "pi-doctor.mjs"), ...argv.slice(1)], { stdio: "inherit" });
+		child.on("exit", (code) => process.exit(code ?? 1));
 		return;
 	}
 	const env = { ...process.env };

@@ -33,6 +33,8 @@ fi
 # -d: modalità senza permessi (PI_YOLO=1), come per `pi -d`. --classic: UI classica con pi-ui (default: la chat nuova).
 rest=()
 for arg in "$@"; do [ "$arg" = "-d" ] && export PI_YOLO=1 || rest+=("$arg"); done
+# pi-full doctor: same checks and fixes as pi doctor.
+[ "${rest[0]:-}" = "doctor" ] && exec node "$REPO/bin/pi-doctor.mjs" "${rest[@]:1}"
 node "$REPO/bin/pi.mjs" --is-classic "${rest[@]}" && CLASSIC=1 || CLASSIC=0
 rest2=()
 for arg in "${rest[@]}"; do [ "$arg" = "--classic" ] || rest2+=("$arg"); done

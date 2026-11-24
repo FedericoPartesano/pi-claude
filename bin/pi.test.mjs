@@ -39,3 +39,8 @@ test("sub-agents: extensions added to plain pi, off by option or when pieces are
 	assert.deepEqual(subagentArgs(["install", "npm:x"], { PI_CODING_AGENT_DIR: agent }, root), []);
 	assert.deepEqual(subagentArgs(["-e", "x"], { PI_CODING_AGENT_DIR: agent }, root), []);
 });
+
+test("pi doctor is ours: never handed to classic Pi, even without a TTY", () => {
+	assert.equal(isClassic(["doctor"], {}, true), false);
+	assert.equal(isClassic(["doctor", "--check"], {}, false), false);
+});

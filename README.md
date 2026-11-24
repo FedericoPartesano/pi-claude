@@ -26,6 +26,14 @@ dopo `git pull` o `git checkout <tag>` basta `./install.sh` di nuovo.
 - `pi` — Pi minimale (4 tool base + hook di sicurezza); in più `subagent`, `team` e `parallel`, spenti: il modello li accende con `load_tools` (costo fisso: la sola voce `load_tools`). `PI_SUBAGENTS=off pi` li toglie
 - `pi-full` — in più web, todo, domande, subagent e `pi-team` (`team` e `parallel` spenti finché non servono: si caricano con `load_tools` o `/tools`)
 
+`pi doctor` controlla l'installazione e ripara quello che manca: Node ≥ 22.19, npm, Pi, `claude`, `settings.json` e
+`~/.pi/acp.json` come li scrive `scripts/setup.mjs`, ogni pacchetto di `settings.json` davvero scaricato (con
+`PI_OFFLINE=1`, il default di `pi`, Pi salta in silenzio i pacchetti mancanti: per esempio billion-context) e le
+dipendenze delle cartelle della repo. Ripara con `setup.mjs`, `pi install`, `npm install` e `npm install -g`, poi
+ricontrolla. Se resta qualcosa di rotto chiede una diagnosi a Claude haiku (senza tool, una sola risposta).
+`pi doctor --check` controlla soltanto, `--no-ai` non chiama Claude. Senza la funzione di shell:
+`node bin/pi-doctor.mjs`.
+
 In `pi-full` i tool extra partono spenti: il modello li accende da solo con `load_tools` quando un compito li richiede
 (gruppi `web`, `todo`, `subagent`, `team`), tu con `/tools web team`. Così una richiesta costa ~3,8k token invece di ~11,7k.
 `PI_FULL_TOOLS=web,team pi-full` li precarica, `PI_FULL_TOOLS=all pi-full` li tiene tutti accesi.
