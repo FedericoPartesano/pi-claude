@@ -43,6 +43,7 @@
       "./extensions/vault.ts",
       "./extensions/archivio.ts",
       "./extensions/recall-nudge.ts",
+    "./extensions/blocchi.ts",
       "./extensions/micelio.ts"
     ],
     "themes": [

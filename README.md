@@ -216,6 +216,8 @@ Dopo la prima compattazione Pi tiene piccolo il contesto vivo e l'estensione ren
 ## Compressione del contesto (billion-context)
 Il contesto lo gestisce il modello: comprime a blocchi le parti vecchie della conversazione con un riassunto e, se gli serve il dettaglio, le riapre (`decompress`). Il compact automatico di Pi resta spento. Lo fa il pacchetto [`billion-context-pi`](https://github.com/ranxianglei/billion-context), installato da `install.sh` a versione fissa (`scripts/setup.mjs`, niente aggiornamento automatico). Il profilo `scripts/acp-profile.json` finisce in `~/.pi/acp.json` solo nelle chiavi che non hai già scelto tu. Accorcia il prompt fisso: le regole dei livelli 2 e 3 entrano solo nei messaggi che le chiedono. Misure in `eval/fold/REPORT.md`.
 
+`/blocchi` apre nel browser una pagina locale che mostra in tempo reale i blocchi compressi (argomento, riassunto, dimensione, annidamento); un clic su «Decomprimi» mostra i messaggi originali di un blocco senza toccare la conversazione. Funziona anche da sola: `node extensions/blocchi.ts [sessione.jsonl]` (senza argomento segue la sessione più recente). Il server ascolta solo su 127.0.0.1 con un token casuale nell'URL.
+
 Questo prodotto usa [billion-context](https://github.com/ranxianglei/billion-context) e [acp-kernel](https://github.com/ranxianglei/acp-kernel) di ranxianglei (licenza MIT con clausola di attribuzione).
 
 ## Chat predefinita (`prototype/rpc-chat`)
