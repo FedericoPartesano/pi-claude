@@ -76,6 +76,16 @@ test("acp.json defaults: lean profile, no self-update, no delegate tools, user c
 	assert.deepEqual(applyAcpDefaults(mine, profile), mine, "idempotent");
 });
 
+test("acp.json defaults: arrays are values, not maps (kept as the user wrote them; a list turned into {\"0\":…} by older versions is repaired)", async () => {
+	const { applyAcpDefaults } = await import("./setup.mjs");
+	const profile = { preserveRecentTools: ["read"] };
+	assert.deepEqual(applyAcpDefaults({ preserveRecentTools: ["read"] }, profile), { preserveRecentTools: ["read"] });
+	assert.deepEqual(applyAcpDefaults({ preserveRecentTools: ["bash", "read"] }, profile), { preserveRecentTools: ["bash", "read"] });
+	assert.deepEqual(applyAcpDefaults({ preserveRecentTools: [] }, profile), { preserveRecentTools: [] });
+	assert.deepEqual(applyAcpDefaults({ preserveRecentTools: { 0: "read" } }, profile), { preserveRecentTools: ["read"] });
+	assert.deepEqual(applyAcpDefaults({}, profile), { preserveRecentTools: ["read"] });
+});
+
 test("the shipped profile pins the same billion-context-pi version, moves tier rules to nudges, keeps recall and compress rules short", async () => {
 	const { BILLION_CONTEXT } = await import("./setup.mjs");
 	const profile = JSON.parse(readFileSync(new URL("./acp-profile.json", import.meta.url), "utf8"));

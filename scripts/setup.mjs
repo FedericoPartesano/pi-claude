@@ -91,8 +91,10 @@ export function applyAcpDefaults(acp, profile) {
 	const a = { ...acp };
 	for (const [key, value] of Object.entries(profile)) {
 		if (key.startsWith("$")) continue;
-		const mine = a[key];
-		const bothMaps = value && typeof value === "object" && mine && typeof mine === "object";
+		let mine = a[key];
+		// Lists are values: older versions merged them as maps and wrote ["read"] as {"0":"read"}; turn that back into a list.
+		if (Array.isArray(value) && mine && typeof mine === "object" && !Array.isArray(mine) && Object.keys(mine).every((k) => /^\d+$/.test(k))) mine = Object.values(mine);
+		const bothMaps = value && typeof value === "object" && !Array.isArray(value) && mine && typeof mine === "object" && !Array.isArray(mine);
 		a[key] = bothMaps ? { ...value, ...mine } : (mine ?? value);
 	}
 	return a;
