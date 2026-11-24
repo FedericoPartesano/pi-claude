@@ -70,6 +70,14 @@ test("server: page, state and block behind a token, nothing without it, live upd
 	assert.equal(rebound, 403);
 	const page = await (await fetch(server.url)).text();
 	assert.match(page, /<title>Blocchi della memoria<\/title>/);
+	// The vendored graph library is served only behind the token, and the page may load it.
+	assert.match(page, /<script src="\/force-graph\.js\?t=/);
+	assert.match((await fetch(server.url)).headers.get("content-security-policy") ?? "", /script-src 'self' 'unsafe-inline'/);
+	assert.equal((await fetch(`${base}/force-graph.js`)).status, 403);
+	const lib = await fetch(`${base}/force-graph.js?t=${token}`);
+	assert.equal(lib.status, 200);
+	assert.match(lib.headers.get("content-type") ?? "", /javascript/);
+	assert.match(await lib.text(), /ForceGraph/);
 	const got = await (await fetch(`${base}/api/state?t=${token}`)).json();
 	assert.equal(got.blocks[0].blockId, "b3");
 	assert.equal(got.file, file);
